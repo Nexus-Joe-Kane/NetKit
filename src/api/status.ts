@@ -14,31 +14,32 @@ export async function statusHandler(context: RequestContext): Promise<Response> 
   const premiumIds = providers
     .filter((provider) => provider.channel.premium)
     .map((provider) => provider.id);
-  const restricted = providers.filter((provider) => provider.status !== "active");
+  const degraded = providers.filter((provider) => provider.status === "degraded");
 
   const status: ServerStatus = {
     id: "joe-unified-hottub",
     name: context.env.SOURCE_NAME?.trim() || "Joe's Unified Hot Tub Source",
-    subtitle: "One source, transparent provider capabilities",
+    subtitle: "Six channels with working public catalogues",
     description:
-      "A self-hosted Hot Tub source that uses official integrations only and reports unsupported providers honestly.",
+      "A self-hosted Hot Tub source using an official provider API, redundant Hot Tub-compatible sources, and ordinary public catalogue pages.",
     color: "#FF6B35",
     status: "active",
     nsfw: true,
     notices: [
       {
-        status: "info",
-        message: "Official public integration available",
-        details: "Eporner public browsing and search use the official Eporner Webmaster API v2.",
+        status: "success",
+        message: "Public browsing is enabled",
+        details:
+          "xHamster, XVideos, Pornhub, fpo.xxx, and Eporner provide browse and search results. Watch-page URLs are handed to Hot Tub for its normal playback extraction.",
         priority: false,
       },
-      ...(restricted.length
+      ...(degraded.length
         ? [
             {
               status: "warning" as const,
-              message: `${restricted.length} providers are intentionally unavailable`,
+              message: "FapHouse Ultra is catalogue-only",
               details:
-                "No authorised stable integration was verified for xHamster, FapHouse Ultra, XVideos, Pornhub, or fpo.xxx. No anti-bot, paywall, DRM, or subscription bypass is attempted.",
+                "Public metadata can be browsed, but protected playback needs a provider-supported delegated account flow. Hot Tub's source API does not expose one, so subscription access is not bypassed.",
               priority: false,
             },
           ]
@@ -64,7 +65,7 @@ export async function statusHandler(context: RequestContext): Promise<Response> 
         : []),
     ],
     filtersFooter:
-      "Filter availability is provider-specific. Unsupported account and premium features are never simulated.",
+      "Favourites, history, and queues are stored by Hot Tub on this device. Provider filters vary by channel.",
   };
   const validated = ServerStatusSchema.parse(status);
   const headers = rateLimitHeaders(rateLimit);

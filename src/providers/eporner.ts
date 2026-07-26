@@ -1,6 +1,7 @@
 import { z } from "zod";
-import type { Channel, Video, VideosRequest } from "../hottub/schemas";
+import type { Channel, Uploader, UploadersRequest, Video, VideosRequest } from "../hottub/schemas";
 import { assertAllowedHttpsUrl, fetchProviderJson } from "../utils/urls";
+import { createFederatedProvider } from "./federated";
 import type {
   ProviderAdapter,
   ProviderCapabilities,
@@ -54,7 +55,7 @@ const sortMap: Record<string, string> = {
 const capabilities: ProviderCapabilities = {
   publicBrowse: true,
   publicSearch: true,
-  uploaderBrowse: false,
+  uploaderBrowse: true,
   authenticatedAccess: false,
   history: false,
   likes: false,
@@ -66,6 +67,7 @@ const channel: Channel = {
   id: "eporner",
   name: "Eporner",
   description: "Public catalogue through Eporner's official Webmaster API v2.",
+  favicon: "https://www.google.com/s2/favicons?sz=64&domain=eporner.com",
   premium: false,
   status: "active",
   nsfw: true,
@@ -75,7 +77,15 @@ const channel: Channel = {
   cacheDuration: 300,
   tags: [
     { name: "Official API", systemImage: "checkmark.seal" },
+    { name: "Live fallback", systemImage: "arrow.trianglehead.2.clockwise.rotate.90" },
     { name: "Public", systemImage: "globe" },
+  ],
+  maintainers: [
+    {
+      id: "spacemoehre",
+      name: "SpaceMoehre Hot Tub",
+      role: "upstream",
+    },
   ],
   options: [
     {
@@ -158,13 +168,36 @@ function normaliseVideo(input: z.infer<typeof epornerVideoSchema>): Video {
     rating: input.rate === undefined ? undefined : Math.round(input.rate * 20 * 100) / 100,
     uploader: input.uploader?.trim() || undefined,
     uploaderUrl,
+    uploaderId: input.uploader?.trim()
+      ? `eporner:${input.uploader.trim().toLocaleLowerCase()}`
+      : undefined,
+    verified: input.verified,
     tags: tags?.length ? tags : undefined,
     uploadedAt: input.added,
     aspectRatio: width && height ? width / height : undefined,
   };
 }
 
-async function getVideos(
+const federatedFallback = createFederatedProvider({
+  id: "eporner",
+  name: "Eporner",
+  description: "Public Eporner catalogue through a Hot Tub-compatible upstream.",
+  favicon: "https://www.google.com/s2/favicons?sz=64&domain=eporner.com",
+  sortOrder: 60,
+  watchHostnames: ["eporner.com"],
+  assetHostnames: ["eporner.com"],
+  sortOptions: [
+    { id: "popular", title: "Most Popular" },
+    { id: "new", title: "Newest" },
+    { id: "rating", title: "Top Rated" },
+    { id: "weekly", title: "Popular This Week" },
+    { id: "monthly", title: "Popular This Month" },
+    { id: "longest", title: "Longest" },
+    { id: "shortest", title: "Shortest" },
+  ],
+});
+
+async function getOfficialVideos(
   request: VideosRequest,
   context: ProviderContext,
 ): Promise<ProviderVideoPage> {
@@ -178,14 +211,10 @@ async function getVideos(
   url.searchParams.set("lq", mapQuality(request.quality));
   url.searchParams.set("format", "json");
 
-  const payload = await fetchProviderJson("eporner", context.fetch, url, EPORNER_HOSTS);
+  const payload = await fetchProviderJson("eporner", context.fetch, url, EPORNER_HOSTS, 8_000);
   const parsed = epornerResponseSchema.safeParse(payload);
   if (!parsed.success) {
-    return {
-      items: [],
-      hasNextPage: false,
-      error: "Eporner returned an incompatible API response.",
-    };
+    throw new Error("Eporner returned an incompatible API response.");
   }
 
   const items: Video[] = [];
@@ -204,6 +233,65 @@ async function getVideos(
   };
 }
 
+async function getVideos(
+  request: VideosRequest,
+  context: ProviderContext,
+): Promise<ProviderVideoPage> {
+  try {
+    return await Promise.any([
+      getOfficialVideos(request, context),
+      request.query
+        ? federatedFallback.searchVideos(request, context)
+        : federatedFallback.listVideos(request, context),
+    ]);
+  } catch {
+    throw new Error("Eporner has no available catalogue backend.");
+  }
+}
+
+async function getUploader(request: UploadersRequest, context: ProviderContext): Promise<Uploader> {
+  const rawName =
+    request.uploaderName ??
+    request.uploaderId?.replace(/^eporner:/i, "").replace(/[-_]+/g, " ") ??
+    "Creator";
+  const name = rawName.trim() || "Creator";
+  let videos: Video[] | undefined;
+
+  if (request.profileContent) {
+    try {
+      const page = await getVideos(
+        {
+          query: name,
+          channel: "eporner",
+          sort: request.profileVideosSort === "views" ? "popular" : "new",
+          page: 1,
+          pageSize: 40,
+          blockedKeywords: [],
+          blockedUploaders: [],
+        },
+        context,
+      );
+      videos = page.items.filter(
+        (video) => video.uploader?.toLocaleLowerCase() === name.toLocaleLowerCase(),
+      );
+    } catch {
+      videos = [];
+    }
+  }
+
+  const example = videos?.[0];
+  return {
+    id: request.uploaderId ?? `eporner:${name.toLocaleLowerCase()}`,
+    name: example?.uploader ?? name,
+    normalizedName: (example?.uploader ?? name).toLocaleLowerCase(),
+    url: example?.uploaderUrl,
+    channel: "eporner",
+    verified: example?.verified,
+    videoCount: videos?.length || undefined,
+    videos,
+  };
+}
+
 export const epornerProvider: ProviderAdapter = {
   id: "eporner",
   name: "Eporner",
@@ -213,4 +301,5 @@ export const epornerProvider: ProviderAdapter = {
   integration: "official",
   listVideos: getVideos,
   searchVideos: getVideos,
+  getUploader,
 };

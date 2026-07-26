@@ -26,12 +26,29 @@ export async function videoCacheRequest(
   return new Request(new URL(`/__cache/videos/${digest}`, baseUrl), { method: "GET" });
 }
 
+export async function videoLastGoodCacheRequest(
+  baseUrl: URL,
+  requestBody: Record<string, unknown>,
+): Promise<Request> {
+  const digest = await sha256(JSON.stringify(sortValue(requestBody)));
+  return new Request(new URL(`/__cache/videos-last-good/${digest}`, baseUrl), {
+    method: "GET",
+  });
+}
+
 export async function matchPublicCache(key: Request): Promise<Response | undefined> {
   return getDefaultCache()?.match(key);
 }
 
-export function putPublicCache(context: RequestContext, key: Request, response: Response): void {
+export function putPublicCache(
+  context: RequestContext,
+  key: Request,
+  response: Response,
+  storedCacheControl?: string,
+): void {
   const cache = getDefaultCache();
   if (!cache) return;
-  context.execution.waitUntil(cache.put(key, response.clone()));
+  const stored = response.clone();
+  if (storedCacheControl) stored.headers.set("Cache-Control", storedCacheControl);
+  context.execution.waitUntil(cache.put(key, stored));
 }

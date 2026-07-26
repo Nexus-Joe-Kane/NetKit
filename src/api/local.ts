@@ -11,9 +11,18 @@ import { assertAllowedHttpsUrl, getPublicBaseUrl } from "../utils/urls";
 
 const providerHosts: Record<string, readonly string[]> = {
   xhamster: ["xhamster.com"],
-  "faphouse-ultra": ["faphouse.com"],
+  "faphouse-ultra": ["faphouse.com", "faphouse2.com", "faphouse4k.com"],
   xvideos: ["xvideos.com"],
   pornhub: ["pornhub.com"],
+  fpo: ["fpo.xxx"],
+  eporner: ["eporner.com"],
+};
+
+const providerAssetHosts: Record<string, readonly string[]> = {
+  xhamster: ["xhamster.com", "xhcdn.com"],
+  "faphouse-ultra": ["faphouse.com", "faphouse2.com", "faphouse4k.com", "flixcdn.com"],
+  xvideos: ["xvideos.com", "xvideos-cdn.com"],
+  pornhub: ["pornhub.com", "phncdn.com"],
   fpo: ["fpo.xxx"],
   eporner: ["eporner.com"],
 };
@@ -46,9 +55,9 @@ const followSchema = z.object({
   avatar: z.string().url().optional(),
 });
 
-function validateProviderUrl(providerId: string, value: string): string {
+function validateProviderUrl(providerId: string, value: string, asset = false): string {
   if (!getProvider(providerId)) throw new HttpError(400, "Unknown provider.", "unknown_provider");
-  const hosts = providerHosts[providerId];
+  const hosts = (asset ? providerAssetHosts : providerHosts)[providerId];
   if (!hosts) throw new HttpError(400, "Provider URL policy is unavailable.", "invalid_url");
   try {
     return assertAllowedHttpsUrl(value, hosts).toString();
@@ -90,7 +99,7 @@ export async function localHistoryHandler(context: RequestContext): Promise<Resp
   }
   const body = await parseBody(context.request, localVideoSchema);
   body.videoUrl = validateProviderUrl(body.providerId, body.videoUrl);
-  if (body.thumb) body.thumb = validateProviderUrl(body.providerId, body.thumb);
+  if (body.thumb) body.thumb = validateProviderUrl(body.providerId, body.thumb, true);
   await repository.recordHistory(identity.userKey, body);
   return jsonResponse({ saved: true }, 201);
 }
@@ -103,7 +112,7 @@ export async function localFavouritesHandler(context: RequestContext): Promise<R
   }
   const body = await parseBody(context.request, localVideoSchema);
   body.videoUrl = validateProviderUrl(body.providerId, body.videoUrl);
-  if (body.thumb) body.thumb = validateProviderUrl(body.providerId, body.thumb);
+  if (body.thumb) body.thumb = validateProviderUrl(body.providerId, body.thumb, true);
   await repository.addFavourite(identity.userKey, body);
   return jsonResponse({ saved: true }, 201);
 }
@@ -136,7 +145,7 @@ export async function followLocalUploaderHandler(context: RequestContext): Promi
   if (body.uploaderUrl) {
     body.uploaderUrl = validateProviderUrl(body.providerId, body.uploaderUrl);
   }
-  if (body.avatar) body.avatar = validateProviderUrl(body.providerId, body.avatar);
+  if (body.avatar) body.avatar = validateProviderUrl(body.providerId, body.avatar, true);
   await new LocalLibraryRepository(context.env.DB).followUploader(identity.userKey, body);
   return jsonResponse({ saved: true }, 201);
 }

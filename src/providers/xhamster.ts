@@ -1,10 +1,18 @@
-import { createUnavailableProvider } from "./stub";
+import { createFederatedProvider } from "./federated";
 
-export const xhamsterProvider = createUnavailableProvider({
+export const xhamsterProvider = createFederatedProvider({
   id: "xhamster",
   name: "xHamster",
-  description: "Awaiting an authorised, stable provider integration.",
-  reason:
-    "no supported public or delegated API was verified; browser stealth and anti-bot bypasses are intentionally excluded",
+  description: "Public catalogue federated through redundant Hot Tub-compatible sources.",
+  favicon: "https://www.google.com/s2/favicons?sz=64&domain=xhamster.com",
   sortOrder: 10,
+  watchHostnames: ["xhamster.com"],
+  assetHostnames: ["xhamster.com", "xhcdn.com"],
+  sortOptions: [
+    { id: "relevance", title: "Most Relevant" },
+    { id: "new", title: "Newest" },
+    { id: "views", title: "Most Viewed" },
+    { id: "rating", title: "Top Rated" },
+    { id: "duration", title: "Longest" },
+  ],
 });

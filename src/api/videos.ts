@@ -15,7 +15,12 @@ import { jsonResponse, parseBody } from "../utils/http";
 import { logger } from "../utils/logging";
 import { enforceRateLimit, rateLimitHeaders } from "../utils/rate-limit";
 import { getPublicBaseUrl } from "../utils/urls";
-import { matchPublicCache, putPublicCache, videoCacheRequest } from "../utils/cache";
+import {
+  matchPublicCache,
+  putPublicCache,
+  videoCacheRequest,
+  videoLastGoodCacheRequest,
+} from "../utils/cache";
 
 function requestedChannels(request: VideosRequest): string[] {
   return [
@@ -109,6 +114,25 @@ export async function videosHandler(
     .filter((value): value is string => Boolean(value));
   const allFailed = pages.length > 0 && pages.every((page) => Boolean(page.error));
 
+  if (allFailed) {
+    const lastGoodKey = await videoLastGoodCacheRequest(baseUrl, request);
+    const lastGood = await matchPublicCache(lastGoodKey);
+    if (lastGood) {
+      try {
+        const stale = VideosResponseSchema.parse(await lastGood.json());
+        stale.pageInfo.error = undefined;
+        stale.pageInfo.message =
+          "Live providers are temporarily unavailable; showing the last successful result.";
+        const headers = rateLimitHeaders(rateLimit);
+        headers.set("Cache-Control", "public, max-age=60");
+        headers.set("X-Cache", "STALE");
+        return jsonResponse(stale, 200, headers);
+      } catch {
+        // Ignore a malformed cache record and return the current provider error below.
+      }
+    }
+  }
+
   const response: VideosResponse = {
     pageInfo: {
       hasNextPage: pages.some((page) => page.hasNextPage),
@@ -131,6 +155,17 @@ export async function videosHandler(
   headers.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
   headers.set("X-Cache", "MISS");
   const result = jsonResponse(validated, 200, headers);
-  putPublicCache(context, cacheKey, result);
+  if (!allFailed) {
+    putPublicCache(context, cacheKey, result);
+    if (items.length > 0) {
+      const lastGoodKey = await videoLastGoodCacheRequest(baseUrl, request);
+      putPublicCache(
+        context,
+        lastGoodKey,
+        result,
+        "public, max-age=604800, stale-while-revalidate=86400",
+      );
+    }
+  }
   return result;
 }

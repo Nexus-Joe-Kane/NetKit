@@ -2,8 +2,8 @@
 
 A security-first, self-hosted [Hot Tub](https://docs.hottubapp.io/developers/server/)
 source for Cloudflare Workers. It exposes the requested providers as separate
-channels, but only enables an adapter when a stable and authorised integration
-has been verified.
+channels and implements Hot Tub's current browse, search, uploader, and
+watch-page hand-off contract.
 
 The configured production source is:
 
@@ -17,67 +17,73 @@ Add it to Hot Tub with:
 hottub://source?url=https%3A%2F%2Fhottub.joekane.org
 ```
 
+The iPhone must route this hostname through the VPN so Cloudflare sees
+`92.71.54.161`. Every source route returns `403` from any other address.
+
 ## Provider support
 
-| Provider       | Public browse | Search | Account connection |    History | Likes |  Playlists | Premium |
-| -------------- | ------------: | -----: | -----------------: | ---------: | ----: | ---------: | ------: |
-| Eporner        |           Yes |    Yes |                 No | Local only |    No | Local only |      No |
-| xHamster       |          Stub |   Stub |                 No | Local only |    No | Local only |      No |
-| FapHouse Ultra |          Stub |   Stub |                 No | Local only |    No | Local only |      No |
-| XVideos        |          Stub |   Stub |                 No | Local only |    No | Local only |      No |
-| Pornhub        |          Stub |   Stub |                 No | Local only |    No | Local only |      No |
-| fpo.xxx        |          Stub |   Stub |                 No | Local only |    No | Local only |      No |
+| Provider       | Public browse | Search | Creators | Playback hand-off | Account connection | Premium entitlement |
+| -------------- | ------------: | -----: | -------: | ----------------: | -----------------: | ------------------: |
+| Eporner        |           Yes |    Yes |  Derived |               Yes |                 No |                  No |
+| xHamster       |           Yes |    Yes |  Derived |               Yes |                 No |                  No |
+| XVideos        |           Yes |    Yes |  Derived |               Yes |                 No |                  No |
+| Pornhub        |           Yes |    Yes |  Derived |               Yes |                 No |                  No |
+| fpo.xxx        |           Yes |    Yes |       No |               Yes |                 No |                  No |
+| FapHouse Ultra |  Catalog only |    Yes |       No |                No |                 No |                  No |
 
-Eporner browsing and search use its official
-[Webmaster API v2](https://www.eporner.com/api/v2/). The other adapters return an
-honest `restricted` state and no invented data. The service does not use browser
-stealth, CAPTCHA bypasses, copied cookies, DRM circumvention, paywall bypasses,
-or password collection.
+Eporner races three public catalogue routes: its documented
+[Webmaster API v2](https://www.eporner.com/api/v2/), the official Hot Tub
+source, and a compatible community source. xHamster, XVideos, and Pornhub use
+the two Hot Tub-compatible sources. fpo.xxx and FapHouse use ordinary public
+server-rendered catalogue pages. A seven-day request-specific last-known-good
+cache is used only when every live route fails.
 
-Provider and regional availability still apply. During the 2026-07-26 live
-smoke test, Eporner returned a small `Site Unavailable` HTML response to the
-build environment instead of API JSON. The adapter correctly failed closed.
-Re-run the opt-in integration test from the deployed Worker's operating region
-before relying on live catalogue availability.
+FapHouse public metadata is visible, but its items are deliberately marked
+offline because no provider-supported delegated subscription API was found.
+The service does not use browser stealth, CAPTCHA bypasses, copied cookies,
+DRM circumvention, paywall bypasses, or password collection.
 
 ## What is included
 
-- Current Hot Tub `POST /api/status`, `POST /api/videos`, and
+- Current Hot Tub `POST /api/status`, `POST /api/videos`, and optional
   `POST /api/uploaders` protocol endpoints
 - Provider-isolated dispatch and multi-channel result merging
+- Parallel public-provider fallbacks and last-known-good catalogue responses
 - Strict request and response validation with Zod
 - Public Cache API caching and D1-backed per-IP/per-account rate limits
-- Exact Cloudflare source-IP verification for `/account` and `/api/local/*`,
-  preconfigured for the fixed VPN egress address `92.71.54.161`
+- Exact Cloudflare source-IP verification before every route, preconfigured for
+  the fixed VPN egress address `92.71.54.161`
 - AES-256-GCM token storage with key rotation support for future authorised
   provider connections
-- Local D1 history, favourites, playlists, and followed creators; these never
-  claim to sync to a provider
+- Optional private D1 history, favourites, playlists, and followed creators for
+  the web-side admin tools; Hot Tub itself keeps its own history, favourites,
+  and queues locally on the device
 - Origin checks, double-submit CSRF protection, CSP, URL/hostname allowlists,
   timeouts, body limits, and redacted structured logs
 - D1 migrations and GitHub Actions for linting, testing, provisioning, migration,
   and deployment
 
-The Worker never proxies or permanently stores media. Eporner items expose the
-public provider watch page as `url`. Direct stream formats are not fabricated;
-Hot Tub may perform its normal watch-page extraction when `formats` is absent.
+The Worker never proxies or permanently stores media. Items expose a public
+provider watch page as `url`; Hot Tub performs its normal playback extraction
+when `formats` is absent. Whether a particular public page remains playable is
+still controlled by the provider and the user's region.
 
 ## Endpoints
 
-| Method     | Path                            | Access                                        | Purpose                                                            |
-| ---------- | ------------------------------- | --------------------------------------------- | ------------------------------------------------------------------ |
-| `GET`      | `/`                             | Public                                        | Source landing page and install link                               |
-| `GET`      | `/health`                       | Public                                        | Worker, D1, and adapter health                                     |
-| `POST`     | `/api/status`                   | Public                                        | Source/channel discovery                                           |
-| `POST`     | `/api/videos`                   | Public                                        | Browse and search                                                  |
-| `POST`     | `/api/uploaders`                | Public                                        | Documented unsupported response until an adapter supports profiles |
-| `GET`      | `/account`                      | Approved VPN IP                               | Connection metadata; never renders secrets                         |
-| `POST`     | `/account/disconnect`           | Approved VPN IP + origin + CSRF               | Remove a stored connection                                         |
-| `GET/POST` | `/api/local/history`            | Approved VPN IP; writes require origin + CSRF | Local history                                                      |
-| `GET/POST` | `/api/local/favourites`         | Approved VPN IP; writes require origin + CSRF | Local favourites                                                   |
-| `POST`     | `/api/local/favourites/remove`  | Approved VPN IP + origin + CSRF               | Remove a local favourite                                           |
-| `POST`     | `/api/local/playlists`          | Approved VPN IP + origin + CSRF               | Create a local playlist                                            |
-| `POST`     | `/api/local/followed-uploaders` | Approved VPN IP + origin + CSRF               | Follow a creator locally                                           |
+| Method     | Path                            | Access                                        | Purpose                                                    |
+| ---------- | ------------------------------- | --------------------------------------------- | ---------------------------------------------------------- |
+| `GET`      | `/`                             | Approved VPN IP                               | Source landing page and install link                       |
+| `GET`      | `/health`                       | Approved VPN IP                               | Worker, D1, and adapter health                             |
+| `POST`     | `/api/status`                   | Approved VPN IP                               | Source/channel discovery                                   |
+| `POST`     | `/api/videos`                   | Approved VPN IP                               | Browse and search                                          |
+| `POST`     | `/api/uploaders`                | Approved VPN IP                               | Creator profiles for adapters with stable creator metadata |
+| `GET`      | `/account`                      | Approved VPN IP                               | Connection metadata; never renders secrets                 |
+| `POST`     | `/account/disconnect`           | Approved VPN IP + origin + CSRF               | Remove a stored connection                                 |
+| `GET/POST` | `/api/local/history`            | Approved VPN IP; writes require origin + CSRF | Local history                                              |
+| `GET/POST` | `/api/local/favourites`         | Approved VPN IP; writes require origin + CSRF | Local favourites                                           |
+| `POST`     | `/api/local/favourites/remove`  | Approved VPN IP + origin + CSRF               | Remove a local favourite                                   |
+| `POST`     | `/api/local/playlists`          | Approved VPN IP + origin + CSRF               | Create a local playlist                                    |
+| `POST`     | `/api/local/followed-uploaders` | Approved VPN IP + origin + CSRF               | Follow a creator locally                                   |
 
 ## Local development
 
@@ -93,11 +99,14 @@ npm run dev
 Then verify:
 
 ```bash
-curl http://localhost:8787/health
+curl http://localhost:8787/health \
+  -H 'CF-Connecting-IP: 92.71.54.161'
 curl -X POST http://localhost:8787/api/status \
+  -H 'CF-Connecting-IP: 92.71.54.161' \
   -H 'Content-Type: application/json' \
   -d '{}'
 curl -X POST http://localhost:8787/api/videos \
+  -H 'CF-Connecting-IP: 92.71.54.161' \
   -H 'Content-Type: application/json' \
   -d '{"channel":"eporner","page":1,"pageSize":10}'
 ```
@@ -108,8 +117,8 @@ Run the quality gate with:
 npm run validate
 ```
 
-Unit tests use fixtures and never call providers. The optional Eporner smoke test
-is intentionally excluded from the normal suite:
+Unit tests use fixtures and never call providers. The optional live catalogue
+smoke test is intentionally excluded from the normal suite:
 
 ```bash
 RUN_INTEGRATION_TESTS=1 npm run test:integration
@@ -128,8 +137,7 @@ Configure these GitHub Actions secrets:
 - `CLOUDFLARE_API_TOKEN`
 - `TOKEN_ENCRYPTION_KEYS` only when an authorised provider connection is added
 
-The committed configuration already restricts the account and local-library
-routes to:
+The committed configuration already restricts the entire source to:
 
 ```text
 92.71.54.161
@@ -155,9 +163,8 @@ changes.
 ## Legal and operational boundaries
 
 Operators are responsible for provider terms, local law, age restrictions, and
-the content they choose to access. This project does not grant content rights or
-provider access. A provider must remain restricted until a documented,
-authorised integration is available and its terms permit this use.
+the content they choose to access. This project does not grant content rights,
+provider accounts, subscriptions, or premium entitlements.
 
 Provider APIs and the Hot Tub schema can change. Re-run the optional integration
 test and review the research documents before enabling a new adapter.

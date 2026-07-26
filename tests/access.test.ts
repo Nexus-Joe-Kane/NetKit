@@ -1,4 +1,4 @@
-import { verifyAdminIp } from "../src/auth/access";
+import { verifyAdminIp, verifyAllowedSourceIp } from "../src/auth/access";
 import type { Env } from "../src/config";
 import { FakeD1Database } from "./helpers/fake-d1";
 
@@ -9,7 +9,23 @@ function createAdminEnv(allowedIps = "92.71.54.161"): Env {
   };
 }
 
-describe("admin source-IP verification", () => {
+describe("source-IP verification", () => {
+  it("applies the same exact IP check to the whole source", () => {
+    const request = new Request("https://hottub.joekane.org/api/status", {
+      headers: { "CF-Connecting-IP": "92.71.54.161" },
+    });
+
+    expect(verifyAllowedSourceIp(request, createAdminEnv())).toBe("92.71.54.161");
+    expect(() =>
+      verifyAllowedSourceIp(
+        new Request("https://hottub.joekane.org/api/status", {
+          headers: { "CF-Connecting-IP": "203.0.113.20" },
+        }),
+        createAdminEnv(),
+      ),
+    ).toThrow("restricted");
+  });
+
   it("accepts the configured VPN egress IP", async () => {
     const request = new Request("https://hottub.joekane.org/account", {
       headers: { "CF-Connecting-IP": "92.71.54.161" },

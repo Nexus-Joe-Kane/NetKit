@@ -54,13 +54,12 @@ The committed Wrangler configuration already allows the fixed VPN egress address
 The workflow uses GitHub's `production` environment. Add reviewers or branch
 rules there if deployment needs a human gate.
 
-## Private-route IP allowlist
+## Whole-source IP allowlist
 
-The Worker restricts:
+The Worker restricts every path:
 
 ```text
-/account*
-/api/local/*
+/*
 ```
 
 It compares Cloudflare's `CF-Connecting-IP` header with `ADMIN_ALLOWED_IPS`.
@@ -75,11 +74,11 @@ the fixed VPN server so Cloudflare sees:
 ```
 
 Requests from any other address return `403 admin_ip_forbidden`. An empty
-allowlist fails closed with `503 admin_ip_not_configured`. Public Hot Tub routes
-remain available from every address.
+allowlist fails closed with `503 admin_ip_not_configured`. This includes the
+landing page, assets, health endpoint, and every Hot Tub API request.
 
-Do not create a Cloudflare Access application over these paths. If one already
-exists, remove those destinations; otherwise Access will intercept the request
+Do not create a Cloudflare Access application over this hostname. If one already
+exists, remove that destination; otherwise Access will intercept the request
 before the Worker's IP check.
 
 This authenticates the VPN egress, not an individual person. Anyone able to
@@ -213,6 +212,8 @@ existing rows.
 
 ## Post-deployment checks
 
+Run the success checks while connected through the fixed VPN:
+
 ```bash
 curl https://hottub.joekane.org/health
 curl -X POST https://hottub.joekane.org/api/status \
@@ -225,16 +226,18 @@ curl -X POST https://hottub.joekane.org/api/videos \
   -d '{"channel":"xhamster","page":1}'
 ```
 
-The last request should return HTTP 200 with no items and an honest
-`pageInfo.error`.
+Both video requests should return HTTP 200 with non-empty `items`. Each item must
+contain a public watch-page `url`, not a raw media URL. Run the checks a second
+time and confirm `X-Cache` is `HIT`.
 
-Test the private route twice:
+Test the whole-source boundary twice:
 
 ```bash
 # Off the VPN: expected HTTP 403.
-curl -i https://hottub.joekane.org/account
+curl -i https://hottub.joekane.org/
 
-# Connected through the fixed VPN: expected HTTP 200.
+# Connected through the fixed VPN: both expected HTTP 200.
+curl -i https://hottub.joekane.org/
 curl -i https://hottub.joekane.org/account
 ```
 
@@ -244,17 +247,18 @@ curl -i https://hottub.joekane.org/account
   belongs to `CLOUDFLARE_ACCOUNT_ID`.
 - **Custom domain rejected:** confirm `joekane.org` is in the same account and
   the token has zone route permission.
-- **Private route returns 403 while connected to the VPN:** confirm the VPN is
+- **Source returns 403 while connected to the VPN:** confirm the VPN is
   full-tunnel for this hostname and that its visible IPv4 is exactly
   `92.71.54.161`. Disable IPv6 for the test if it bypasses the IPv4 VPN exit.
-- **Private route returns 503:** `ADMIN_ALLOWED_IPS` was overridden with an empty
+- **Source returns 503:** `ADMIN_ALLOWED_IPS` was overridden with an empty
   value or removed from the generated configuration; restore it and redeploy.
-- **Private route shows a Cloudflare login:** remove the old Access application
-  destinations for `/account*` and `/api/local/*`.
-- **Eporner returns an empty page with an error:** review Worker logs and the
-  provider's API and regional availability. The 2026-07-26 build-environment
-  smoke test received a provider `Site Unavailable` HTML response; the adapter
-  intentionally rejected it rather than parsing HTML or bypassing a restriction.
-  Upstream details are not exposed to clients.
-- **Source does not add:** confirm `/api/status` accepts POST over the public
-  hostname and that no edge rule covers `/api/*` broadly.
+- **Source shows a Cloudflare login:** remove the old Access application for the
+  hostname.
+- **A channel returns an empty page with an error:** review Worker logs and test
+  the official Hot Tub source, community source, and provider from the Worker's
+  region. The source races compatible routes and serves a request-specific
+  last-known-good result after a prior success. If all routes fail before one
+  has ever succeeded, the generic error is intentional; upstream response
+  bodies are never exposed to clients.
+- **Source does not add:** confirm the iPhone is using the VPN and that
+  `/api/status` accepts POST from `92.71.54.161`.

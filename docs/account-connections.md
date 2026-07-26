@@ -1,5 +1,16 @@
 # Account connections and local library
 
+## What Hot Tub handles itself
+
+Hot Tub does not use this page to enable browsing, playback, history,
+favourites, or queues. Its personal app features are stored locally on the
+device. The source protocol has no account-connect callback and consists of
+status, videos, and optional uploader profiles.
+
+The `/account` page is therefore an administrative capability screen for this
+Worker. Seeing “No provider accounts are connected” is expected and does not
+mean the Hot Tub app is unauthenticated or broken.
+
 ## Current state
 
 None of the requested providers has a verified OAuth, provider-issued token, or
@@ -8,29 +19,29 @@ delegated account API suitable for this project. Therefore:
 - no provider login form exists;
 - no password, cookie, or browser session is requested;
 - no provider account is connected by the current UI;
-- provider history, likes, playlists, subscriptions, and premium playback are
-  not claimed;
+- provider-side history, likes, playlists, subscriptions, and premium playback
+  are not claimed;
 - the `/account` page truthfully shows no connections.
 
 The account infrastructure is deliberately ready for a future authorised
 adapter without pretending that such an adapter exists today.
 
-## VPN IP allowlist
+## Whole-source VPN IP allowlist
 
-Protect:
+The allowlist protects every route:
 
 ```text
-/account*
-/api/local/*
+/*
 ```
 
 The committed `ADMIN_ALLOWED_IPS` value is `92.71.54.161`. The Worker compares
-that value with Cloudflare's exact `CF-Connecting-IP` header on every private
+that value with Cloudflare's exact `CF-Connecting-IP` header before routing any
 request. No Cloudflare Access application or login page is required.
 
 The client must route through the fixed VPN server. Requests from another
-address return `403`, while the public Hot Tub source routes remain available.
-See [Deployment](deployment.md) before overriding the allowlist.
+address return `403`, including Hot Tub status, browse, search, uploader,
+landing-page, asset, and health requests. See [Deployment](deployment.md) before
+overriding the allowlist.
 
 `GET /account` displays only:
 

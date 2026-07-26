@@ -2,10 +2,10 @@
 
 ## Principle
 
-An adapter is a policy boundary, not just a mapper. It may be activated only
-when the upstream integration is stable, authorised, and compatible with a
-Cloudflare Worker. If any of those conditions is missing, keep the restricted
-stub.
+An adapter is a policy boundary, not just a mapper. It may advertise a capability
+only when a real public or delegated route implements it, its use fits project
+policy, and it is compatible with a Cloudflare Worker. Otherwise keep that
+capability disabled and report the limitation honestly.
 
 ## Interface
 
@@ -29,7 +29,7 @@ export interface ProviderAdapter {
   readonly channel: Channel;
   readonly capabilities: ProviderCapabilities;
   readonly status: ChannelStatus;
-  readonly integration: "official" | "public" | "unavailable";
+  readonly integration: "official" | "public" | "federated" | "unavailable";
   readonly unavailableReason?: string;
 
   listVideos(request: VideosRequest, context: ProviderContext): Promise<ProviderVideoPage>;
@@ -45,15 +45,15 @@ method, and do not set a flag before its implementation and tests exist.
 
 ## Activation checklist
 
-Before replacing a stub:
+Before activating an adapter:
 
 - link an official API, developer, partner, RSS, or export reference;
 - record provider terms and any redistribution/display requirements;
 - document authentication, scopes, expiry, rate limits, regional restrictions,
   and data retention;
 - verify the integration does not depend on CAPTCHA solving, browser stealth,
-  fingerprint spoofing, undocumented session cookies, or HTML scraping outside
-  project policy;
+  fingerprint spoofing, undocumented session cookies, or client-side script
+  execution;
 - verify Workers runtime compatibility;
 - add the smallest exact outbound hostname allowlist;
 - define a Zod schema for the upstream payload;
@@ -74,8 +74,9 @@ retrieval.
 3. Declare a stable lowercase channel ID.
 4. Add only options that the adapter consumes.
 5. Construct upstream URLs from constants and validated scalar parameters.
-6. Use `fetchProviderJson` or an equally strict helper.
-7. Parse upstream JSON with Zod.
+6. Use `fetchProviderJson`, `postProviderJson`, or `fetchProviderHtml`.
+7. Parse upstream JSON with Zod or public server HTML with a bounded,
+   provider-specific normaliser.
 8. Convert each item to the Hot Tub `Video` model.
 9. Validate every outbound watch, thumbnail, preview, uploader, and format URL.
 10. Return `ProviderVideoPage`; let the protocol handler perform final
@@ -164,9 +165,9 @@ Unit tests must use captured, sanitised fixtures and cover:
 Put live tests under `tests/integration` and require an explicit environment
 switch. CI should not depend on provider availability.
 
-## Restricted adapter template
+## Unavailable adapter template
 
-For an unavailable provider:
+For a provider with no usable public catalogue route:
 
 ```ts
 export const exampleProvider = createUnavailableProvider({

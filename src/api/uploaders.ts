@@ -1,6 +1,6 @@
 import type { RequestContext } from "../config";
 import { UploaderSchema, UploadersRequestSchema } from "../hottub/schemas";
-import { getProvider, listProviders } from "../providers/registry";
+import { getProvider, getProviderForUploaderId, listProviders } from "../providers/registry";
 import type { ProviderContext } from "../providers/types";
 import { HttpError } from "../utils/errors";
 import { jsonResponse, parseBody } from "../utils/http";
@@ -14,7 +14,9 @@ export async function uploadersHandler(
   const rateLimit = await enforceRateLimit(context, "uploaders", 60, 60);
   const provider = request.channel
     ? getProvider(request.channel)
-    : listProviders().find((candidate) => candidate.capabilities.uploaderBrowse);
+    : request.uploaderId
+      ? getProviderForUploaderId(request.uploaderId)
+      : listProviders().find((candidate) => candidate.capabilities.uploaderBrowse);
   if (!provider) {
     throw new HttpError(
       404,
