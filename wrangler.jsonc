@@ -14,8 +14,7 @@
   "vars": {
     "PUBLIC_BASE_URL": "https://hottub.joekane.org",
     "SOURCE_NAME": "Joe's Unified Hot Tub Source",
-    "ADMIN_ACCESS_TEAM_DOMAIN": "",
-    "ADMIN_ACCESS_AUDIENCE": "",
+    "ADMIN_ALLOWED_IPS": "92.71.54.161",
   },
   "d1_databases": [
     {

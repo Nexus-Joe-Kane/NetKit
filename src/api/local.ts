@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { verifyAccessRequest } from "../auth/access";
+import { verifyAdminIp } from "../auth/access";
 import { csrfCookie, newCsrfToken, requireCsrf } from "../auth/csrf";
 import type { RequestContext } from "../config";
 import { getProvider } from "../providers/registry";
@@ -59,10 +59,9 @@ function validateProviderUrl(providerId: string, value: string): string {
 
 async function authenticated(
   context: RequestContext,
-  fetcher: typeof fetch,
   write: boolean,
 ): Promise<{ userKey: string }> {
-  const identity = await verifyAccessRequest(context.request, context.env, fetcher);
+  const identity = await verifyAdminIp(context.request, context.env);
   await enforceRateLimit(
     context,
     write ? "local-write" : "local-read",
@@ -77,20 +76,14 @@ async function authenticated(
   return identity;
 }
 
-export async function localSessionHandler(
-  context: RequestContext,
-  fetcher: typeof fetch = fetch,
-): Promise<Response> {
-  await authenticated(context, fetcher, false);
+export async function localSessionHandler(context: RequestContext): Promise<Response> {
+  await authenticated(context, false);
   const token = newCsrfToken();
   return jsonResponse({ csrfToken: token }, 200, { "Set-Cookie": csrfCookie(token) });
 }
 
-export async function localHistoryHandler(
-  context: RequestContext,
-  fetcher: typeof fetch = fetch,
-): Promise<Response> {
-  const identity = await authenticated(context, fetcher, context.request.method === "POST");
+export async function localHistoryHandler(context: RequestContext): Promise<Response> {
+  const identity = await authenticated(context, context.request.method === "POST");
   const repository = new LocalLibraryRepository(context.env.DB);
   if (context.request.method === "GET") {
     return jsonResponse({ items: await repository.listHistory(identity.userKey) });
@@ -102,11 +95,8 @@ export async function localHistoryHandler(
   return jsonResponse({ saved: true }, 201);
 }
 
-export async function localFavouritesHandler(
-  context: RequestContext,
-  fetcher: typeof fetch = fetch,
-): Promise<Response> {
-  const identity = await authenticated(context, fetcher, context.request.method === "POST");
+export async function localFavouritesHandler(context: RequestContext): Promise<Response> {
+  const identity = await authenticated(context, context.request.method === "POST");
   const repository = new LocalLibraryRepository(context.env.DB);
   if (context.request.method === "GET") {
     return jsonResponse({ items: await repository.listFavourites(identity.userKey) });
@@ -118,11 +108,8 @@ export async function localFavouritesHandler(
   return jsonResponse({ saved: true }, 201);
 }
 
-export async function removeLocalFavouriteHandler(
-  context: RequestContext,
-  fetcher: typeof fetch = fetch,
-): Promise<Response> {
-  const identity = await authenticated(context, fetcher, true);
+export async function removeLocalFavouriteHandler(context: RequestContext): Promise<Response> {
+  const identity = await authenticated(context, true);
   const body = await parseBody(context.request, removeFavouriteSchema);
   const removed = await new LocalLibraryRepository(context.env.DB).removeFavourite(
     identity.userKey,
@@ -132,11 +119,8 @@ export async function removeLocalFavouriteHandler(
   return jsonResponse({ removed });
 }
 
-export async function createLocalPlaylistHandler(
-  context: RequestContext,
-  fetcher: typeof fetch = fetch,
-): Promise<Response> {
-  const identity = await authenticated(context, fetcher, true);
+export async function createLocalPlaylistHandler(context: RequestContext): Promise<Response> {
+  const identity = await authenticated(context, true);
   const body = await parseBody(context.request, playlistSchema);
   const id = await new LocalLibraryRepository(context.env.DB).createPlaylist(
     identity.userKey,
@@ -146,11 +130,8 @@ export async function createLocalPlaylistHandler(
   return jsonResponse({ id }, 201);
 }
 
-export async function followLocalUploaderHandler(
-  context: RequestContext,
-  fetcher: typeof fetch = fetch,
-): Promise<Response> {
-  const identity = await authenticated(context, fetcher, true);
+export async function followLocalUploaderHandler(context: RequestContext): Promise<Response> {
+  const identity = await authenticated(context, true);
   const body = await parseBody(context.request, followSchema);
   if (body.uploaderUrl) {
     body.uploaderUrl = validateProviderUrl(body.providerId, body.uploaderUrl);

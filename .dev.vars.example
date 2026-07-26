@@ -2,9 +2,8 @@ PUBLIC_BASE_URL=https://hottub.joekane.org
 SOURCE_NAME=Joe's Unified Hot Tub Source
 
 # Required to use /account and /api/local/*.
-# Configure the matching self-hosted application in Cloudflare Access.
-ADMIN_ACCESS_TEAM_DOMAIN=your-team.cloudflareaccess.com
-ADMIN_ACCESS_AUDIENCE=your-access-application-aud-tag
+# Comma-separated exact egress IPs. Production defaults to Joe's fixed VPN IP.
+ADMIN_ALLOWED_IPS=92.71.54.161
 
 # Optional until an authorised provider connection exists.
 # Comma-separated key_id:base64url_32_byte_key entries; first key encrypts,

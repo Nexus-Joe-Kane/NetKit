@@ -4,8 +4,8 @@
 
 This Worker treats public metadata retrieval, private account data, and media
 playback as separate trust domains. It fetches only documented provider JSON,
-keeps private data behind Cloudflare Access, and never acts as a generic URL or
-media proxy.
+keeps private data behind an exact VPN egress-IP allowlist, and never acts as a
+generic URL or media proxy.
 
 The main security boundaries are:
 
@@ -13,7 +13,7 @@ The main security boundaries are:
 | ------------------------- | --------------------------------------------------------------------------------- |
 | Untrusted Hot Tub request | Body-size limit, content-type allowlist, Zod validation                           |
 | Provider response         | Timeout, hostname allowlist, redirect refusal, byte limit, JSON/schema validation |
-| Private account data      | Cloudflare Access edge policy plus in-Worker JWT verification                     |
+| Private account data      | Exact in-Worker `CF-Connecting-IP` allowlist for the fixed VPN egress             |
 | Browser state change      | Same-origin check plus double-submit CSRF token                                   |
 | Stored provider secret    | AES-256-GCM with context binding and versioned key ID                             |
 | Public cache              | Only anonymous browse responses; complete request included in key                 |
@@ -53,32 +53,32 @@ URL belongs to the selected provider.
 Provider requests use an eight-second abort timeout. Adding a new adapter
 requires a new narrow allowlist; a user-controlled hostname is never acceptable.
 
-## Authentication
+## Private-route access control
 
-Cloudflare Access should protect `/account*` and `/api/local/*`. The Worker does
-not trust network placement alone. It verifies the
-`Cf-Access-Jwt-Assertion`:
+`/account*` and `/api/local/*` compare the Cloudflare-provided
+`CF-Connecting-IP` value with the comma-separated `ADMIN_ALLOWED_IPS`
+configuration. Production defaults to the fixed VPN address `92.71.54.161`.
 
-- `alg` must be `RS256`;
-- `kid` must match a current RSA key from the configured team JWKS endpoint;
-- the signature must verify;
-- `iss` must equal the configured team domain;
-- `aud` must include the configured application audience;
-- `sub` must be present;
-- `exp` and optional `nbf` must be valid.
+The comparison is exact and fails closed:
 
-JWKS values are cached in memory for one hour. An unknown key ID clears the
-cache and fails the request, allowing a following request to refetch after key
-rotation without accepting an unknown signature.
+- a matching source address is accepted;
+- a missing or different address returns `403 admin_ip_forbidden`;
+- an empty allowlist returns `503 admin_ip_not_configured`;
+- `X-Forwarded-For` and `X-Real-IP` are never accepted as substitutes.
 
-The account database key is a SHA-256 digest of issuer plus subject. Email is
-display-only and is not used as a durable identifier.
+This boundary relies on requests reaching the Worker through Cloudflare, which
+sets `CF-Connecting-IP` at its edge. It authenticates possession of the VPN path,
+not a human identity. Anyone able to egress through the approved VPN server
+receives the same access.
+
+Private D1 records use a stable, hashed single-admin key. Deliberately changing
+the allowed VPN address therefore does not orphan the existing local library.
 
 ## CSRF, cookies, and origins
 
 Every private state-changing request requires:
 
-1. a valid Access identity;
+1. an approved VPN source IP;
 2. an exact `Origin` equal to `PUBLIC_BASE_URL`;
 3. a CSRF value matching a cookie using constant-time comparison.
 
@@ -91,8 +91,8 @@ The CSRF cookie is named `__Host-hottub_csrf` and is:
 - limited to one hour.
 
 The `__Host-` prefix prevents a Domain attribute and requires a secure origin.
-There is no application session cookie; Access owns the authentication session.
-Redirects are fixed same-origin paths.
+There is no application authentication session cookie. Redirects are fixed
+same-origin paths.
 
 ## Token encryption and rotation
 
@@ -150,9 +150,9 @@ actual expiry; this project currently emits neither.
 
 ## Rate limiting
 
-D1 counters apply per-IP limits to public routes and per-Access-account limits
-to private routes. Identifiers are hashed before storage. Responses expose
-standard limit, remaining, and reset metadata when applicable.
+D1 counters apply per-IP limits to public routes and per-admin limits to private
+routes. Identifiers are hashed before storage. Responses expose standard limit,
+remaining, and reset metadata when applicable.
 
 Provider-specific upstream limits are additionally protected by the Cache API.
 Eporner does not document a request-per-time quota in its public API reference,
@@ -167,7 +167,7 @@ URLs are automatically redacted.
 
 Never add raw request/response logging. In particular, do not log:
 
-- provider or Access tokens;
+- provider tokens or authentication headers;
 - cookies or authorization headers;
 - signed media URLs;
 - watch-page URLs;
@@ -198,8 +198,11 @@ the restricted adapter.
   at a window boundary.
 - Hot Tub may perform its own extraction from a returned public watch page when
   `formats` is absent; that behavior is outside this Worker.
-- Access policy correctness remains an operator responsibility. Do not create an
-  Access rule broad enough to expose private routes to unintended identities.
+- A VPN credential or server compromise gives the attacker private-route
+  access. Keep VPN credentials narrow, patch the server, and review its logs.
+- A changed VPN egress address causes private routes to fail closed until
+  `ADMIN_ALLOWED_IPS` is updated. IPv6 traffic that bypasses the IPv4 tunnel is
+  correctly rejected.
 - Public API metadata can still describe adult content. Operators must apply
   applicable age, content, and jurisdiction controls.
 
@@ -210,6 +213,6 @@ Treat a suspected token or key leak as an incident:
 1. revoke the provider token if any;
 2. replace `TOKEN_ENCRYPTION_KEYS`, retaining only non-compromised decrypt keys;
 3. rotate the Cloudflare API token;
-4. review Access and Worker logs using correlation IDs;
+4. review VPN and Worker logs using correlation IDs;
 5. remove affected D1 connection rows;
 6. redeploy and document the incident without copying secrets into issues.

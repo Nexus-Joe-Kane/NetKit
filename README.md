@@ -47,7 +47,8 @@ before relying on live catalogue availability.
 - Provider-isolated dispatch and multi-channel result merging
 - Strict request and response validation with Zod
 - Public Cache API caching and D1-backed per-IP/per-account rate limits
-- Cloudflare Access JWT verification for `/account` and `/api/local/*`
+- Exact Cloudflare source-IP verification for `/account` and `/api/local/*`,
+  preconfigured for the fixed VPN egress address `92.71.54.161`
 - AES-256-GCM token storage with key rotation support for future authorised
   provider connections
 - Local D1 history, favourites, playlists, and followed creators; these never
@@ -63,20 +64,20 @@ Hot Tub may perform its normal watch-page extraction when `formats` is absent.
 
 ## Endpoints
 
-| Method     | Path                            | Access                                    | Purpose                                                            |
-| ---------- | ------------------------------- | ----------------------------------------- | ------------------------------------------------------------------ |
-| `GET`      | `/`                             | Public                                    | Source landing page and install link                               |
-| `GET`      | `/health`                       | Public                                    | Worker, D1, and adapter health                                     |
-| `POST`     | `/api/status`                   | Public                                    | Source/channel discovery                                           |
-| `POST`     | `/api/videos`                   | Public                                    | Browse and search                                                  |
-| `POST`     | `/api/uploaders`                | Public                                    | Documented unsupported response until an adapter supports profiles |
-| `GET`      | `/account`                      | Cloudflare Access                         | Connection metadata; never renders secrets                         |
-| `POST`     | `/account/disconnect`           | Access + origin + CSRF                    | Remove a stored connection                                         |
-| `GET/POST` | `/api/local/history`            | Access; writes also require origin + CSRF | Local history                                                      |
-| `GET/POST` | `/api/local/favourites`         | Access; writes also require origin + CSRF | Local favourites                                                   |
-| `POST`     | `/api/local/favourites/remove`  | Access + origin + CSRF                    | Remove a local favourite                                           |
-| `POST`     | `/api/local/playlists`          | Access + origin + CSRF                    | Create a local playlist                                            |
-| `POST`     | `/api/local/followed-uploaders` | Access + origin + CSRF                    | Follow a creator locally                                           |
+| Method     | Path                            | Access                                        | Purpose                                                            |
+| ---------- | ------------------------------- | --------------------------------------------- | ------------------------------------------------------------------ |
+| `GET`      | `/`                             | Public                                        | Source landing page and install link                               |
+| `GET`      | `/health`                       | Public                                        | Worker, D1, and adapter health                                     |
+| `POST`     | `/api/status`                   | Public                                        | Source/channel discovery                                           |
+| `POST`     | `/api/videos`                   | Public                                        | Browse and search                                                  |
+| `POST`     | `/api/uploaders`                | Public                                        | Documented unsupported response until an adapter supports profiles |
+| `GET`      | `/account`                      | Approved VPN IP                               | Connection metadata; never renders secrets                         |
+| `POST`     | `/account/disconnect`           | Approved VPN IP + origin + CSRF               | Remove a stored connection                                         |
+| `GET/POST` | `/api/local/history`            | Approved VPN IP; writes require origin + CSRF | Local history                                                      |
+| `GET/POST` | `/api/local/favourites`         | Approved VPN IP; writes require origin + CSRF | Local favourites                                                   |
+| `POST`     | `/api/local/favourites/remove`  | Approved VPN IP + origin + CSRF               | Remove a local favourite                                           |
+| `POST`     | `/api/local/playlists`          | Approved VPN IP + origin + CSRF               | Create a local playlist                                            |
+| `POST`     | `/api/local/followed-uploaders` | Approved VPN IP + origin + CSRF               | Follow a creator locally                                           |
 
 ## Local development
 
@@ -127,14 +128,19 @@ Configure these GitHub Actions secrets:
 - `CLOUDFLARE_API_TOKEN`
 - `TOKEN_ENCRYPTION_KEYS` only when an authorised provider connection is added
 
-Configure these GitHub Actions variables to enable the account and local-library
-routes:
+The committed configuration already restricts the account and local-library
+routes to:
 
-- `ADMIN_ACCESS_TEAM_DOMAIN`
-- `ADMIN_ACCESS_AUDIENCE`
+```text
+92.71.54.161
+```
 
-See [Deployment](docs/deployment.md) for Cloudflare token permissions, Access
-policy setup, local migrations, manual deployment, and custom-domain changes.
+Set the optional `ADMIN_ALLOWED_IPS` GitHub Actions variable only when replacing
+that address or adding another comma-separated VPN egress address.
+
+See [Deployment](docs/deployment.md) for Cloudflare token permissions, IP
+allowlist behavior, local migrations, manual deployment, and custom-domain
+changes.
 
 ## Documentation
 

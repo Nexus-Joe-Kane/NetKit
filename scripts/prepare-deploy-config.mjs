@@ -128,7 +128,7 @@ function stripTrailingCommas(text) {
       let j = i + 1;
       while (j < text.length && /\s/.test(text[j])) j++;
       if (text[j] === "}" || text[j] === "]") {
-        continue; // skip the trailing comma
+        continue;
       }
     }
     out += char;
@@ -136,7 +136,6 @@ function stripTrailingCommas(text) {
   return out;
 }
 
-// Parse JSONC (JSON with comments and trailing commas).
 function parseJsonc(text) {
   return JSON.parse(stripTrailingCommas(stripComments(text)));
 }
@@ -149,10 +148,8 @@ if (!binding) {
 binding.database_name = databaseName;
 binding.database_id = database.uuid;
 
-const teamDomain = process.env.ADMIN_ACCESS_TEAM_DOMAIN;
-const audience = process.env.ADMIN_ACCESS_AUDIENCE;
-if (teamDomain) config.vars.ADMIN_ACCESS_TEAM_DOMAIN = teamDomain;
-if (audience) config.vars.ADMIN_ACCESS_AUDIENCE = audience;
+const adminAllowedIps = process.env.ADMIN_ALLOWED_IPS;
+if (adminAllowedIps) config.vars.ADMIN_ALLOWED_IPS = adminAllowedIps;
 
 await writeFile(outputPath, `${JSON.stringify(config, null, 2)}\n`, {
   mode: 0o600,
