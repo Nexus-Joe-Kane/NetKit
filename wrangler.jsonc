@@ -1,0 +1,33 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "unified-hottub-source",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-26",
+  "workers_dev": true,
+  "preview_urls": true,
+  "routes": [
+    {
+      "pattern": "hottub.joekane.org",
+      "custom_domain": true,
+    },
+  ],
+  "vars": {
+    "PUBLIC_BASE_URL": "https://hottub.joekane.org",
+    "SOURCE_NAME": "Joe's Unified Hot Tub Source",
+    "ADMIN_ACCESS_TEAM_DOMAIN": "",
+    "ADMIN_ACCESS_AUDIENCE": "",
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "hot-tub",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "preview_database_id": "hot-tub-local",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+  },
+}
