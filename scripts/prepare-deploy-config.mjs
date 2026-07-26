@@ -7,9 +7,7 @@ const databaseName = process.env.D1_DATABASE_NAME || "hot-tub";
 const outputPath = process.argv[2] || ".generated.wrangler.jsonc";
 
 if (!accountId || !apiToken) {
-  throw new Error(
-    "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN are required."
-  );
+  throw new Error("CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN are required.");
 }
 
 const apiBase = `https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database`;
@@ -25,9 +23,7 @@ async function cloudflare(path = "", init = {}) {
   });
   const body = await response.json();
   if (!response.ok || !body.success) {
-    const details =
-      body.errors?.map((error) => error.message).join("; ") ||
-      response.statusText;
+    const details = body.errors?.map((error) => error.message).join("; ") || response.statusText;
     throw new Error(`Cloudflare D1 request failed: ${details}`);
   }
   return body.result;
@@ -57,9 +53,7 @@ function parseJsonc(text) {
 }
 
 const config = parseJsonc(await readFile("wrangler.jsonc", "utf8"));
-const binding = config.d1_databases?.find(
-  (candidate) => candidate.binding === "DB"
-);
+const binding = config.d1_databases?.find((candidate) => candidate.binding === "DB");
 if (!binding) {
   throw new Error("wrangler.jsonc does not contain the DB D1 binding.");
 }
