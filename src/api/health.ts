@@ -22,6 +22,7 @@ export async function healthHandler(context: RequestContext): Promise<Response> 
       database,
       providers: {
         active: providers.filter((provider) => provider.status === "active").length,
+        degraded: providers.filter((provider) => provider.status === "degraded").length,
         restricted: providers.filter((provider) => provider.status === "restricted").length,
         total: providers.length,
       },

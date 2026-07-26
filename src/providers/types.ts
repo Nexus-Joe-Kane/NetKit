@@ -40,7 +40,7 @@ export interface ProviderAdapter {
   readonly channel: Channel;
   readonly capabilities: ProviderCapabilities;
   readonly status: ChannelStatus;
-  readonly integration: "official" | "public" | "unavailable";
+  readonly integration: "official" | "public" | "federated" | "unavailable";
   readonly unavailableReason?: string;
 
   listVideos(request: VideosRequest, context: ProviderContext): Promise<ProviderVideoPage>;

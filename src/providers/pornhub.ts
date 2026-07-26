@@ -1,9 +1,18 @@
-import { createUnavailableProvider } from "./stub";
+import { createFederatedProvider } from "./federated";
 
-export const pornhubProvider = createUnavailableProvider({
+export const pornhubProvider = createFederatedProvider({
   id: "pornhub",
   name: "Pornhub",
-  description: "Awaiting a current, authorised provider agreement.",
-  reason: "legacy Webmaster endpoints could not be verified as a current supported integration",
+  description: "Public catalogue federated through redundant Hot Tub-compatible sources.",
+  favicon: "https://www.google.com/s2/favicons?sz=64&domain=pornhub.com",
   sortOrder: 40,
+  watchHostnames: ["pornhub.com"],
+  assetHostnames: ["pornhub.com", "phncdn.com"],
+  sortOptions: [
+    { id: "relevance", title: "Most Relevant" },
+    { id: "recent", title: "Newest" },
+    { id: "rating", title: "Top Rated" },
+    { id: "views", title: "Most Viewed" },
+    { id: "longest", title: "Longest" },
+  ],
 });

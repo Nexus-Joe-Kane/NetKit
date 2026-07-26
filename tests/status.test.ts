@@ -20,7 +20,14 @@ describe("POST /api/status", () => {
       "eporner",
     ]);
     expect(body.channels.find((channel) => channel.id === "eporner")?.status).toBe("active");
-    expect(body.channels.filter((channel) => channel.status === "restricted")).toHaveLength(5);
+    expect(body.channels.filter((channel) => channel.status === "active")).toHaveLength(5);
+    expect(body.channels.find((channel) => channel.id === "faphouse-ultra")?.status).toBe(
+      "degraded",
+    );
+    expect(body.channels.filter((channel) => channel.status === "restricted")).toHaveLength(0);
+    expect(body.channels.find((channel) => channel.id === "xhamster")?.maintainers?.[0]?.role).toBe(
+      "upstream",
+    );
 
     const grouped = new Set(body.channelGroups?.flatMap((group) => group.channelIds));
     expect(grouped).toEqual(new Set(body.channels.map((channel) => channel.id)));

@@ -3,16 +3,16 @@
 ## Security posture
 
 This Worker treats public metadata retrieval, private account data, and media
-playback as separate trust domains. It fetches only documented provider JSON,
-keeps private data behind an exact VPN egress-IP allowlist, and never acts as a
-generic URL or media proxy.
+playback as separate trust domains. It fetches only fixed public catalogue
+routes, keeps private data behind an exact VPN egress-IP allowlist, and never
+acts as a generic URL or media proxy.
 
 The main security boundaries are:
 
 | Boundary                  | Control                                                                           |
 | ------------------------- | --------------------------------------------------------------------------------- |
 | Untrusted Hot Tub request | Body-size limit, content-type allowlist, Zod validation                           |
-| Provider response         | Timeout, hostname allowlist, redirect refusal, byte limit, JSON/schema validation |
+| Provider response         | Timeout, hostname allowlist, bounded redirects, byte limit, content/schema checks |
 | Private account data      | Exact in-Worker `CF-Connecting-IP` allowlist for the fixed VPN egress             |
 | Browser state change      | Same-origin check plus double-submit CSRF token                                   |
 | Stored provider secret    | AES-256-GCM with context binding and versioned key ID                             |
@@ -43,14 +43,16 @@ and a fixed hostname allowlist. URL validation requires:
 - HTTPS;
 - no embedded username or password;
 - exact allowed hostname or its subdomain;
-- no cross-host redirect (`redirect: "error"`).
+- no redirect outside the same provider allowlist.
 
-The Eporner adapter can fetch only `eporner.com` and its subdomains. Returned
-watch pages, thumbnails, and uploader URLs are checked against the same
-allowlist. Local-library writes also verify that every supplied video/profile
-URL belongs to the selected provider.
+Each adapter has separate endpoint, watch-page, and asset hostname allowlists.
+Returned watch pages, thumbnails, previews, and uploader URLs are checked
+against the selected provider allowlist. Local-library writes also verify that
+every supplied video/profile URL belongs to the selected provider.
 
-Provider requests use an eight-second abort timeout. Adding a new adapter
+JSON source requests use an eight-second abort timeout; public HTML requests use
+the common twelve-second ceiling. HTML responses are rejected when they contain
+CAPTCHA, access-denied, or browser-verification markers. Adding a new adapter
 requires a new narrow allowlist; a user-controlled hostname is never acceptable.
 
 ## Private-route access control
@@ -141,8 +143,10 @@ Scripts, frames, objects, and cross-origin form actions are denied.
 
 Only public `/api/videos` data is cached. Cache keys include the canonicalised
 complete validated request, including provider/channel, query, page, size,
-sort, custom filters, block lists, and client version. Authenticated routes use
-`Cache-Control: no-store`.
+sort, custom filters, block lists, and client version. A separate seven-day
+last-known-good entry is written only for successful, non-empty responses and
+is used only when all live routes fail. Failed initial responses are not cached.
+Authenticated routes use `Cache-Control: no-store`.
 
 If an authenticated provider adapter is added, its responses must not enter the
 public cache. Signed or premium playback URLs must not be cached past their
@@ -182,13 +186,14 @@ policy and limit log access.
 
 - No CAPTCHA or anti-bot bypass.
 - No browser fingerprint evasion.
+- No headless browser or client-side script execution.
 - No copied/shared cookies or raw password capture.
 - No DRM, paywall, entitlement, subscription, or geographic bypass.
 - No media proxying or permanent media storage.
 - No claim that local history/favourites/playlists sync to providers.
 
-When an authorised provider integration is unavailable, the only safe state is
-the restricted adapter.
+When a capability such as login or premium entitlement has no supported route,
+that capability remains false even if public catalogue browsing is available.
 
 ## Residual risks
 

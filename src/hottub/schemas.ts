@@ -92,6 +92,7 @@ export const ChannelSchema = z.object({
   default: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
   groupKey: z.string().max(80).optional(),
+  ytdlpCommand: z.string().max(500).optional(),
   cacheDuration: z.number().int().min(0).max(86_400).optional(),
 });
 
@@ -116,6 +117,14 @@ export const ServerStatusSchema = z.object({
   nsfw: z.boolean().optional(),
   categories: z.array(z.string().min(1).max(80)).max(100).optional(),
   options: z.array(ChannelOptionSchema).max(20).optional(),
+  popup: z
+    .object({
+      id: z.string().min(1).max(100),
+      pages: z.array(z.unknown()).max(20),
+    })
+    .passthrough()
+    .nullable()
+    .optional(),
   filtersFooter: z.string().max(500).optional(),
 });
 
@@ -130,7 +139,7 @@ export const VideoFormatSchema = z.object({
   resolution: z.string().max(40).optional(),
   format: z.string().max(80).optional(),
   fps: z.number().positive().max(1000).optional(),
-  quality: z.number().optional(),
+  quality: z.union([z.number(), z.string().max(80)]).optional(),
   vcodec: z.string().max(100).optional(),
   acodec: z.string().max(100).optional(),
   tbr: z.number().nonnegative().optional(),
@@ -164,6 +173,8 @@ export const VideoSchema = z.object({
   uploader: z.string().max(200).optional(),
   uploaderUrl: z.string().url().optional(),
   uploaderId: z.string().max(200).optional(),
+  verified: z.boolean().optional(),
+  isVR: z.boolean().optional(),
   tags: z.array(z.string().min(1).max(120)).max(200).optional(),
   categories: z.array(z.string().min(1).max(120)).max(100).optional(),
   uploadedAt: z.string().max(100).optional(),
@@ -171,6 +182,14 @@ export const VideoSchema = z.object({
   formats: z.array(VideoFormatSchema).max(30).optional(),
   aspectRatio: z.number().positive().max(10).optional(),
   uploaderProfile: UploaderProfileSchema.optional(),
+  embed: z
+    .object({
+      source: z.string().url().optional(),
+      html: z.string().max(20_000).optional(),
+      width: z.number().int().positive().optional(),
+      height: z.number().int().positive().optional(),
+    })
+    .optional(),
   isLive: z.boolean().optional(),
   liveStatus: z.enum(["live", "not_live", "was_live", "post_live"]).optional(),
   availability: z.string().max(50).optional(),

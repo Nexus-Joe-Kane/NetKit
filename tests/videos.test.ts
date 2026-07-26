@@ -1,15 +1,40 @@
 import { VideosResponseSchema } from "../src/hottub/schemas";
 import { handleRequest } from "../src/router";
 import { epornerFixture } from "./fixtures/eporner";
+import { upstreamFixture } from "./fixtures/upstream";
 import { createEnv, createExecutionContext, post } from "./helpers/context";
 
 function fixtureFetch(): typeof fetch {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = new URL(input instanceof Request ? input.url : input.toString());
+    if (["hottubapp.io", "hottub.spacemoehre.de"].includes(url.hostname)) {
+      throw new Error("upstream unavailable in official API fixture test");
+    }
     expect(url.hostname).toBe("www.eporner.com");
     return new Response(JSON.stringify(epornerFixture), {
       headers: { "Content-Type": "application/json" },
     });
+  }) as typeof fetch;
+}
+
+function multiProviderFetch(options: { failEporner?: boolean } = {}): typeof fetch {
+  return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : input.toString());
+    if (url.hostname === "www.eporner.com") {
+      if (options.failEporner) throw new Error("direct API unavailable");
+      return new Response(JSON.stringify(epornerFixture), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (["hottubapp.io", "hottub.spacemoehre.de"].includes(url.hostname)) {
+      const payload = JSON.parse(String(init?.body ?? "{}")) as {
+        channel: "xhamster" | "xvideos" | "pornhub" | "eporner";
+      };
+      return new Response(JSON.stringify(upstreamFixture(payload.channel)), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    throw new Error(`Unexpected host: ${url.hostname}`);
   }) as typeof fetch;
 }
 
@@ -35,7 +60,14 @@ describe("POST /api/videos", () => {
     expect(body.items[0]?.url).toContain("eporner.com/hd-porn/");
     expect(body.items[0]?.formats).toBeUndefined();
 
-    const call = vi.mocked(fetcher).mock.calls[0]?.[0];
+    const call = vi
+      .mocked(fetcher)
+      .mock.calls.map((entry) => entry[0])
+      .find(
+        (entry) =>
+          new URL(entry instanceof Request ? entry.url : String(entry)).hostname ===
+          "www.eporner.com",
+      );
     const calledUrl = new URL(call instanceof Request ? call.url : String(call));
     expect(calledUrl.searchParams.get("query")).toBe("fixture");
     expect(calledUrl.searchParams.get("per_page")).toBe("3");
@@ -58,20 +90,22 @@ describe("POST /api/videos", () => {
     expect(body.items.map((item) => item.id)).toEqual(["alpha123"]);
   });
 
-  it("degrades unsupported providers without inventing data", async () => {
+  it("returns normalized public results from the Hot Tub upstream", async () => {
     const response = await handleRequest(
       post("/api/videos", { channel: "xhamster", page: 1 }),
       createEnv(),
       createExecutionContext(),
-      fixtureFetch(),
+      multiProviderFetch(),
     );
     expect(response.status).toBe(200);
     const body = VideosResponseSchema.parse(await response.json());
-    expect(body.items).toEqual([]);
-    expect(body.pageInfo.error).toContain("xHamster is unavailable");
+    expect(body.items).toHaveLength(1);
+    expect(body.items[0]?.channel).toBe("xhamster");
+    expect(body.items[0]?.url).toContain("xhamster.com/videos/");
+    expect(body.pageInfo.error).toBeUndefined();
   });
 
-  it("keeps working when one provider in a multi-channel request is unavailable", async () => {
+  it("merges official and federated providers", async () => {
     const response = await handleRequest(
       post("/api/videos", {
         channels: ["eporner", "pornhub"],
@@ -79,12 +113,81 @@ describe("POST /api/videos", () => {
       }),
       createEnv(),
       createExecutionContext(),
-      fixtureFetch(),
+      multiProviderFetch(),
     );
     const body = VideosResponseSchema.parse(await response.json());
-    expect(body.items).toHaveLength(3);
+    expect(body.items.length).toBeGreaterThanOrEqual(2);
     expect(body.pageInfo.error).toBeUndefined();
-    expect(body.pageInfo.message).toContain("pornhub");
+    expect(new Set(body.items.map((item) => item.channel))).toEqual(
+      new Set(["eporner", "pornhub"]),
+    );
+  });
+
+  it("uses the live Hot Tub upstream when direct Eporner Worker egress is unavailable", async () => {
+    const fetcher = multiProviderFetch({ failEporner: true });
+    const response = await handleRequest(
+      post("/api/videos", { channel: "eporner", page: 1 }),
+      createEnv(),
+      createExecutionContext(),
+      fetcher,
+    );
+    const body = VideosResponseSchema.parse(await response.json());
+    expect(body.pageInfo.error).toBeUndefined();
+    expect(body.items).toHaveLength(1);
+    expect(body.items[0]?.channel).toBe("eporner");
+    expect(
+      vi
+        .mocked(fetcher)
+        .mock.calls.some(
+          (entry) =>
+            new URL(entry[0] instanceof Request ? entry[0].url : String(entry[0])).hostname ===
+            "www.eporner.com",
+        ),
+    ).toBe(true);
+  });
+
+  it("serves the last successful result when every live backend is down", async () => {
+    const records = new Map<string, Response>();
+    const cache = {
+      async match(key: Request) {
+        return records.get(key.url)?.clone();
+      },
+      async put(key: Request, value: Response) {
+        records.set(key.url, value.clone());
+      },
+    };
+    vi.stubGlobal("caches", { default: cache });
+
+    try {
+      const firstContext = createExecutionContext();
+      const first = await handleRequest(
+        post("/api/videos", { channel: "xhamster", page: 1 }),
+        createEnv(),
+        firstContext,
+        multiProviderFetch(),
+      );
+      expect(first.status).toBe(200);
+      await Promise.all(firstContext.pending);
+      for (const key of records.keys()) {
+        if (key.includes("/__cache/videos/")) records.delete(key);
+      }
+
+      const second = await handleRequest(
+        post("/api/videos", { channel: "xhamster", page: 1 }),
+        createEnv(),
+        createExecutionContext(),
+        vi.fn(async () => {
+          throw new Error("all live backends unavailable");
+        }) as typeof fetch,
+      );
+      const body = VideosResponseSchema.parse(await second.json());
+      expect(second.headers.get("X-Cache")).toBe("STALE");
+      expect(body.pageInfo.error).toBeUndefined();
+      expect(body.pageInfo.message).toContain("last successful");
+      expect(body.items).toHaveLength(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("isolates provider failures", async () => {

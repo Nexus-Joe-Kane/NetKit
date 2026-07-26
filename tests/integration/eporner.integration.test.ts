@@ -1,7 +1,7 @@
 import { epornerProvider } from "../../src/providers/eporner";
 
 describe("Eporner live integration", () => {
-  it("accepts the current official API response", async () => {
+  it("accepts the current live Eporner source response", async () => {
     const page = await epornerProvider.listVideos(
       {
         channel: "eporner",
@@ -21,5 +21,5 @@ describe("Eporner live integration", () => {
     );
     expect(page.error).toBeUndefined();
     expect(page.items.length).toBeGreaterThan(0);
-  });
+  }, 30_000);
 });

@@ -225,8 +225,9 @@ curl -X POST https://hottub.joekane.org/api/videos \
   -d '{"channel":"xhamster","page":1}'
 ```
 
-The last request should return HTTP 200 with no items and an honest
-`pageInfo.error`.
+Both video requests should return HTTP 200 with non-empty `items`. Each item must
+contain a public watch-page `url`, not a raw media URL. Run the checks a second
+time and confirm `X-Cache` is `HIT`.
 
 Test the private route twice:
 
@@ -251,10 +252,11 @@ curl -i https://hottub.joekane.org/account
   value or removed from the generated configuration; restore it and redeploy.
 - **Private route shows a Cloudflare login:** remove the old Access application
   destinations for `/account*` and `/api/local/*`.
-- **Eporner returns an empty page with an error:** review Worker logs and the
-  provider's API and regional availability. The 2026-07-26 build-environment
-  smoke test received a provider `Site Unavailable` HTML response; the adapter
-  intentionally rejected it rather than parsing HTML or bypassing a restriction.
-  Upstream details are not exposed to clients.
+- **A channel returns an empty page with an error:** review Worker logs and test
+  the official Hot Tub source, community source, and provider from the Worker's
+  region. The source races compatible routes and serves a request-specific
+  last-known-good result after a prior success. If all routes fail before one
+  has ever succeeded, the generic error is intentional; upstream response
+  bodies are never exposed to clients.
 - **Source does not add:** confirm `/api/status` accepts POST over the public
   hostname and that no edge rule covers `/api/*` broadly.

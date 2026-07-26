@@ -39,7 +39,7 @@ export function rootPage(env: Env): string {
       (provider) => `<article class="card">
         <div class="card-heading">
           <h2>${escapeHtml(provider.name)}</h2>
-          <span class="badge ${provider.status === "active" ? "active" : "restricted"}">${escapeHtml(provider.status)}</span>
+          <span class="badge ${provider.status === "active" ? "active" : provider.status === "degraded" ? "degraded" : "restricted"}">${escapeHtml(provider.status)}</span>
         </div>
         <p>${escapeHtml(provider.channel.description ?? "")}</p>
         <dl>
@@ -57,21 +57,21 @@ export function rootPage(env: Env): string {
     `<header>
       <p class="eyebrow">Cloudflare Worker · Hot Tub API</p>
       <h1>${escapeHtml(sourceName)}</h1>
-      <p class="lead">One transparent source, with each provider exposed as its own channel. Unsupported integrations remain visibly unavailable.</p>
+      <p class="lead">One source with six provider channels, public browsing, search, creator profiles where available, and normal Hot Tub playback extraction.</p>
       <div class="actions">
         <a class="primary" href="${escapeHtml(installUrl)}">Add to Hot Tub</a>
-        <a href="/account">Account portal</a>
+        <a href="/account">Source details</a>
       </div>
     </header>
     <section class="summary">
       <div><span>Source URL</span><code>${escapeHtml(baseUrl.toString().replace(/\/$/u, ""))}</code></div>
-      <div><span>Enabled providers</span><strong>${providers.filter((provider) => provider.status === "active").length} of ${providers.length}</strong></div>
+      <div><span>Browsable providers</span><strong>${providers.filter((provider) => provider.capabilities.publicBrowse).length} of ${providers.length}</strong></div>
       <div><span>Admin restriction</span><strong>${adminIpConfigured ? "VPN IP allowlist" : "Not configured"}</strong></div>
     </section>
     <section>
       <div class="section-heading">
         <p class="eyebrow">Provider status</p>
-        <h2>Honest capability reporting</h2>
+        <h2>Live capability reporting</h2>
       </div>
       <div class="grid">${cards}</div>
     </section>
@@ -91,7 +91,7 @@ export function accountPage(
   const providers = listProviders();
   const connectionRows =
     connections.length === 0
-      ? `<p class="empty">No provider accounts are connected. This is expected: none of the requested providers currently has a verified delegated account API.</p>`
+      ? `<p class="empty">There is nothing to connect here. Hot Tub's source API has no provider-login callback, and these providers do not publish a delegated account API that this Worker can use safely.</p>`
       : connections
           .map(
             (connection) => `<article class="card">
@@ -116,36 +116,36 @@ export function accountPage(
     .map(
       (provider) => `<tr>
         <th scope="row">${escapeHtml(provider.name)}</th>
+        <td>${provider.capabilities.publicBrowse ? "Yes" : "No"}</td>
+        <td>${provider.capabilities.publicSearch ? "Yes" : "No"}</td>
+        <td>${provider.capabilities.uploaderBrowse ? "Yes" : "No"}</td>
         <td>${provider.capabilities.authenticatedAccess ? "Yes" : "No"}</td>
-        <td>${provider.capabilities.history ? "Yes" : "No"}</td>
-        <td>${provider.capabilities.likes ? "Yes" : "No"}</td>
-        <td>${provider.capabilities.playlists ? "Yes" : "No"}</td>
-        <td>${provider.capabilities.premiumAccess ? "Yes" : "No"}</td>
+        <td>${escapeHtml(provider.status)}</td>
       </tr>`,
     )
     .join("");
 
   return page(
-    "Account portal",
+    "Source details",
     `<header class="compact">
       <a class="back" href="/">← Source home</a>
       <p class="eyebrow">Restricted to the approved VPN IP</p>
-      <h1>Account portal</h1>
-      <p class="lead">Connected from approved address ${escapeHtml(identity.sourceIp)}. Stored secrets are never rendered here.</p>
+      <h1>Source control</h1>
+      <p class="lead">Connected from approved address ${escapeHtml(identity.sourceIp)}. This page reports server-side connections; it is not required for Hot Tub favourites, history, or queues.</p>
     </header>
     <section>
-      <div class="section-heading"><p class="eyebrow">Connections</p><h2>Provider accounts</h2></div>
+      <div class="section-heading"><p class="eyebrow">Connections</p><h2>Provider account grants</h2></div>
       <div class="grid">${connectionRows}</div>
     </section>
     <section>
-      <div class="section-heading"><p class="eyebrow">Capabilities</p><h2>Authenticated features</h2></div>
+      <div class="section-heading"><p class="eyebrow">Capabilities</p><h2>What this source supplies</h2></div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Provider</th><th>Account</th><th>History</th><th>Likes</th><th>Playlists</th><th>Premium</th></tr></thead>
+          <thead><tr><th>Provider</th><th>Browse</th><th>Search</th><th>Creators</th><th>Account</th><th>Status</th></tr></thead>
           <tbody>${capabilityRows}</tbody>
         </table>
       </div>
-      <p class="note">Local history, favourites, playlists, and followed creators are private D1 records. They do not synchronise back to providers.</p>
+      <p class="note">Hot Tub itself keeps favourites, watch history, and queues locally on your iPhone. Once video browsing works, those app features work without configuring this page. The Worker's separate D1 library is not part of Hot Tub's source protocol and does not synchronise back to providers.</p>
     </section>
     <footer>
       <a href="/">Source home</a>
@@ -191,6 +191,7 @@ code { overflow-wrap: anywhere; color: #d7dfeb; }
 .card-heading { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
 .badge { border-radius: 999px; padding: 5px 9px; font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; font-weight: 800; }
 .badge.active { background: #153d2e; color: #70e1ae; }
+.badge.degraded { background: #3e3217; color: #ffd97a; }
 .badge.restricted { background: #42291e; color: #ffb38f; }
 dl { display: grid; gap: 9px; margin: 20px 0 0; }
 dl div { display: flex; justify-content: space-between; gap: 16px; padding-top: 9px; border-top: 1px solid var(--line); }

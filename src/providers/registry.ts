@@ -23,6 +23,11 @@ export function getProvider(id: string): ProviderAdapter | undefined {
   return providerMap.get(id);
 }
 
+export function getProviderForUploaderId(id: string): ProviderAdapter | undefined {
+  const prefix = id.split(":", 1)[0];
+  return prefix ? providerMap.get(prefix) : undefined;
+}
+
 export function listProviders(): readonly ProviderAdapter[] {
   return providers;
 }
