@@ -7,7 +7,9 @@ const databaseName = process.env.D1_DATABASE_NAME || "hot-tub";
 const outputPath = process.argv[2] || ".generated.wrangler.jsonc";
 
 if (!accountId || !apiToken) {
-  throw new Error("CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN are required.");
+  throw new Error(
+    "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN are required."
+  );
 }
 
 const apiBase = `https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database`;
@@ -23,7 +25,9 @@ async function cloudflare(path = "", init = {}) {
   });
   const body = await response.json();
   if (!response.ok || !body.success) {
-    const details = body.errors?.map((error) => error.message).join("; ") || response.statusText;
+    const details =
+      body.errors?.map((error) => error.message).join("; ") ||
+      response.statusText;
     throw new Error(`Cloudflare D1 request failed: ${details}`);
   }
   return body.result;
@@ -43,15 +47,17 @@ if (!database) {
 }
 
 // Parse JSONC (JSON with Comments) by removing comments before parsing
-function parseJSONc(text) {
+function parseJsonc(text) {
   const withoutComments = text
-    .replace(/\/\/.*$/gm, '') // Remove single-line comments
-    .replace(/\/\*[\s\S]*?\*\//g, ''); // Remove multi-line comments
+    .replace(/\/\/.*$/gm, "") // Remove single-line comments
+    .replace(/\/\*[\s\S]*?\*\//g, ""); // Remove multi-line comments
   return JSON.parse(withoutComments);
 }
 
-const config = parseJSONc(await readFile("wrangler.jsonc", "utf8"));
-const binding = config.d1_databases?.find((candidate) => candidate.binding === "DB");
+const config = parseJsonc(await readFile("wrangler.jsonc", "utf8"));
+const binding = config.d1_databases?.find(
+  (candidate) => candidate.binding === "DB"
+);
 if (!binding) {
   throw new Error("wrangler.jsonc does not contain the DB D1 binding.");
 }
@@ -63,5 +69,7 @@ const audience = process.env.ADMIN_ACCESS_AUDIENCE;
 if (teamDomain) config.vars.ADMIN_ACCESS_TEAM_DOMAIN = teamDomain;
 if (audience) config.vars.ADMIN_ACCESS_AUDIENCE = audience;
 
-await writeFile(outputPath, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
+await writeFile(outputPath, `${JSON.stringify(config, null, 2)}\n`, {
+  mode: 0o600,
+});
 console.log(`Prepared ${outputPath}.`);
