@@ -46,11 +46,13 @@ if (!database) {
   console.log(`Using existing D1 database ${databaseName}.`);
 }
 
-// Parse JSONC (JSON with Comments) by removing comments before parsing
+// Parse JSONC (JSON with Comments and trailing commas)
 function parseJsonc(text) {
-  const withoutComments = text
+  let withoutComments = text
     .replace(/\/\/.*$/gm, "") // Remove single-line comments
     .replace(/\/\*[\s\S]*?\*\//g, ""); // Remove multi-line comments
+  // Remove trailing commas before closing brackets/braces
+  withoutComments = withoutComments.replace(/,(\s*[}\]])/g, "$1");
   return JSON.parse(withoutComments);
 }
 
