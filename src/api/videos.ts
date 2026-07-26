@@ -1,0 +1,136 @@
+import type { RequestContext } from "../config";
+import {
+  VideoSchema,
+  VideosRequestSchema,
+  VideosResponseSchema,
+  type Video,
+  type VideosRequest,
+  type VideosResponse,
+} from "../hottub/schemas";
+import { getProvider } from "../providers/registry";
+import type { ProviderContext, ProviderVideoPage } from "../providers/types";
+import { HttpError } from "../utils/errors";
+import { applyClientBlocks, mergeProviderResults } from "../utils/filters";
+import { jsonResponse, parseBody } from "../utils/http";
+import { logger } from "../utils/logging";
+import { enforceRateLimit, rateLimitHeaders } from "../utils/rate-limit";
+import { getPublicBaseUrl } from "../utils/urls";
+import { matchPublicCache, putPublicCache, videoCacheRequest } from "../utils/cache";
+
+function requestedChannels(request: VideosRequest): string[] {
+  return [
+    ...new Set(
+      request.channels && request.channels.length > 0
+        ? request.channels
+        : request.channel
+          ? [request.channel]
+          : [],
+    ),
+  ];
+}
+
+async function callProvider(
+  channelId: string,
+  request: VideosRequest,
+  providerContext: ProviderContext,
+): Promise<ProviderVideoPage> {
+  const provider = getProvider(channelId);
+  if (!provider) throw new HttpError(400, `Unknown channel: ${channelId}`, "unknown_channel");
+  try {
+    return request.query
+      ? await provider.searchVideos(request, providerContext)
+      : await provider.listVideos(request, providerContext);
+  } catch {
+    logger.warn("provider_request_failed", {
+      requestId: providerContext.requestId,
+      providerId: provider.id,
+    });
+    return {
+      items: [],
+      hasNextPage: false,
+      error: `${provider.name} is temporarily unavailable.`,
+    };
+  }
+}
+
+function validateProviderItems(items: Video[], channelId: string): Video[] {
+  const valid: Video[] = [];
+  for (const item of items) {
+    const parsed = VideoSchema.safeParse(item);
+    if (parsed.success && parsed.data.channel === channelId) valid.push(parsed.data);
+  }
+  return valid;
+}
+
+export async function videosHandler(
+  context: RequestContext,
+  fetcher: typeof fetch = fetch,
+): Promise<Response> {
+  const request = await parseBody(context.request, VideosRequestSchema);
+  const channels = requestedChannels(request);
+  for (const channel of channels) {
+    if (!getProvider(channel)) {
+      throw new HttpError(400, `Unknown channel: ${channel}`, "unknown_channel");
+    }
+  }
+  const rateLimit = await enforceRateLimit(context, "videos", 60, 60);
+  const baseUrl = getPublicBaseUrl(context.env.PUBLIC_BASE_URL);
+  const cacheKey = await videoCacheRequest(baseUrl, request);
+  const cached = await matchPublicCache(cacheKey);
+  if (cached) {
+    const headers = new Headers(cached.headers);
+    headers.set("X-Cache", "HIT");
+    for (const [key, value] of rateLimitHeaders(rateLimit)) headers.set(key, value);
+    return new Response(cached.body, { status: cached.status, headers });
+  }
+
+  const providerContext: ProviderContext = {
+    env: context.env,
+    fetch: fetcher,
+    requestId: context.requestId,
+    now: new Date(),
+  };
+  const pages = await Promise.all(
+    channels.map((channelId) => callProvider(channelId, request, providerContext)),
+  );
+  const groups = pages.map((page, index) =>
+    applyClientBlocks(
+      validateProviderItems(page.items, channels[index] ?? ""),
+      request.blockedKeywords,
+      request.blockedUploaders,
+    ),
+  );
+  const items = mergeProviderResults(groups, request.pageSize);
+  const errors = pages
+    .map((page, index) => (page.error ? `${channels[index]}: ${page.error}` : null))
+    .filter((value): value is string => value !== null);
+  const messages = pages
+    .map((page) => page.message)
+    .filter((value): value is string => Boolean(value));
+  const allFailed = pages.length > 0 && pages.every((page) => Boolean(page.error));
+
+  const response: VideosResponse = {
+    pageInfo: {
+      hasNextPage: pages.some((page) => page.hasNextPage),
+      error: allFailed ? errors.join(" ") : undefined,
+      message:
+        !allFailed && errors.length > 0
+          ? `Some providers were unavailable: ${errors.join(" ")}`
+          : messages.join(" ") || undefined,
+      parameters: {
+        page: request.page,
+        pageSize: request.pageSize,
+        returnedResults: items.length,
+        totalResults: pages.reduce((sum, page) => sum + (page.totalResults ?? 0), 0),
+      },
+    },
+    items,
+  };
+  const validated = VideosResponseSchema.parse(response);
+  const headers = rateLimitHeaders(rateLimit);
+  headers.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+  headers.set("X-Cache", "MISS");
+  const result = jsonResponse(validated, 200, headers);
+  putPublicCache(context, cacheKey, result);
+  return result;
+}

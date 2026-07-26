@@ -1,0 +1,39 @@
+{
+  "name": "unified-hottub-source",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A security-first, self-hosted Hot Tub source for Cloudflare Workers.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "wrangler deploy --dry-run --outdir dist",
+    "db:migrate:local": "wrangler d1 migrations apply hot-tub --local",
+    "db:migrate:remote": "wrangler d1 migrations apply hot-tub --remote",
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:integration": "RUN_INTEGRATION_TESTS=1 vitest run tests/integration",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "validate": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build"
+  },
+  "dependencies": {
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260724.1",
+    "@eslint/js": "10.0.1",
+    "@types/node": "24.13.3",
+    "eslint": "10.8.0",
+    "prettier": "3.9.6",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.65.0",
+    "vitest": "4.1.10",
+    "wrangler": "4.114.0"
+  }
+}

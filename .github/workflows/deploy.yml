@@ -1,0 +1,41 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      TOKEN_ENCRYPTION_KEYS: ${{ secrets.TOKEN_ENCRYPTION_KEYS }}
+      ADMIN_ACCESS_TEAM_DOMAIN: ${{ vars.ADMIN_ACCESS_TEAM_DOMAIN }}
+      ADMIN_ACCESS_AUDIENCE: ${{ vars.ADMIN_ACCESS_AUDIENCE }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run validate
+      - name: Prepare Cloudflare resources
+        run: node scripts/prepare-deploy-config.mjs .generated.wrangler.jsonc
+      - name: Apply D1 migrations
+        run: npx wrangler d1 migrations apply hot-tub --remote --config .generated.wrangler.jsonc
+      - name: Configure encryption keys
+        if: ${{ env.TOKEN_ENCRYPTION_KEYS != '' }}
+        run: printf '%s' "$TOKEN_ENCRYPTION_KEYS" | npx wrangler secret put TOKEN_ENCRYPTION_KEYS --config .generated.wrangler.jsonc
+      - name: Deploy Worker
+        run: npx wrangler deploy --config .generated.wrangler.jsonc
