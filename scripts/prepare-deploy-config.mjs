@@ -42,14 +42,103 @@ if (!database) {
   console.log(`Using existing D1 database ${databaseName}.`);
 }
 
-// Parse JSONC (JSON with Comments and trailing commas)
+// Remove `//` and `/* */` comments while respecting string literals, so that
+// sequences like the `//` in "https://example.com" are not mistaken for the
+// start of a comment.
+function stripComments(text) {
+  let out = "";
+  let inString = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const next = text[i + 1];
+
+    if (inLineComment) {
+      if (char === "\n") {
+        inLineComment = false;
+        out += char;
+      }
+      continue;
+    }
+    if (inBlockComment) {
+      if (char === "*" && next === "/") {
+        inBlockComment = false;
+        i++;
+      }
+      continue;
+    }
+    if (inString) {
+      out += char;
+      if (char === "\\") {
+        out += next ?? "";
+        i++;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      out += char;
+      continue;
+    }
+    if (char === "/" && next === "/") {
+      inLineComment = true;
+      i++;
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      inBlockComment = true;
+      i++;
+      continue;
+    }
+    out += char;
+  }
+  return out;
+}
+
+// Drop trailing commas before a closing `}`/`]`, again respecting string
+// literals so commas inside string values are left untouched.
+function stripTrailingCommas(text) {
+  let out = "";
+  let inString = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const next = text[i + 1];
+
+    if (inString) {
+      out += char;
+      if (char === "\\") {
+        out += next ?? "";
+        i++;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      out += char;
+      continue;
+    }
+    if (char === ",") {
+      let j = i + 1;
+      while (j < text.length && /\s/.test(text[j])) j++;
+      if (text[j] === "}" || text[j] === "]") {
+        continue; // skip the trailing comma
+      }
+    }
+    out += char;
+  }
+  return out;
+}
+
+// Parse JSONC (JSON with comments and trailing commas).
 function parseJsonc(text) {
-  let withoutComments = text
-    .replace(/\/\/.*$/gm, "") // Remove single-line comments
-    .replace(/\/\*[\s\S]*?\*\//g, ""); // Remove multi-line comments
-  // Remove trailing commas before closing brackets/braces
-  withoutComments = withoutComments.replace(/,(\s*[}\]])/g, "$1");
-  return JSON.parse(withoutComments);
+  return JSON.parse(stripTrailingCommas(stripComments(text)));
 }
 
 const config = parseJsonc(await readFile("wrangler.jsonc", "utf8"));
