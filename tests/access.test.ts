@@ -1,96 +1,59 @@
-import { clearAccessKeyCache, verifyAccessRequest } from "../src/auth/access";
+import { verifyAdminIp } from "../src/auth/access";
 import type { Env } from "../src/config";
-import { bytesToBase64Url } from "../src/utils/ids";
 import { FakeD1Database } from "./helpers/fake-d1";
 
-function encode(value: unknown): string {
-  return bytesToBase64Url(new TextEncoder().encode(JSON.stringify(value)));
+function createAdminEnv(allowedIps = "92.71.54.161"): Env {
+  return {
+    DB: new FakeD1Database() as unknown as D1Database,
+    ADMIN_ALLOWED_IPS: allowedIps,
+  };
 }
 
-async function signedToken(
-  privateKey: CryptoKey,
-  claims: Record<string, unknown> = {},
-): Promise<string> {
-  const now = Math.floor(Date.now() / 1000);
-  const header = encode({ alg: "RS256", kid: "test-key", typ: "JWT" });
-  const payload = encode({
-    aud: "test-audience",
-    email: "joe@example.test",
-    exp: now + 300,
-    iat: now,
-    iss: "https://test-team.cloudflareaccess.com",
-    sub: "subject-123",
-    ...claims,
-  });
-  const signature = await crypto.subtle.sign(
-    "RSASSA-PKCS1-v1_5",
-    privateKey,
-    new TextEncoder().encode(`${header}.${payload}`),
-  );
-  return `${header}.${payload}.${bytesToBase64Url(new Uint8Array(signature))}`;
-}
-
-describe("Cloudflare Access verification", () => {
-  let privateKey: CryptoKey;
-  let publicJwk: JsonWebKey;
-  let env: Env;
-
-  beforeAll(async () => {
-    const pair = await crypto.subtle.generateKey(
-      {
-        name: "RSASSA-PKCS1-v1_5",
-        modulusLength: 2048,
-        publicExponent: new Uint8Array([1, 0, 1]),
-        hash: "SHA-256",
-      },
-      true,
-      ["sign", "verify"],
-    );
-    privateKey = pair.privateKey;
-    publicJwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
-    env = {
-      DB: new FakeD1Database() as unknown as D1Database,
-      ADMIN_ACCESS_TEAM_DOMAIN: "test-team.cloudflareaccess.com",
-      ADMIN_ACCESS_AUDIENCE: "test-audience",
-    };
-  });
-
-  beforeEach(() => clearAccessKeyCache());
-
-  it("verifies signature, issuer, audience, and expiry", async () => {
-    const token = await signedToken(privateKey);
+describe("admin source-IP verification", () => {
+  it("accepts the configured VPN egress IP", async () => {
     const request = new Request("https://hottub.joekane.org/account", {
-      headers: { "Cf-Access-Jwt-Assertion": token },
+      headers: { "CF-Connecting-IP": "92.71.54.161" },
     });
-    const fetcher = vi.fn(
-      async () =>
-        new Response(JSON.stringify({ keys: [{ ...publicJwk, kid: "test-key", alg: "RS256" }] }), {
-          headers: { "Content-Type": "application/json" },
-        }),
-    ) as typeof fetch;
-    const identity = await verifyAccessRequest(request, env, fetcher);
-    expect(identity.email).toBe("joe@example.test");
+
+    const identity = await verifyAdminIp(request, createAdminEnv());
+
+    expect(identity.sourceIp).toBe("92.71.54.161");
+    expect(identity.subject).toBe("92.71.54.161");
     expect(identity.userKey).toHaveLength(43);
   });
 
-  it("rejects missing and invalid-audience assertions", async () => {
-    await expect(
-      verifyAccessRequest(new Request("https://hottub.joekane.org/account"), env),
-    ).rejects.toMatchObject({ status: 401, code: "access_required" });
-
-    const token = await signedToken(privateKey, { aud: "wrong-audience" });
+  it("supports an intentional comma-separated allowlist", async () => {
     const request = new Request("https://hottub.joekane.org/account", {
-      headers: { "Cf-Access-Jwt-Assertion": token },
+      headers: { "CF-Connecting-IP": "2001:db8::10" },
     });
-    const fetcher = vi.fn(
-      async () =>
-        new Response(JSON.stringify({ keys: [{ ...publicJwk, kid: "test-key" }] }), {
-          headers: { "Content-Type": "application/json" },
-        }),
-    ) as typeof fetch;
-    await expect(verifyAccessRequest(request, env, fetcher)).rejects.toMatchObject({
-      status: 401,
-      code: "invalid_access_token",
+
+    const identity = await verifyAdminIp(request, createAdminEnv("92.71.54.161, 2001:db8::10"));
+
+    expect(identity.sourceIp).toBe("2001:db8::10");
+  });
+
+  it("rejects a missing or different source IP", async () => {
+    await expect(
+      verifyAdminIp(new Request("https://hottub.joekane.org/account"), createAdminEnv()),
+    ).rejects.toMatchObject({ status: 403, code: "admin_ip_forbidden" });
+
+    const request = new Request("https://hottub.joekane.org/account", {
+      headers: { "CF-Connecting-IP": "203.0.113.20" },
+    });
+    await expect(verifyAdminIp(request, createAdminEnv())).rejects.toMatchObject({
+      status: 403,
+      code: "admin_ip_forbidden",
+    });
+  });
+
+  it("fails closed when the allowlist is empty", async () => {
+    const request = new Request("https://hottub.joekane.org/account", {
+      headers: { "CF-Connecting-IP": "92.71.54.161" },
+    });
+
+    await expect(verifyAdminIp(request, createAdminEnv("  "))).rejects.toMatchObject({
+      status: 503,
+      code: "admin_ip_not_configured",
     });
   });
 });

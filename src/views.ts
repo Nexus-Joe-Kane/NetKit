@@ -1,4 +1,4 @@
-import type { AccessIdentity } from "./auth/access";
+import type { AdminIdentity } from "./auth/access";
 import type { Env } from "./config";
 import { DEFAULT_SOURCE_NAME } from "./config";
 import { listProviders } from "./providers/registry";
@@ -50,9 +50,7 @@ export function rootPage(env: Env): string {
       </article>`,
     )
     .join("");
-  const accessConfigured = Boolean(
-    env.ADMIN_ACCESS_TEAM_DOMAIN?.trim() && env.ADMIN_ACCESS_AUDIENCE?.trim(),
-  );
+  const adminIpConfigured = Boolean(env.ADMIN_ALLOWED_IPS?.trim());
 
   return page(
     sourceName,
@@ -68,7 +66,7 @@ export function rootPage(env: Env): string {
     <section class="summary">
       <div><span>Source URL</span><code>${escapeHtml(baseUrl.toString().replace(/\/$/u, ""))}</code></div>
       <div><span>Enabled providers</span><strong>${providers.filter((provider) => provider.status === "active").length} of ${providers.length}</strong></div>
-      <div><span>Admin authentication</span><strong>${accessConfigured ? "Cloudflare Access" : "Not configured"}</strong></div>
+      <div><span>Admin restriction</span><strong>${adminIpConfigured ? "VPN IP allowlist" : "Not configured"}</strong></div>
     </section>
     <section>
       <div class="section-heading">
@@ -86,7 +84,7 @@ export function rootPage(env: Env): string {
 
 export function accountPage(
   env: Env,
-  identity: AccessIdentity,
+  identity: AdminIdentity,
   connections: ConnectionSummary[],
   csrfToken: string,
 ): string {
@@ -131,9 +129,9 @@ export function accountPage(
     "Account portal",
     `<header class="compact">
       <a class="back" href="/">← Source home</a>
-      <p class="eyebrow">Protected by Cloudflare Access</p>
+      <p class="eyebrow">Restricted to the approved VPN IP</p>
       <h1>Account portal</h1>
-      <p class="lead">Signed in as ${escapeHtml(identity.email ?? identity.subject)}. Stored secrets are never rendered here.</p>
+      <p class="lead">Connected from approved address ${escapeHtml(identity.sourceIp)}. Stored secrets are never rendered here.</p>
     </header>
     <section>
       <div class="section-heading"><p class="eyebrow">Connections</p><h2>Provider accounts</h2></div>
@@ -150,7 +148,7 @@ export function accountPage(
       <p class="note">Local history, favourites, playlists, and followed creators are private D1 records. They do not synchronise back to providers.</p>
     </section>
     <footer>
-      <a href="/cdn-cgi/access/logout">Sign out</a>
+      <a href="/">Source home</a>
       <span>${escapeHtml(env.SOURCE_NAME?.trim() || DEFAULT_SOURCE_NAME)}</span>
     </footer>`,
   );

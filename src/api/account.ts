@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { verifyAccessRequest } from "../auth/access";
+import { verifyAdminIp } from "../auth/access";
 import { csrfCookie, newCsrfToken, requireCsrf } from "../auth/csrf";
 import type { RequestContext } from "../config";
 import { getProvider } from "../providers/registry";
@@ -15,11 +15,8 @@ const disconnectSchema = z.object({
   providerId: z.string().min(1).max(64),
 });
 
-export async function accountHandler(
-  context: RequestContext,
-  fetcher: typeof fetch = fetch,
-): Promise<Response> {
-  const identity = await verifyAccessRequest(context.request, context.env, fetcher);
+export async function accountHandler(context: RequestContext): Promise<Response> {
+  const identity = await verifyAdminIp(context.request, context.env);
   await enforceRateLimit(context, "account", 120, 60, identity.userKey);
   const connections = await new ConnectionRepository(context.env.DB).list(identity.userKey);
   const csrfToken = newCsrfToken();
@@ -28,11 +25,8 @@ export async function accountHandler(
   });
 }
 
-export async function disconnectHandler(
-  context: RequestContext,
-  fetcher: typeof fetch = fetch,
-): Promise<Response> {
-  const identity = await verifyAccessRequest(context.request, context.env, fetcher);
+export async function disconnectHandler(context: RequestContext): Promise<Response> {
+  const identity = await verifyAdminIp(context.request, context.env);
   await enforceRateLimit(context, "account-write", 30, 60, identity.userKey);
   const baseUrl = getPublicBaseUrl(context.env.PUBLIC_BASE_URL);
   requireSameOrigin(context.request, baseUrl.origin);

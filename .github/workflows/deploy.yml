@@ -20,8 +20,7 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       TOKEN_ENCRYPTION_KEYS: ${{ secrets.TOKEN_ENCRYPTION_KEYS }}
-      ADMIN_ACCESS_TEAM_DOMAIN: ${{ vars.ADMIN_ACCESS_TEAM_DOMAIN }}
-      ADMIN_ACCESS_AUDIENCE: ${{ vars.ADMIN_ACCESS_AUDIENCE }}
+      ADMIN_ALLOWED_IPS: ${{ vars.ADMIN_ALLOWED_IPS }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5

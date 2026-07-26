@@ -2,8 +2,7 @@ export interface Env {
   DB: D1Database;
   PUBLIC_BASE_URL?: string;
   SOURCE_NAME?: string;
-  ADMIN_ACCESS_TEAM_DOMAIN?: string;
-  ADMIN_ACCESS_AUDIENCE?: string;
+  ADMIN_ALLOWED_IPS?: string;
   TOKEN_ENCRYPTION_KEYS?: string;
 }
 

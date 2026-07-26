@@ -18,14 +18,13 @@ source control.
 - Permission to create Workers, D1 databases, and Worker custom domains
 - GitHub Actions enabled for the repository
 - Node.js 22 or newer for local work
-- A Cloudflare Zero Trust team if `/account` and `/api/local/*` will be used
 
 Cloudflare's relevant primary references are:
 
 - [Worker custom domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/)
 - [Workers with GitHub Actions](https://developers.cloudflare.com/workers/ci-cd/external-cicd/github-actions/)
 - [D1 migrations](https://developers.cloudflare.com/d1/reference/migrations/)
-- [Validating Access JWTs](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/)
+- [Cloudflare visitor location headers](https://developers.cloudflare.com/fundamentals/reference/http-request-headers/#cf-connecting-ip)
 
 ## GitHub configuration
 
@@ -45,35 +44,47 @@ Add these repository or `production` environment secrets:
 | `CLOUDFLARE_API_TOKEN`  | Yes      | Provisions D1, applies migrations, and deploys |
 | `TOKEN_ENCRYPTION_KEYS` | No today | Encrypts future authorised provider tokens     |
 
-Add these Actions variables when enabling private routes:
+The committed Wrangler configuration already allows the fixed VPN egress address
+`92.71.54.161`. An optional Actions variable can override it:
 
-| Variable                   | Example                        | Purpose                                    |
-| -------------------------- | ------------------------------ | ------------------------------------------ |
-| `ADMIN_ACCESS_TEAM_DOMAIN` | `example.cloudflareaccess.com` | Expected Access token issuer and JWKS host |
-| `ADMIN_ACCESS_AUDIENCE`    | Access application AUD tag     | Expected JWT audience                      |
+| Variable            | Required | Example                     | Purpose                                    |
+| ------------------- | -------- | --------------------------- | ------------------------------------------ |
+| `ADMIN_ALLOWED_IPS` | No       | `92.71.54.161,2001:db8::10` | Exact comma-separated VPN egress addresses |
 
 The workflow uses GitHub's `production` environment. Add reviewers or branch
 rules there if deployment needs a human gate.
 
-## Cloudflare Access
+## Private-route IP allowlist
 
-Create one self-hosted Access application for:
+The Worker restricts:
 
 ```text
-hottub.joekane.org/account*
-hottub.joekane.org/api/local/*
+/account*
+/api/local/*
 ```
 
-Use an identity policy appropriate for the operator. Copy the application AUD
-tag and team domain into the GitHub variables above.
+It compares Cloudflare's `CF-Connecting-IP` header with `ADMIN_ALLOWED_IPS`.
+Only an exact match is accepted. `X-Forwarded-For`, query parameters, cookies,
+and client-supplied identity headers are not trusted for this decision.
 
-Access is enforced twice:
+For the default configuration, the browsing device must send its traffic through
+the fixed VPN server so Cloudflare sees:
 
-1. Cloudflare's edge policy blocks unauthorised traffic.
-2. The Worker validates the assertion header and claims.
+```text
+92.71.54.161
+```
 
-Without both variables, private routes deliberately return
-`503 access_not_configured`; public Hot Tub routes continue to work.
+Requests from any other address return `403 admin_ip_forbidden`. An empty
+allowlist fails closed with `503 admin_ip_not_configured`. Public Hot Tub routes
+remain available from every address.
+
+Do not create a Cloudflare Access application over these paths. If one already
+exists, remove those destinations; otherwise Access will intercept the request
+before the Worker's IP check.
+
+This authenticates the VPN egress, not an individual person. Anyone able to
+route through that VPN server receives the same admin access, so protect the VPN
+credentials and server accordingly.
 
 ## Automatic deployment
 
@@ -83,7 +94,8 @@ On each push to `main`, `.github/workflows/deploy.yml`:
 2. runs formatting, lint, type checking, unit tests, and a Wrangler dry-run;
 3. lists D1 databases using the Cloudflare API;
 4. creates `hot-tub` only if it does not exist;
-5. writes `.generated.wrangler.jsonc` with the real D1 UUID and Access values;
+5. writes `.generated.wrangler.jsonc` with the real D1 UUID and any optional IP
+   allowlist override;
 6. applies all remote migrations;
 7. sets `TOKEN_ENCRYPTION_KEYS` when the secret is present;
 8. deploys the Worker and custom domain.
@@ -138,8 +150,8 @@ printf '%s' "$TOKEN_ENCRYPTION_KEYS" |
 ```
 
 The preparation script reads `CLOUDFLARE_ACCOUNT_ID` and
-`CLOUDFLARE_API_TOKEN`; optional `ADMIN_ACCESS_TEAM_DOMAIN`,
-`ADMIN_ACCESS_AUDIENCE`, and `D1_DATABASE_NAME` override defaults.
+`CLOUDFLARE_API_TOKEN`; optional `ADMIN_ALLOWED_IPS` and `D1_DATABASE_NAME`
+override defaults.
 
 ## Local development and D1
 
@@ -177,8 +189,8 @@ Update both values in `wrangler.jsonc`:
 }
 ```
 
-Then update the Cloudflare Access application domain and deploy. The landing
-page and `hottub://source` link derive from `PUBLIC_BASE_URL`.
+Then deploy. The landing page and `hottub://source` link derive from
+`PUBLIC_BASE_URL`.
 
 ## Migration operations
 
@@ -214,8 +226,17 @@ curl -X POST https://hottub.joekane.org/api/videos \
 ```
 
 The last request should return HTTP 200 with no items and an honest
-`pageInfo.error`. `/account` should redirect through Access at the edge and only
-render after a valid assertion.
+`pageInfo.error`.
+
+Test the private route twice:
+
+```bash
+# Off the VPN: expected HTTP 403.
+curl -i https://hottub.joekane.org/account
+
+# Connected through the fixed VPN: expected HTTP 200.
+curl -i https://hottub.joekane.org/account
+```
 
 ## Troubleshooting
 
@@ -223,13 +244,17 @@ render after a valid assertion.
   belongs to `CLOUDFLARE_ACCOUNT_ID`.
 - **Custom domain rejected:** confirm `joekane.org` is in the same account and
   the token has zone route permission.
-- **Private route returns 503:** set both Access variables and redeploy.
-- **Private route returns 401 behind Access:** verify the AUD tag belongs to the
-  exact Access application and the team domain has no scheme or path.
+- **Private route returns 403 while connected to the VPN:** confirm the VPN is
+  full-tunnel for this hostname and that its visible IPv4 is exactly
+  `92.71.54.161`. Disable IPv6 for the test if it bypasses the IPv4 VPN exit.
+- **Private route returns 503:** `ADMIN_ALLOWED_IPS` was overridden with an empty
+  value or removed from the generated configuration; restore it and redeploy.
+- **Private route shows a Cloudflare login:** remove the old Access application
+  destinations for `/account*` and `/api/local/*`.
 - **Eporner returns an empty page with an error:** review Worker logs and the
   provider's API and regional availability. The 2026-07-26 build-environment
   smoke test received a provider `Site Unavailable` HTML response; the adapter
   intentionally rejected it rather than parsing HTML or bypassing a restriction.
   Upstream details are not exposed to clients.
 - **Source does not add:** confirm `/api/status` accepts POST over the public
-  hostname and that Access does not cover `/api/*` broadly.
+  hostname and that no edge rule covers `/api/*` broadly.

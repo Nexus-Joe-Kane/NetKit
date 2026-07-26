@@ -13,8 +13,8 @@ flowchart TD
   Protocol --> Registry["Provider registry"]
   Registry --> Eporner["Eporner API v2"]
   Registry --> Stubs["Restricted adapters"]
-  Router --> Access["Access-protected account/local APIs"]
-  Access --> D1["Cloudflare D1"]
+  Router --> Private["VPN-IP-protected account/local APIs"]
+  Private --> D1["Cloudflare D1"]
   Protocol --> Cache["Cloudflare Cache API"]
 ```
 
@@ -105,20 +105,22 @@ D1 implements fixed-window counters:
 | Local writes   |  60 requests/minute/account |
 
 Public traffic fails open if the counter store is unavailable, preserving source
-availability. Authenticated traffic fails closed because a missing account rate
-limit weakens a private-data boundary. Stored keys hash the IP or Access-derived
-user identity.
+availability. Private traffic fails closed because a missing admin rate limit
+weakens a private-data boundary. Stored keys hash the public IP or stable
+single-admin identity.
 
 ### Authentication and local data
 
-Cloudflare Access performs the edge policy check. The Worker independently
-verifies the `Cf-Access-Jwt-Assertion` signature, issuer, audience, expiry,
-not-before time, algorithm, and key ID against the Access JWKS endpoint.
+The Worker checks Cloudflare's `CF-Connecting-IP` against the exact,
+comma-separated `ADMIN_ALLOWED_IPS` allowlist. Production defaults to the fixed
+VPN egress address `92.71.54.161`; other or missing addresses fail with `403`.
+Forwarded-IP headers are not used for this private-route decision.
 
-The D1 `user_key` is a SHA-256 digest of Access issuer and subject. Email is used
-only for display and is not the database identity. State-changing requests also
-require an exact same-origin `Origin` and a constant-time checked double-submit
-CSRF token stored in a secure, host-only, HTTP-only, SameSite=Strict cookie.
+The D1 `user_key` is a stable SHA-256 digest for the single operator, so a
+deliberate VPN-address change preserves local records. State-changing requests
+also require an exact same-origin `Origin` and a constant-time checked
+double-submit CSRF token stored in a secure, host-only, HTTP-only,
+SameSite=Strict cookie.
 
 Provider connection storage exists for future authorised OAuth/token adapters.
 Tokens are AES-256-GCM encrypted with context-bound additional authenticated
@@ -152,7 +154,7 @@ incremental sync.
 - All selected providers unavailable: valid empty result plus
   `pageInfo.error`.
 - D1 health failure: `/health` returns `503`.
-- Access absent or invalid: `401`; Access configuration absent: `503`.
+- Source IP not allowed: `403`; IP allowlist configuration absent: `503`.
 
 Stack traces, upstream bodies, fetch URLs, tokens, cookies, and viewing-history
 data are not returned or logged.

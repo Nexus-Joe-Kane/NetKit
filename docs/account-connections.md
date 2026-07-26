@@ -15,7 +15,7 @@ delegated account API suitable for this project. Therefore:
 The account infrastructure is deliberately ready for a future authorised
 adapter without pretending that such an adapter exists today.
 
-## Cloudflare Access
+## VPN IP allowlist
 
 Protect:
 
@@ -24,10 +24,13 @@ Protect:
 /api/local/*
 ```
 
-Set `ADMIN_ACCESS_TEAM_DOMAIN` and `ADMIN_ACCESS_AUDIENCE` as described in
-[Deployment](deployment.md). Cloudflare handles the interactive identity flow;
-the Worker validates every Access JWT and derives a non-reversible per-user D1
-key.
+The committed `ADMIN_ALLOWED_IPS` value is `92.71.54.161`. The Worker compares
+that value with Cloudflare's exact `CF-Connecting-IP` header on every private
+request. No Cloudflare Access application or login page is required.
+
+The client must route through the fixed VPN server. Requests from another
+address return `403`, while the public Hot Tub source routes remain available.
+See [Deployment](deployment.md) before overriding the allowlist.
 
 `GET /account` displays only:
 
@@ -44,8 +47,8 @@ model and never rendered.
 
 ## Local library
 
-Local data is private D1 data keyed to the Access subject. It is not imported
-from or pushed back to any provider.
+Local data is private D1 data keyed to a stable, hashed single-admin identity. It
+is not imported from or pushed back to any provider.
 
 | Method | Path                            | Behavior                                         |
 | ------ | ------------------------------- | ------------------------------------------------ |
@@ -75,8 +78,8 @@ from becoming arbitrary URL storage.
 
 ## Example local history write
 
-First obtain a CSRF token from the Access-protected session endpoint. A browser
-receives the matching cookie:
+While connected through the allowed VPN, first obtain a CSRF token from the
+private session endpoint. A browser receives the matching cookie:
 
 ```http
 GET /api/local/session
@@ -110,7 +113,7 @@ This records local progress only.
 `provider_connections` stores:
 
 - an opaque row ID;
-- hashed Access user key;
+- hashed single-admin user key;
 - provider ID;
 - encrypted access and refresh token envelopes;
 - token expiry;

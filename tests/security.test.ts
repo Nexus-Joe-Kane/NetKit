@@ -25,13 +25,26 @@ describe("HTTP security", () => {
     expect(() => requireCsrf(request, `${token}x`)).toThrow("CSRF");
   });
 
-  it("protects the account portal when Access is not configured", async () => {
+  it("protects the account portal outside the allowed VPN address", async () => {
     const response = await handleRequest(
       new Request("https://hottub.joekane.org/account"),
       createEnv(),
       createExecutionContext(),
     );
-    expect(response.status).toBe(503);
+    expect(response.status).toBe(403);
     expect(await response.text()).not.toContain("stack");
+  });
+
+  it("serves the account portal from the allowed VPN address", async () => {
+    const response = await handleRequest(
+      new Request("https://hottub.joekane.org/account", {
+        headers: { "CF-Connecting-IP": "192.0.2.10" },
+      }),
+      createEnv(),
+      createExecutionContext(),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("Restricted to the approved VPN IP");
   });
 });

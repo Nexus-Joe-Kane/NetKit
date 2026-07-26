@@ -6,6 +6,7 @@ export function createEnv(database = new FakeD1Database()): Env {
     DB: database as unknown as D1Database,
     PUBLIC_BASE_URL: "https://hottub.joekane.org",
     SOURCE_NAME: "Test Hot Tub Source",
+    ADMIN_ALLOWED_IPS: "192.0.2.10",
   };
 }
 
