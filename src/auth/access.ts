@@ -25,7 +25,7 @@ function configuredAllowedIps(env: Env): Set<string> {
   return allowedIps;
 }
 
-export async function verifyAdminIp(request: Request, env: Env): Promise<AdminIdentity> {
+export function verifyAllowedSourceIp(request: Request, env: Env): string {
   const allowedIps = configuredAllowedIps(env);
   const sourceIp = request.headers.get("CF-Connecting-IP")?.trim();
   if (!sourceIp || !allowedIps.has(sourceIp)) {
@@ -35,7 +35,11 @@ export async function verifyAdminIp(request: Request, env: Env): Promise<AdminId
       "admin_ip_forbidden",
     );
   }
+  return sourceIp;
+}
 
+export async function verifyAdminIp(request: Request, env: Env): Promise<AdminIdentity> {
+  const sourceIp = verifyAllowedSourceIp(request, env);
   return {
     sourceIp,
     subject: sourceIp,

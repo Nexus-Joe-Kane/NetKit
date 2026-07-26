@@ -66,7 +66,7 @@ export function rootPage(env: Env): string {
     <section class="summary">
       <div><span>Source URL</span><code>${escapeHtml(baseUrl.toString().replace(/\/$/u, ""))}</code></div>
       <div><span>Browsable providers</span><strong>${providers.filter((provider) => provider.capabilities.publicBrowse).length} of ${providers.length}</strong></div>
-      <div><span>Admin restriction</span><strong>${adminIpConfigured ? "VPN IP allowlist" : "Not configured"}</strong></div>
+      <div><span>Source access</span><strong>${adminIpConfigured ? "VPN IP only" : "Not configured"}</strong></div>
     </section>
     <section>
       <div class="section-heading">

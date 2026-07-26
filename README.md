@@ -17,6 +17,9 @@ Add it to Hot Tub with:
 hottub://source?url=https%3A%2F%2Fhottub.joekane.org
 ```
 
+The iPhone must route this hostname through the VPN so Cloudflare sees
+`92.71.54.161`. Every source route returns `403` from any other address.
+
 ## Provider support
 
 | Provider       | Public browse | Search | Creators | Playback hand-off | Account connection | Premium entitlement |
@@ -48,8 +51,8 @@ DRM circumvention, paywall bypasses, or password collection.
 - Parallel public-provider fallbacks and last-known-good catalogue responses
 - Strict request and response validation with Zod
 - Public Cache API caching and D1-backed per-IP/per-account rate limits
-- Exact Cloudflare source-IP verification for `/account` and `/api/local/*`,
-  preconfigured for the fixed VPN egress address `92.71.54.161`
+- Exact Cloudflare source-IP verification before every route, preconfigured for
+  the fixed VPN egress address `92.71.54.161`
 - AES-256-GCM token storage with key rotation support for future authorised
   provider connections
 - Optional private D1 history, favourites, playlists, and followed creators for
@@ -69,11 +72,11 @@ still controlled by the provider and the user's region.
 
 | Method     | Path                            | Access                                        | Purpose                                                    |
 | ---------- | ------------------------------- | --------------------------------------------- | ---------------------------------------------------------- |
-| `GET`      | `/`                             | Public                                        | Source landing page and install link                       |
-| `GET`      | `/health`                       | Public                                        | Worker, D1, and adapter health                             |
-| `POST`     | `/api/status`                   | Public                                        | Source/channel discovery                                   |
-| `POST`     | `/api/videos`                   | Public                                        | Browse and search                                          |
-| `POST`     | `/api/uploaders`                | Public                                        | Creator profiles for adapters with stable creator metadata |
+| `GET`      | `/`                             | Approved VPN IP                               | Source landing page and install link                       |
+| `GET`      | `/health`                       | Approved VPN IP                               | Worker, D1, and adapter health                             |
+| `POST`     | `/api/status`                   | Approved VPN IP                               | Source/channel discovery                                   |
+| `POST`     | `/api/videos`                   | Approved VPN IP                               | Browse and search                                          |
+| `POST`     | `/api/uploaders`                | Approved VPN IP                               | Creator profiles for adapters with stable creator metadata |
 | `GET`      | `/account`                      | Approved VPN IP                               | Connection metadata; never renders secrets                 |
 | `POST`     | `/account/disconnect`           | Approved VPN IP + origin + CSRF               | Remove a stored connection                                 |
 | `GET/POST` | `/api/local/history`            | Approved VPN IP; writes require origin + CSRF | Local history                                              |
@@ -96,11 +99,14 @@ npm run dev
 Then verify:
 
 ```bash
-curl http://localhost:8787/health
+curl http://localhost:8787/health \
+  -H 'CF-Connecting-IP: 92.71.54.161'
 curl -X POST http://localhost:8787/api/status \
+  -H 'CF-Connecting-IP: 92.71.54.161' \
   -H 'Content-Type: application/json' \
   -d '{}'
 curl -X POST http://localhost:8787/api/videos \
+  -H 'CF-Connecting-IP: 92.71.54.161' \
   -H 'Content-Type: application/json' \
   -d '{"channel":"eporner","page":1,"pageSize":10}'
 ```
@@ -131,8 +137,7 @@ Configure these GitHub Actions secrets:
 - `CLOUDFLARE_API_TOKEN`
 - `TOKEN_ENCRYPTION_KEYS` only when an authorised provider connection is added
 
-The committed configuration already restricts the account and local-library
-routes to:
+The committed configuration already restricts the entire source to:
 
 ```text
 92.71.54.161

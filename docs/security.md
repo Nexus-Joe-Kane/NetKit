@@ -4,16 +4,16 @@
 
 This Worker treats public metadata retrieval, private account data, and media
 playback as separate trust domains. It fetches only fixed public catalogue
-routes, keeps private data behind an exact VPN egress-IP allowlist, and never
-acts as a generic URL or media proxy.
+routes, places the entire source behind an exact VPN egress-IP allowlist, and
+never acts as a generic URL or media proxy.
 
 The main security boundaries are:
 
 | Boundary                  | Control                                                                           |
 | ------------------------- | --------------------------------------------------------------------------------- |
+| Source access             | Exact in-Worker `CF-Connecting-IP` allowlist for the fixed VPN egress             |
 | Untrusted Hot Tub request | Body-size limit, content-type allowlist, Zod validation                           |
 | Provider response         | Timeout, hostname allowlist, bounded redirects, byte limit, content/schema checks |
-| Private account data      | Exact in-Worker `CF-Connecting-IP` allowlist for the fixed VPN egress             |
 | Browser state change      | Same-origin check plus double-submit CSRF token                                   |
 | Stored provider secret    | AES-256-GCM with context binding and versioned key ID                             |
 | Public cache              | Only anonymous browse responses; complete request included in key                 |
@@ -55,11 +55,11 @@ the common twelve-second ceiling. HTML responses are rejected when they contain
 CAPTCHA, access-denied, or browser-verification markers. Adding a new adapter
 requires a new narrow allowlist; a user-controlled hostname is never acceptable.
 
-## Private-route access control
+## Whole-source access control
 
-`/account*` and `/api/local/*` compare the Cloudflare-provided
-`CF-Connecting-IP` value with the comma-separated `ADMIN_ALLOWED_IPS`
-configuration. Production defaults to the fixed VPN address `92.71.54.161`.
+Every request compares the Cloudflare-provided `CF-Connecting-IP` value with the
+comma-separated `ADMIN_ALLOWED_IPS` configuration before route matching.
+Production defaults to the fixed VPN address `92.71.54.161`.
 
 The comparison is exact and fails closed:
 
@@ -73,8 +73,11 @@ sets `CF-Connecting-IP` at its edge. It authenticates possession of the VPN path
 not a human identity. Anyone able to egress through the approved VPN server
 receives the same access.
 
-Private D1 records use a stable, hashed single-admin key. Deliberately changing
-the allowed VPN address therefore does not orphan the existing local library.
+This means Hot Tub browsing also requires the VPN; status, video, uploader,
+landing-page, asset, health, unknown-path, and account/local requests all fail
+closed outside it. Private D1 records use a stable, hashed single-admin key, so
+deliberately changing the allowed VPN address does not orphan the existing local
+library.
 
 ## CSRF, cookies, and origins
 
@@ -203,9 +206,9 @@ that capability remains false even if public catalogue browsing is available.
   at a window boundary.
 - Hot Tub may perform its own extraction from a returned public watch page when
   `formats` is absent; that behavior is outside this Worker.
-- A VPN credential or server compromise gives the attacker private-route
-  access. Keep VPN credentials narrow, patch the server, and review its logs.
-- A changed VPN egress address causes private routes to fail closed until
+- A VPN credential or server compromise gives the attacker whole-source access.
+  Keep VPN credentials narrow, patch the server, and review its logs.
+- A changed VPN egress address causes the entire source to fail closed until
   `ADMIN_ALLOWED_IPS` is updated. IPv6 traffic that bypasses the IPv4 tunnel is
   correctly rejected.
 - Public API metadata can still describe adult content. Operators must apply

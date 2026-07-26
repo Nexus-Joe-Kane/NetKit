@@ -26,22 +26,22 @@ delegated account API suitable for this project. Therefore:
 The account infrastructure is deliberately ready for a future authorised
 adapter without pretending that such an adapter exists today.
 
-## VPN IP allowlist
+## Whole-source VPN IP allowlist
 
-Protect:
+The allowlist protects every route:
 
 ```text
-/account*
-/api/local/*
+/*
 ```
 
 The committed `ADMIN_ALLOWED_IPS` value is `92.71.54.161`. The Worker compares
-that value with Cloudflare's exact `CF-Connecting-IP` header on every private
+that value with Cloudflare's exact `CF-Connecting-IP` header before routing any
 request. No Cloudflare Access application or login page is required.
 
 The client must route through the fixed VPN server. Requests from another
-address return `403`, while the public Hot Tub source routes remain available.
-See [Deployment](deployment.md) before overriding the allowlist.
+address return `403`, including Hot Tub status, browse, search, uploader,
+landing-page, asset, and health requests. See [Deployment](deployment.md) before
+overriding the allowlist.
 
 `GET /account` displays only:
 

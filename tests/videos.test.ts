@@ -209,7 +209,10 @@ describe("POST /api/videos", () => {
   it("rejects malformed request bodies and unknown channels", async () => {
     const malformed = new Request("https://hottub.joekane.org/api/videos", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "CF-Connecting-IP": "192.0.2.10",
+        "Content-Type": "application/json",
+      },
       body: "{",
     });
     const malformedResponse = await handleRequest(malformed, createEnv(), createExecutionContext());

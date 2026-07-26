@@ -28,6 +28,10 @@ POST /api/uploaders   (optional)
 This Worker implements all three. `/`, `/health`, `/account`, and `/api/local/*`
 are project-specific web endpoints and are not consumed by Hot Tub.
 
+Every protocol and project-specific route is restricted to the exact configured
+Cloudflare source IP. Hot Tub must therefore use the source while the device is
+routed through the fixed VPN egress `92.71.54.161`.
+
 ## Status
 
 `POST /api/status` returns a server with six channels:

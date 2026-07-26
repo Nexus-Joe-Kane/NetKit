@@ -1,7 +1,7 @@
 PUBLIC_BASE_URL=https://hottub.joekane.org
 SOURCE_NAME=Joe's Unified Hot Tub Source
 
-# Required to use /account and /api/local/*.
+# Required to access any route, including the Hot Tub API.
 # Comma-separated exact egress IPs. Production defaults to Joe's fixed VPN IP.
 ADMIN_ALLOWED_IPS=92.71.54.161
 

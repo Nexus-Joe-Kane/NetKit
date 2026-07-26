@@ -8,12 +8,13 @@ provider-specific URLs, capability declarations, and normalisation.
 
 ```mermaid
 flowchart TD
-  Client["Hot Tub / browser"] --> Router["Worker router"]
+  Client["Hot Tub / browser"] --> Gate["Exact VPN IP gate"]
+  Gate --> Router["Worker router"]
   Router --> Protocol["Hot Tub API handlers"]
   Protocol --> Registry["Provider registry"]
   Registry --> Federation["Hot Tub-compatible sources"]
   Registry --> Catalogues["Provider API / public HTML"]
-  Router --> Private["VPN-IP-protected account/local APIs"]
+  Router --> Private["Account/local APIs"]
   Private --> D1["Cloudflare D1"]
   Protocol --> Cache["Cloudflare Cache API"]
 ```
@@ -25,10 +26,12 @@ to Hot Tub; the Worker does not download video content.
 
 ### Request routing
 
-`src/router.ts` maps an explicit method/path pair to each handler. Unknown paths
-return `404`; known paths with the wrong method return `405`. The outer boundary
-adds a correlation ID, security headers, structured completion logs, and a
-sanitised error envelope.
+`src/router.ts` verifies the exact Cloudflare source IP before matching a route.
+This covers the landing page, assets, health, Hot Tub APIs, account/local APIs,
+unknown paths, and unsupported methods. An approved request then receives `404`
+for an unknown path or `405` for a known path with the wrong method. The outer
+boundary adds a correlation ID, security headers, structured completion logs,
+and a sanitised error envelope.
 
 ### Hot Tub protocol
 
@@ -122,7 +125,7 @@ single-admin identity.
 The Worker checks Cloudflare's `CF-Connecting-IP` against the exact,
 comma-separated `ADMIN_ALLOWED_IPS` allowlist. Production defaults to the fixed
 VPN egress address `92.71.54.161`; other or missing addresses fail with `403`.
-Forwarded-IP headers are not used for this private-route decision.
+Forwarded-IP headers are not used for this whole-source decision.
 
 The D1 `user_key` is a stable SHA-256 digest for the single operator, so a
 deliberate VPN-address change preserves local records. State-changing requests

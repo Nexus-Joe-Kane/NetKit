@@ -11,6 +11,7 @@ import {
 import { statusHandler } from "./api/status";
 import { uploadersHandler } from "./api/uploaders";
 import { videosHandler } from "./api/videos";
+import { verifyAllowedSourceIp } from "./auth/access";
 import type { Env, RequestContext } from "./config";
 import { HttpError } from "./utils/errors";
 import { applySecurityHeaders, cssResponse, errorResponse, htmlResponse } from "./utils/http";
@@ -58,6 +59,7 @@ export async function handleRequest(
   const context: RequestContext = { env, execution, request, requestId };
   let response: Response;
   try {
+    verifyAllowedSourceIp(request, env);
     const handler = route(request.method, url.pathname);
     if (!handler) {
       const knownPath = route("GET", url.pathname) || route("POST", url.pathname);
