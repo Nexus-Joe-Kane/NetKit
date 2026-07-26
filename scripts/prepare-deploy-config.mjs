@@ -42,7 +42,15 @@ if (!database) {
   console.log(`Using existing D1 database ${databaseName}.`);
 }
 
-const config = JSON.parse(await readFile("wrangler.jsonc", "utf8"));
+// Parse JSONC (JSON with Comments) by removing comments before parsing
+function parseJSONc(text) {
+  const withoutComments = text
+    .replace(/\/\/.*$/gm, '') // Remove single-line comments
+    .replace(/\/\*[\s\S]*?\*\//g, ''); // Remove multi-line comments
+  return JSON.parse(withoutComments);
+}
+
+const config = parseJSONc(await readFile("wrangler.jsonc", "utf8"));
 const binding = config.d1_databases?.find((candidate) => candidate.binding === "DB");
 if (!binding) {
   throw new Error("wrangler.jsonc does not contain the DB D1 binding.");
