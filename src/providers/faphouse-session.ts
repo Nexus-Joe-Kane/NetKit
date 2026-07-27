@@ -239,16 +239,66 @@ export async function signIn(
 
 export interface PlaybackProbe {
   status: number;
-  /** Distinct media URLs found, with query strings stripped. */
+  /** Distinct media URLs found, with every signed token redacted. */
   mediaUrls: string[];
   /** Internal API paths referenced by the page. */
   apiPaths: string[];
   /** Whether anything looked like a real stream rather than a preview asset. */
   foundStreamCandidate: boolean;
+  /** When the first candidate's signed URL stops working, if it says so. */
+  expiresAt?: string;
+  /** Minutes of life left in that token at the moment of probing. */
+  expiresInMinutes?: number;
+  /**
+   * Whether the CDN served the first candidate without the account session.
+   * This decides whether a format resolver can hand Hot Tub a plain URL or
+   * would have to ship the account's cookie to the client to make it play.
+   */
+  playableWithoutSession?: boolean;
   notes: string[];
 }
 
 const PREVIEW_MARKERS = /heat-preview|heatmap|preview_v\d|-\d{2,4}x\d{2,4}\.mp4/i;
+
+/**
+ * Signed CDN URLs carry `<token>,<expiry>` as a *path* segment rather than a
+ * query string, so stripping the query — which is what this used to do — left
+ * live tokens on screen. Everything that looks like a signature is replaced,
+ * and the expiry is reported separately as a plain timestamp.
+ */
+export function redactSignedUrl(url: string): string {
+  const withoutQuery = url.split("?")[0]!;
+  return withoutQuery.replace(/\/[A-Za-z0-9+/=_-]{16,},\d{9,}/g, "/<signed>");
+}
+
+/** Reads the `,<epoch-seconds>` expiry that follows a signature. */
+export function signedUrlExpiry(url: string): Date | undefined {
+  const seconds = Number(/,(\d{9,11})(?:[/,]|$)/.exec(url.split("?")[0]!)?.[1]);
+  if (!Number.isFinite(seconds) || seconds <= 0) return undefined;
+  const date = new Date(seconds * 1000);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+/**
+ * Asks the CDN for a single byte, deliberately without the account cookie.
+ *
+ * A signed URL that answers here is playable by the app directly. One that does
+ * not would only work if the source handed the account's session to the client,
+ * which is not something to do silently.
+ */
+async function reachableAnonymously(fetcher: typeof fetch, url: string): Promise<boolean> {
+  try {
+    const response = await fetcher(url, {
+      headers: { Range: "bytes=0-0" },
+      redirect: "follow",
+      signal: AbortSignal.timeout(SESSION_TIMEOUT_MS),
+    });
+    void response.body?.cancel();
+    return response.status === 200 || response.status === 206;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Reports what an entitled session actually exposes on a watch page.
@@ -267,7 +317,13 @@ export async function probePlayback(
   const notes: string[] = [];
 
   const rawMedia = new Set<string>();
-  for (const match of html.matchAll(/https?:\\?\/\\?\/[^"'\\\s<>]{10,400}?\.(?:mp4|m3u8|mpd)/gi)) {
+  // Escaped slashes are allowed *throughout* the path, not just after the
+  // scheme: these URLs are usually embedded in JSON, where every separator
+  // arrives as `\/`. Excluding backslashes from the path — as this originally
+  // did — truncated the match at the first one, so a JSON-embedded source was
+  // silently invisible even though the unescaping below assumed otherwise.
+  const mediaPattern = /https?:(?:\\?\/){2}(?:[^"'\\\s<>]|\\\/){10,400}?\.(?:mp4|m3u8|mpd)/gi;
+  for (const match of html.matchAll(mediaPattern)) {
     rawMedia.add(match[0].replace(/\\\//g, "/"));
   }
   const media = [...rawMedia];
@@ -291,12 +347,28 @@ export async function probePlayback(
     notes.push("The page still renders signed-out markers; the session may have expired.");
   }
 
+  const first = streams[0];
+  const expiry = first ? signedUrlExpiry(first) : undefined;
+  const expiresInMinutes = expiry
+    ? Math.round((expiry.getTime() - Date.now()) / 60_000)
+    : undefined;
+
+  // The decisive question for a format resolver, asked rather than assumed.
+  const playableWithoutSession = first ? await reachableAnonymously(fetcher, first) : undefined;
+  if (playableWithoutSession === true) {
+    notes.push("The CDN served the signed URL without the account session.");
+  } else if (playableWithoutSession === false) {
+    notes.push("The CDN refused the signed URL without the account session.");
+  }
+
   return {
     status,
-    // Query strings are dropped so signed tokens are never rendered or logged.
-    mediaUrls: streams.slice(0, 10).map((url) => url.split("?")[0]!),
+    mediaUrls: streams.slice(0, 10).map(redactSignedUrl),
     apiPaths,
     foundStreamCandidate: streams.length > 0,
+    expiresAt: expiry?.toISOString(),
+    expiresInMinutes,
+    playableWithoutSession,
     notes,
   };
 }

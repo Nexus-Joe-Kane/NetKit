@@ -57,7 +57,7 @@ async function authorizeWrite(context: RequestContext, submittedToken: string): 
 }
 
 function redirectToAccount(note?: string): Response {
-  const location = note ? `/account?note=${encodeURIComponent(note.slice(0, 300))}` : "/account";
+  const location = note ? `/account?note=${encodeURIComponent(note.slice(0, 600))}` : "/account";
   return new Response(null, {
     status: 303,
     headers: { "Cache-Control": "no-store", Location: location },
@@ -69,7 +69,7 @@ export async function accountHandler(context: RequestContext): Promise<Response>
   await enforceRateLimit(context, "account", 120, 60, identity.userKey);
   const connections = await new ConnectionRepository(context.env.DB).list(identity.userKey);
   const csrfToken = newCsrfToken();
-  const note = new URL(context.request.url).searchParams.get("note")?.slice(0, 300) ?? undefined;
+  const note = new URL(context.request.url).searchParams.get("note")?.slice(0, 600) ?? undefined;
   return htmlResponse(
     accountPage(context.env, identity, connections, csrfToken, {
       note,
