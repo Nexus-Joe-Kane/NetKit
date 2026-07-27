@@ -18,7 +18,9 @@
   "vars": {
     "PUBLIC_BASE_URL": "https://hottub.joekane.org",
     "SOURCE_NAME": "Joe's Unified Hot Tub Source",
-    "ADMIN_ALLOWED_IPS": "92.71.54.161",
+    // Exact VPN egress addresses. Any other source address gets a 403 on
+    // every route, including the Hot Tub protocol endpoints.
+    "ADMIN_ALLOWED_IPS": "92.71.54.161,177.7.57.50",
   },
   "d1_databases": [
     {

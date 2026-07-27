@@ -44,12 +44,16 @@ Add these repository or `production` environment secrets:
 | `CLOUDFLARE_API_TOKEN`  | Yes      | Provisions D1, applies migrations, and deploys |
 | `TOKEN_ENCRYPTION_KEYS` | No today | Encrypts future authorised provider tokens     |
 
-The committed Wrangler configuration already allows the fixed VPN egress address
-`92.71.54.161`. An optional Actions variable can override it:
+The committed Wrangler configuration already allows the VPN egress addresses
+`92.71.54.161` and `177.7.57.50`. An optional Actions variable can override it:
 
-| Variable            | Required | Example                     | Purpose                                    |
-| ------------------- | -------- | --------------------------- | ------------------------------------------ |
-| `ADMIN_ALLOWED_IPS` | No       | `92.71.54.161,2001:db8::10` | Exact comma-separated VPN egress addresses |
+| Variable            | Required | Example                    | Purpose                                    |
+| ------------------- | -------- | -------------------------- | ------------------------------------------ |
+| `ADMIN_ALLOWED_IPS` | No       | `92.71.54.161,177.7.57.50` | Exact comma-separated VPN egress addresses |
+
+The variable **replaces** the committed list rather than extending it, so it
+must repeat every address that should keep working. Leaving it unset is the
+normal case; the committed list is then the whole allowlist.
 
 The workflow uses GitHub's `production` environment. Add reviewers or branch
 rules there if deployment needs a human gate.
@@ -67,10 +71,11 @@ Only an exact match is accepted. `X-Forwarded-For`, query parameters, cookies,
 and client-supplied identity headers are not trusted for this decision.
 
 For the default configuration, the browsing device must send its traffic through
-the fixed VPN server so Cloudflare sees:
+one of the VPN servers so Cloudflare sees one of:
 
 ```text
 92.71.54.161
+177.7.57.50
 ```
 
 Requests from any other address return `403 admin_ip_forbidden`. An empty

@@ -34,9 +34,10 @@ The allowlist protects every route:
 /*
 ```
 
-The committed `ADMIN_ALLOWED_IPS` value is `92.71.54.161`. The Worker compares
-that value with Cloudflare's exact `CF-Connecting-IP` header before routing any
-request. No Cloudflare Access application or login page is required.
+The committed `ADMIN_ALLOWED_IPS` value is `92.71.54.161,177.7.57.50`. The
+Worker compares Cloudflare's exact `CF-Connecting-IP` header against that list
+before routing any request. No Cloudflare Access application or login page is
+required.
 
 The client must route through the fixed VPN server. Requests from another
 address return `403`, including Hot Tub status, browse, search, uploader,

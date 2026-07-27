@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { verifyAdminIp, verifyAllowedSourceIp } from "../src/auth/access";
 import type { Env } from "../src/config";
 import { FakeD1Database } from "./helpers/fake-d1";
@@ -60,6 +61,43 @@ describe("source-IP verification", () => {
       status: 403,
       code: "admin_ip_forbidden",
     });
+  });
+
+  it("accepts every VPN egress address the deployed configuration ships with", async () => {
+    // Pinned against wrangler.jsonc so an accidental edit to the committed
+    // allowlist cannot silently lock the operator out of the whole source.
+    const shipped = readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8");
+    const configured = shipped.match(/"ADMIN_ALLOWED_IPS":\s*"([^"]+)"/)?.[1];
+    expect(configured).toBe("92.71.54.161,177.7.57.50");
+
+    for (const ip of configured!.split(",")) {
+      const request = new Request("https://hottub.joekane.org/api/videos", {
+        headers: { "CF-Connecting-IP": ip },
+      });
+      expect(verifyAllowedSourceIp(request, createAdminEnv(configured!))).toBe(ip);
+      await expect(verifyAdminIp(request, createAdminEnv(configured!))).resolves.toMatchObject({
+        sourceIp: ip,
+      });
+    }
+  });
+
+  it("keeps one shared user key across every allowed address", async () => {
+    // The local library is keyed to the operator, not to whichever VPN they
+    // happen to be on, so switching servers must not orphan their data.
+    const keys = await Promise.all(
+      ["92.71.54.161", "177.7.57.50"].map(
+        async (ip) =>
+          (
+            await verifyAdminIp(
+              new Request("https://hottub.joekane.org/library", {
+                headers: { "CF-Connecting-IP": ip },
+              }),
+              createAdminEnv("92.71.54.161,177.7.57.50"),
+            )
+          ).userKey,
+      ),
+    );
+    expect(keys[0]).toBe(keys[1]);
   });
 
   it("fails closed when the allowlist is empty", async () => {

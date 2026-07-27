@@ -30,7 +30,8 @@ are project-specific web endpoints and are not consumed by Hot Tub.
 
 Every protocol and project-specific route is restricted to the exact configured
 Cloudflare source IP. Hot Tub must therefore use the source while the device is
-routed through the fixed VPN egress `92.71.54.161`.
+routed through one of the approved VPN egress addresses, `92.71.54.161` or
+`177.7.57.50`.
 
 ## Status
 
