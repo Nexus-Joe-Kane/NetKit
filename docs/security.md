@@ -14,7 +14,7 @@ The main security boundaries are:
 | Source access             | Exact in-Worker `CF-Connecting-IP` allowlist for the fixed VPN egress             |
 | Untrusted Hot Tub request | Body-size limit, content-type allowlist, Zod validation                           |
 | Provider response         | Timeout, hostname allowlist, bounded redirects, byte limit, content/schema checks |
-| Browser state change      | Same-origin check plus double-submit CSRF token                                   |
+| Browser state change      | Same-site verification plus double-submit CSRF token                              |
 | Stored provider secret    | AES-256-GCM with context binding and versioned key ID                             |
 | Public cache              | Only anonymous browse responses; complete request included in key                 |
 | Logs and client errors    | Redacted structured fields and generic error envelopes                            |
@@ -85,8 +85,32 @@ library.
 Every private state-changing request requires:
 
 1. an approved VPN source IP;
-2. an exact `Origin` equal to `PUBLIC_BASE_URL`;
+2. proof the request came from this site (below);
 3. a CSRF value matching a cookie using constant-time comparison.
+
+Step 2 consults three signals in order, taking the first that is present:
+
+1. `Origin`, which must equal `PUBLIC_BASE_URL` exactly;
+2. `Sec-Fetch-Site`, which must be `same-origin`;
+3. `Referer`, whose origin must equal `PUBLIC_BASE_URL`.
+
+A request carrying none of them is refused. The fallbacks exist because Safari
+omits `Origin` on same-origin form submissions, and every form here is a plain
+server-rendered POST — the Content Security Policy permits no scripts — so
+requiring `Origin` outright rejected every submission from an iPhone.
+
+`Referrer-Policy` is `same-origin` rather than `no-referrer` for the same
+reason: signal 3 is only reachable if the browser is allowed to send a `Referer`
+to this site at all. Cross-origin requests, including the provider CDNs that
+serve thumbnails on `/library`, still receive no referrer, so nothing leaks
+off-site. Safari gained `Sec-Fetch-Site` in 16.4; the `Referer` fallback is what
+covers anything older.
+
+Ordering matters. `Sec-Fetch-Site` is set by the browser and cannot be
+overridden by page script, so it is consulted before the attacker-influenced
+`Referer`, and a cross-site value is rejected even when a `Referer` claims
+otherwise. Step 2 is defence in depth regardless: the CSRF cookie is
+`SameSite=Strict`, so a cross-site POST never carries the token step 3 requires.
 
 The CSRF cookie is named `__Host-hottub_csrf` and is:
 
@@ -135,7 +159,7 @@ All responses include:
 - Content Security Policy;
 - `X-Content-Type-Options: nosniff`;
 - `X-Frame-Options: DENY`;
-- `Referrer-Policy: no-referrer`;
+- `Referrer-Policy: same-origin`;
 - same-origin opener and resource policies;
 - a restrictive Permissions Policy;
 - a correlation `X-Request-Id`.

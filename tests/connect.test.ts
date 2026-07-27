@@ -198,6 +198,38 @@ describe("POST /account/connect", () => {
     expect(database.connections.size).toBe(0);
   });
 
+  it("accepts a Safari form post, which sends no Origin header", async () => {
+    const database = new FakeD1Database();
+    const env = envWith(database, keyRing());
+    const token = await openAccount(env);
+
+    // Safari omits Origin on same-origin form submissions. Requiring it meant
+    // every connect attempt from an iPhone — the only device this source is
+    // used from — failed with invalid_origin.
+    const response = await handleRequest(
+      new Request(`${ORIGIN}/account/connect`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "CF-Connecting-IP": VPN_IP,
+          "Sec-Fetch-Site": "same-origin",
+          Referer: `${ORIGIN}/account`,
+          Cookie: `${CSRF_COOKIE}=${token}`,
+        },
+        body: new URLSearchParams({
+          csrf: token,
+          providerId: "faphouse-ultra",
+          sessionCookie: COOKIE,
+        }).toString(),
+      }),
+      env,
+      createExecutionContext(),
+      siteFetch(SIGNED_IN),
+    );
+    expect(response.status).toBe(303);
+    expect(database.connections.size).toBe(1);
+  });
+
   it("keeps the whole connection UI behind the VPN allowlist", async () => {
     const env = envWith(new FakeD1Database(), keyRing());
     for (const path of ["/account", "/account/connect", "/account/diagnose"]) {
