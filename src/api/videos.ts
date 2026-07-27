@@ -67,6 +67,27 @@ function validateProviderItems(items: Video[], channelId: string): Video[] {
   return valid;
 }
 
+/**
+ * Hot Tub types `pageInfo.parameters` as `Record<string, string>` and the iOS
+ * client decodes it strictly, so every value is serialised as a string.
+ * `totalResults` is omitted unless a provider actually reported one, rather
+ * than claiming a total of zero alongside a page full of results.
+ */
+function buildParameters(
+  request: VideosRequest,
+  returnedResults: number,
+  pages: ProviderVideoPage[],
+): Record<string, string> {
+  const parameters: Record<string, string> = {
+    page: String(request.page),
+    pageSize: String(request.pageSize),
+    returnedResults: String(returnedResults),
+  };
+  const totalResults = pages.reduce((sum, page) => sum + (page.totalResults ?? 0), 0);
+  if (totalResults > 0) parameters.totalResults = String(totalResults);
+  return parameters;
+}
+
 export async function videosHandler(
   context: RequestContext,
   fetcher: typeof fetch = fetch,
@@ -141,12 +162,7 @@ export async function videosHandler(
         !allFailed && errors.length > 0
           ? `Some providers were unavailable: ${errors.join(" ")}`
           : messages.join(" ") || undefined,
-      parameters: {
-        page: request.page,
-        pageSize: request.pageSize,
-        returnedResults: items.length,
-        totalResults: pages.reduce((sum, page) => sum + (page.totalResults ?? 0), 0),
-      },
+      parameters: buildParameters(request, items.length, pages),
     },
     items,
   };

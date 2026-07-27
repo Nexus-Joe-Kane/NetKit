@@ -200,7 +200,12 @@ export const PageInfoSchema = z.object({
   recommendations: z.array(z.string().min(1).max(200)).max(20).optional(),
   error: z.string().max(1000).nullable().optional(),
   message: z.string().max(1000).nullable().optional(),
-  parameters: z.record(z.string(), z.unknown()).optional(),
+  // Hot Tub's own types declare this as `Record<string, string>`
+  // (@hottubapp/api-core, VideoResult.pageInfo). The iOS client decodes it
+  // strictly, so a numeric value fails to decode and the app reports a
+  // generic "Server Error" even though the response is otherwise valid and
+  // full of usable items. Values must be serialised as strings.
+  parameters: z.record(z.string(), z.string()).optional(),
 });
 
 export const VideosResponseSchema = z.object({
