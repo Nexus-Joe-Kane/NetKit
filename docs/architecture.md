@@ -51,7 +51,7 @@ The protocol boundary is deliberately independent of provider response shapes.
 ### Provider adapters
 
 Every adapter implements `ProviderAdapter` and declares all capabilities. The
-registry has six stable IDs:
+registry has six featured IDs:
 
 - `xhamster`
 - `faphouse-ultra`
@@ -65,6 +65,18 @@ Hot Tub-compatible fallbacks. xHamster, XVideos, and Pornhub use compatible Hot
 Tub sources. fpo.xxx and FapHouse use strict public HTML catalogue adapters;
 FapHouse playback remains deliberately unavailable. A failure in one adapter
 does not fail a successful multi-channel request.
+
+`src/providers/community.ts` adds 49 further federated channels behind the same
+`createFederatedProvider` factory. Each entry records the watch and asset
+hostnames that channel actually serves and the sort options its own upstream
+declares, all confirmed against a live catalogue request before the channel was
+added. They set `upstreams: ["community"]` so no subrequest is spent asking the
+official source about a channel it does not carry.
+
+`featuredProviderIds()` exists precisely to keep these two sets apart: the merged
+`all` channel expands to the featured six, never to the whole registry. A Worker
+has a bounded subrequest budget, and a 55-way fan-out would exhaust it and fail
+the request outright.
 
 ### Browse and search flow
 

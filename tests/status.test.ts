@@ -11,7 +11,9 @@ describe("POST /api/status", () => {
     );
     expect(response.status).toBe(200);
     const body = ServerStatusSchema.parse(await response.json());
-    expect(body.channels.map((channel) => channel.id)).toEqual([
+    // The merged channel leads, then the six primary channels, then the
+    // federated community catalogue.
+    expect(body.channels.slice(0, 7).map((channel) => channel.id)).toEqual([
       "all",
       "xhamster",
       "faphouse-ultra",
@@ -20,9 +22,12 @@ describe("POST /api/status", () => {
       "fpo",
       "eporner",
     ]);
+    expect(body.channels.length).toBeGreaterThan(50);
+    expect(new Set(body.channels.map((channel) => channel.id)).size).toBe(body.channels.length);
     expect(body.channels.find((channel) => channel.id === "eporner")?.status).toBe("active");
-    // Five real providers plus the merged channel.
-    expect(body.channels.filter((channel) => channel.status === "active")).toHaveLength(6);
+    expect(body.channels.filter((channel) => channel.status === "active").length).toBeGreaterThan(
+      50,
+    );
     expect(body.channels.find((channel) => channel.id === "faphouse-ultra")?.status).toBe(
       "degraded",
     );
@@ -92,6 +97,42 @@ describe("duration slider", () => {
       }
       expect(duration!.properties?.control).toBe("range");
       expect(JSON.parse(duration!.properties!.ticks!)).toHaveLength(5);
+    }
+  });
+});
+
+describe("artwork", () => {
+  it("gives the source and the merged channel their own icons", async () => {
+    const response = await handleRequest(
+      post("/api/status", {}),
+      createEnv(),
+      createExecutionContext(),
+    );
+    const status = ServerStatusSchema.parse(await response.json());
+    expect(status.iconUrl).toBe("https://hottub.joekane.org/assets/icon.png");
+    const merged = status.channels.find((channel) => channel.id === "all");
+    expect(merged?.favicon).toBe("https://hottub.joekane.org/assets/icon-all.png");
+    // Every channel should have artwork of some kind.
+    for (const channel of status.channels) {
+      expect(channel.favicon, `${channel.id} has no favicon`).toBeTruthy();
+    }
+  });
+
+  it("serves both icons as real PNGs", async () => {
+    for (const path of ["/assets/icon.png", "/assets/icon-all.png"]) {
+      const response = await handleRequest(
+        new Request(`https://hottub.joekane.org${path}`, {
+          headers: { "CF-Connecting-IP": "192.0.2.10" },
+        }),
+        createEnv(),
+        createExecutionContext(),
+      );
+      expect(response.status, path).toBe(200);
+      expect(response.headers.get("Content-Type")).toBe("image/png");
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      expect(bytes.length).toBeGreaterThan(200);
+      // PNG magic number, so a corrupt embed fails here rather than on a phone.
+      expect([...bytes.slice(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
     }
   });
 });

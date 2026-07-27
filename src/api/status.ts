@@ -7,8 +7,9 @@ import {
   type ServerStatus,
 } from "../hottub/schemas";
 import { ALL_CHANNEL_ID } from "./videos";
-import { activeProviderIds, listProviders } from "../providers/registry";
+import { featuredProviderIds, listProviders } from "../providers/registry";
 import { jsonResponse, parseBody } from "../utils/http";
+import { getPublicBaseUrl } from "../utils/urls";
 import { enforceRateLimit, rateLimitHeaders } from "../utils/rate-limit";
 
 /**
@@ -17,10 +18,11 @@ import { enforceRateLimit, rateLimitHeaders } from "../utils/rate-limit";
  * that does not recognise one falls back to its own default rather than
  * failing.
  */
-function allChannel(providerCount: number): Channel {
+function allChannel(providerCount: number, baseUrl: URL): Channel {
   return {
     id: ALL_CHANNEL_ID,
     name: "All channels",
+    favicon: new URL("/assets/icon-all.png", baseUrl).toString(),
     description: `Every public channel interleaved into one feed, across ${providerCount} providers.`,
     premium: false,
     status: "active",
@@ -110,7 +112,8 @@ export async function statusHandler(context: RequestContext): Promise<Response> 
   await parseBody(context.request, StatusRequestSchema);
   const rateLimit = await enforceRateLimit(context, "status", 120, 60);
   const providers = listProviders();
-  const merged = allChannel(activeProviderIds().length);
+  const baseUrl = getPublicBaseUrl(context.env.PUBLIC_BASE_URL);
+  const merged = allChannel(featuredProviderIds().length, baseUrl);
   const publicIds = providers
     .filter((provider) => !provider.channel.premium)
     .map((provider) => provider.id);
@@ -126,6 +129,7 @@ export async function statusHandler(context: RequestContext): Promise<Response> 
     description:
       "A self-hosted Hot Tub source using an official provider API, redundant Hot Tub-compatible sources, and ordinary public catalogue pages.",
     color: "#FF6B35",
+    iconUrl: new URL("/assets/icon.png", baseUrl).toString(),
     status: "active",
     nsfw: true,
     notices: [

@@ -22,41 +22,62 @@ const UPSTREAMS = [
   },
 ] as const;
 
+/**
+ * Only the five fields Hot Tub actually requires are strict. Every optional
+ * field degrades to `undefined` instead of failing, because a single odd value
+ * in decorative metadata should never discard an otherwise usable video — that
+ * mistake has now cost this source three separate outages (an empty `thumb`
+ * rejecting a whole page, and `uploadedAt` arriving as an epoch number, which
+ * silently emptied several channels).
+ */
+const optional = <T extends z.ZodTypeAny>(schema: T) => schema.optional().catch(undefined);
+
 const upstreamVideoSchema = z
   .object({
-    id: z.union([z.string(), z.number()]).optional(),
+    id: optional(z.union([z.string(), z.number()])),
     title: z.string().trim().min(1),
     url: z.string().url(),
     duration: z.coerce.number().int().nonnegative(),
     channel: z.string(),
     thumb: z.string().url(),
-    views: z.coerce.number().int().nonnegative().optional(),
-    rating: z.coerce.number().min(0).max(100).optional(),
-    uploader: z.string().trim().optional(),
-    uploaderUrl: z.string().url().optional(),
-    uploaderId: z.string().trim().optional(),
-    verified: z.boolean().optional(),
-    isVR: z.boolean().optional(),
-    tags: z.array(z.string()).optional(),
-    categories: z.array(z.string()).optional(),
-    uploadedAt: z.string().optional(),
-    preview: z.string().url().optional(),
-    aspectRatio: z.coerce.number().positive().optional(),
-    isLive: z.boolean().optional(),
-    liveStatus: z.enum(["live", "not_live", "was_live", "post_live"]).optional(),
-    availability: z.string().optional(),
-    uploaderProfile: z
-      .object({
+    views: optional(z.coerce.number().int().nonnegative()),
+    rating: optional(z.coerce.number().min(0).max(100)),
+    uploader: optional(z.string().trim()),
+    uploaderUrl: optional(z.string().url()),
+    uploaderId: optional(z.string().trim()),
+    verified: optional(z.boolean()),
+    isVR: optional(z.boolean()),
+    tags: optional(z.array(z.string())),
+    categories: optional(z.array(z.string())),
+    // Documented as `Date|String`; upstreams send epoch seconds or milliseconds.
+    uploadedAt: optional(z.union([z.string(), z.number()])),
+    preview: optional(z.string().url()),
+    aspectRatio: optional(z.coerce.number().positive()),
+    isLive: optional(z.boolean()),
+    liveStatus: optional(z.enum(["live", "not_live", "was_live", "post_live"])),
+    availability: optional(z.string()),
+    uploaderProfile: optional(
+      z.object({
         id: z.string(),
         name: z.string(),
         normalizedName: z.string().optional(),
         avatar: z.string().url().nullable().optional(),
         videoCount: z.coerce.number().int().nonnegative().optional(),
         totalViews: z.coerce.number().int().nonnegative().optional(),
-      })
-      .optional(),
+      }),
+    ),
   })
   .passthrough();
+
+/** Upstreams send ISO strings, epoch seconds, or epoch milliseconds. */
+function normaliseUploadedAt(value: string | number | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === "string") return value.slice(0, 100);
+  if (!Number.isFinite(value) || value <= 0) return undefined;
+  const millis = value < 1e12 ? value * 1000 : value;
+  const date = new Date(millis);
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+}
 
 // Items are deliberately left unvalidated here and checked one at a time
 // below. Validating them as `z.array(upstreamVideoSchema)` is all-or-nothing:
@@ -75,7 +96,7 @@ const upstreamResponseSchema = z.object({
 });
 
 interface FederatedProviderDefinition {
-  id: "xhamster" | "xvideos" | "pornhub" | "eporner";
+  id: string;
   name: string;
   description: string;
   favicon: string;
@@ -83,6 +104,12 @@ interface FederatedProviderDefinition {
   watchHostnames: readonly string[];
   assetHostnames: readonly string[];
   sortOptions: ReadonlyArray<{ id: string; title: string }>;
+  /**
+   * Upstreams to query. Defaults to both; community-only channels name just
+   * the community one so a subrequest is not spent asking the official source
+   * about a channel it does not carry.
+   */
+  upstreams?: ReadonlyArray<(typeof UPSTREAMS)[number]["id"]>;
 }
 
 const capabilities: ProviderCapabilities = {
@@ -133,7 +160,7 @@ function normaliseVideo(
     isVR: input.isVR,
     tags: input.tags?.slice(0, 200),
     categories: input.categories?.slice(0, 100),
-    uploadedAt: input.uploadedAt,
+    uploadedAt: normaliseUploadedAt(input.uploadedAt),
     preview,
     aspectRatio: input.aspectRatio,
     uploaderProfile: input.uploaderProfile,
@@ -195,34 +222,35 @@ export function createFederatedProvider(definition: FederatedProviderDefinition)
       { name: "Public", systemImage: "globe" },
       { name: "Federated", systemImage: "point.3.connected.trianglepath.dotted" },
     ],
-    maintainers: [
-      {
-        id: "hottubapp",
-        name: "Hot Tub",
-        role: "upstream",
-      },
-      {
-        id: "spacemoehre",
-        name: "SpaceMoehre Hot Tub",
-        role: "upstream",
-      },
-    ],
-    options: [
-      {
-        id: "sort",
-        title: "Sort",
-        systemImage: "list.number",
-        colorName: "indigo",
-        options: [...definition.sortOptions],
-      },
-    ],
+    // Only the upstreams this channel is actually served by.
+    maintainers: (definition.upstreams ?? ["official", "community"]).map((id) =>
+      id === "official"
+        ? { id: "hottubapp", name: "Hot Tub", role: "upstream" }
+        : { id: "spacemoehre", name: "SpaceMoehre Hot Tub", role: "upstream" },
+    ),
+    // An upstream that declares no sort gets no sort control, rather than an
+    // empty picker.
+    options: definition.sortOptions.length
+      ? [
+          {
+            id: "sort",
+            title: "Sort",
+            systemImage: "list.number",
+            colorName: "indigo",
+            options: [...definition.sortOptions],
+          },
+        ]
+      : [],
   };
 
   async function getVideos(
     request: VideosRequest,
     context: ProviderContext,
   ): Promise<ProviderVideoPage> {
-    const calls: Array<Promise<ProviderVideoPage>> = UPSTREAMS.map(async (upstream) => {
+    const selected = definition.upstreams
+      ? UPSTREAMS.filter((upstream) => definition.upstreams!.includes(upstream.id))
+      : UPSTREAMS;
+    const calls: Array<Promise<ProviderVideoPage>> = selected.map(async (upstream) => {
       const payload = await postProviderJson(
         definition.id,
         context.fetch,

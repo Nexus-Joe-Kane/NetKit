@@ -60,6 +60,16 @@ export function htmlResponse(html: string, status = 200, extraHeaders: HeadersIn
   return new Response(html, { status, headers });
 }
 
+export function pngResponse(bytes: Uint8Array): Response {
+  return new Response(bytes as unknown as BodyInit, {
+    headers: {
+      "Cache-Control": "public, max-age=86400",
+      "Content-Type": "image/png",
+      "Cross-Origin-Resource-Policy": "cross-origin",
+    },
+  });
+}
+
 export function cssResponse(css: string): Response {
   return new Response(css, {
     headers: {
