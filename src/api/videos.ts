@@ -7,7 +7,7 @@ import {
   type VideosRequest,
   type VideosResponse,
 } from "../hottub/schemas";
-import { activeProviderIds, getProvider } from "../providers/registry";
+import { featuredProviderIds, getProvider } from "../providers/registry";
 import type { ProviderContext, ProviderVideoPage } from "../providers/types";
 import { HttpError } from "../utils/errors";
 import {
@@ -49,7 +49,7 @@ export const ORIENTATION_AWARE_CHANNELS = ["eporner", "faphouse-ultra"] as const
 function expandedChannels(request: VideosRequest): string[] {
   const orientation = resolveOrientation(request);
   const narrow = orientation === "straight" || orientation === "gay";
-  const all = activeProviderIds();
+  const all = featuredProviderIds();
   if (!narrow) return [...all];
   const aware = all.filter((id) => (ORIENTATION_AWARE_CHANNELS as readonly string[]).includes(id));
   return aware.length > 0 ? aware : [...all];

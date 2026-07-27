@@ -23,20 +23,35 @@ route returns `403` from any other address.
 
 ## Provider support
 
-| Provider       | Public browse | Search | Creators | Playback hand-off | Account connection | Premium entitlement |
-| -------------- | ------------: | -----: | -------: | ----------------: | -----------------: | ------------------: |
-| All channels   |        Merged | Merged |       No |               Yes |                 No |                  No |
-| Eporner        |           Yes |    Yes |  Derived |               Yes |                 No |                  No |
-| xHamster       |           Yes |    Yes |  Derived |               Yes |                 No |                  No |
-| XVideos        |           Yes |    Yes |  Derived |               Yes |                 No |                  No |
-| Pornhub        |           Yes |    Yes |  Derived |               Yes |                 No |                  No |
-| fpo.xxx        |           Yes |    Yes |       No |               Yes |                 No |                  No |
-| FapHouse Ultra |  Catalog only |    Yes |       No |                No |             Opt-in |                  No |
+| Provider            | Public browse | Search | Creators | Playback hand-off | Account connection | Premium entitlement |
+| ------------------- | ------------: | -----: | -------: | ----------------: | -----------------: | ------------------: |
+| All channels        |        Merged | Merged |       No |               Yes |                 No |                  No |
+| Eporner             |           Yes |    Yes |  Derived |               Yes |                 No |                  No |
+| xHamster            |           Yes |    Yes |  Derived |               Yes |                 No |                  No |
+| XVideos             |           Yes |    Yes |  Derived |               Yes |                 No |                  No |
+| Pornhub             |           Yes |    Yes |  Derived |               Yes |                 No |                  No |
+| fpo.xxx             |           Yes |    Yes |       No |               Yes |                 No |                  No |
+| FapHouse Ultra      |  Catalog only |    Yes |       No |                No |             Opt-in |                  No |
+| 49 further catalogs |           Yes |    Yes |  Derived |               Yes |                 No |                  No |
+
+The six named public channels above are the **featured** channels. Alongside them
+the source carries a further **49 community channels** — RedTube, YouPorn, Tube8,
+Beeg, Spankbang, Motherless, Xnxx and the rest — federated through the
+Hot Tub-compatible community source. Every one of them was checked live before
+being added; each ships only the sort orders its own upstream declares, and any
+candidate that did not return usable items was dropped rather than listed
+(`okxxx`, for instance, returns no thumbnails at all).
 
 `All channels` is the source default. It is not a provider: `/api/videos`
-expands it into every public channel, queries them in parallel, and interleaves
-the results round-robin so no single provider dominates the feed. Items keep the
-channel that actually served them, so playback and branding are unaffected.
+expands it, queries the expansion in parallel, and interleaves the results
+round-robin so no single provider dominates the feed. Items keep the channel that
+actually served them, so playback and branding are unaffected.
+
+The merged feed deliberately fans out to the **six featured channels only**. A
+Worker has a bounded subrequest budget per request, and fanning out to all 55
+channels would exhaust it and fail the whole request rather than return a bigger
+feed. The other 49 remain individually selectable, and the app's own multi-select
+still works across any subset of them.
 
 Filters are only advertised where the provider honours them, verified against
 each site rather than assumed:
@@ -81,6 +96,8 @@ or paywall bypasses, and never submits a provider's interactive login form.
 - Current Hot Tub `POST /api/status`, `POST /api/videos`, and optional
   `POST /api/uploaders` protocol endpoints
 - Provider-isolated dispatch and multi-channel result merging
+- Self-hosted source and `All channels` artwork, served from the Worker itself so
+  no third-party image host is contacted to render the channel list
 - Parallel public-provider fallbacks and last-known-good catalogue responses
 - Strict request and response validation with Zod
 - Public Cache API caching and D1-backed per-IP/per-account rate limits
@@ -107,6 +124,8 @@ still controlled by the provider and the user's region.
 | ---------- | -------------------------------------- | --------------------------------------------- | ------------------------------------------------------------ |
 | `GET`      | `/`                                    | Approved VPN IP                               | Source landing page and install link                         |
 | `GET`      | `/health`                              | Approved VPN IP                               | Worker, D1, and adapter health                               |
+| `GET`      | `/assets/icon.png`                     | Approved VPN IP                               | Source artwork shown by Hot Tub                              |
+| `GET`      | `/assets/icon-all.png`                 | Approved VPN IP                               | `All channels` artwork                                       |
 | `POST`     | `/api/status`                          | Approved VPN IP                               | Source/channel discovery                                     |
 | `POST`     | `/api/videos`                          | Approved VPN IP                               | Browse and search                                            |
 | `POST`     | `/api/uploaders`                       | Approved VPN IP                               | Creator profiles for adapters with stable creator metadata   |

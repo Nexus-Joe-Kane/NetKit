@@ -23,8 +23,15 @@ import { videosHandler } from "./api/videos";
 import { verifyAllowedSourceIp } from "./auth/access";
 import type { Env, RequestContext } from "./config";
 import { HttpError } from "./utils/errors";
-import { applySecurityHeaders, cssResponse, errorResponse, htmlResponse } from "./utils/http";
+import {
+  applySecurityHeaders,
+  cssResponse,
+  errorResponse,
+  htmlResponse,
+  pngResponse,
+} from "./utils/http";
 import { logger } from "./utils/logging";
+import { allChannelIconPng, sourceIconPng } from "./icons";
 import { appCss, rootPage } from "./views";
 
 type Handler = (context: RequestContext, fetcher: typeof fetch) => Promise<Response>;
@@ -38,6 +45,8 @@ function route(method: string, path: string): Handler | undefined {
       return new Response(null, { status: response.status, headers: response.headers });
     },
     "GET /assets/app.css": async () => cssResponse(appCss),
+    "GET /assets/icon.png": async () => pngResponse(sourceIconPng),
+    "GET /assets/icon-all.png": async () => pngResponse(allChannelIconPng),
     "GET /health": healthHandler,
     "POST /api/status": statusHandler,
     "POST /api/videos": videosHandler,
