@@ -1,3 +1,4 @@
+import { verifyAdminIp } from "../auth/access";
 import type { RequestContext } from "../config";
 import {
   ServerStatusSchema,
@@ -11,6 +12,7 @@ import { getProvider, listProviders } from "../providers/registry";
 import { jsonResponse, parseBody } from "../utils/http";
 import { getPublicBaseUrl } from "../utils/urls";
 import { enforceRateLimit, rateLimitHeaders } from "../utils/rate-limit";
+import { ConnectionRepository } from "../storage/connections";
 
 /**
  * A bundle rendered as a channel. `/api/videos` expands it into its members, so
@@ -108,6 +110,23 @@ function withDurationSlider(channel: Channel): Channel {
   return { ...channel, options: [...(channel.options ?? []), durationRangeOption()] };
 }
 
+/**
+ * Provider IDs with a stored account connection.
+ *
+ * Best-effort by design: channel discovery is the app's entry point, so a
+ * storage hiccup must degrade the wording of one notice rather than fail the
+ * whole request.
+ */
+async function listConnectedProviderIds(context: RequestContext): Promise<Set<string>> {
+  try {
+    const identity = await verifyAdminIp(context.request, context.env);
+    const rows = await new ConnectionRepository(context.env.DB).list(identity.userKey);
+    return new Set(rows.map((row) => row.providerId));
+  } catch {
+    return new Set();
+  }
+}
+
 export async function statusHandler(context: RequestContext): Promise<Response> {
   await parseBody(context.request, StatusRequestSchema);
   const rateLimit = await enforceRateLimit(context, "status", 120, 60);
@@ -123,6 +142,10 @@ export async function statusHandler(context: RequestContext): Promise<Response> 
     .filter((provider) => provider.channel.premium)
     .map((provider) => provider.id);
   const degraded = providers.filter((provider) => provider.status === "degraded");
+  // FapHouse is catalogue-only until an account is connected; once one is, the
+  // source resolves real formats for it, so saying "catalogue-only" would be
+  // stale. Best-effort: a storage failure must not fail channel discovery.
+  const connected = await listConnectedProviderIds(context);
 
   const status: ServerStatus = {
     id: "joe-unified-hottub",
@@ -142,13 +165,24 @@ export async function statusHandler(context: RequestContext): Promise<Response> 
           "xHamster, XVideos, Pornhub, fpo.xxx, and Eporner provide browse and search results. Watch-page URLs are handed to Hot Tub for its normal playback extraction.",
         priority: false,
       },
-      ...(degraded.length
+      ...(connected.has("faphouse-ultra")
+        ? [
+            {
+              status: "success" as const,
+              message: "FapHouse Ultra is connected",
+              details:
+                "The connected account resolves real playable formats server-side, with the Referer header its CDN requires. Nothing bypasses the subscription; the entitlement is the operator's own.",
+              priority: false,
+            },
+          ]
+        : []),
+      ...(degraded.length && !connected.has("faphouse-ultra")
         ? [
             {
               status: "warning" as const,
               message: "FapHouse Ultra is catalogue-only",
               details:
-                "Public metadata can be browsed, but protected playback needs a provider-supported delegated account flow. Hot Tub's source API does not expose one, so subscription access is not bypassed.",
+                "Public metadata can be browsed. Connect the account at /account to resolve playable formats; without one the app extracts on-device with no session and sees no protected source.",
               priority: false,
             },
           ]

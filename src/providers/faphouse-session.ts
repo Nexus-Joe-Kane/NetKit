@@ -1,3 +1,4 @@
+import type { VideoFormat } from "../hottub/schemas";
 import { ProviderError } from "../utils/errors";
 
 /**
@@ -17,6 +18,13 @@ import { ProviderError } from "../utils/errors";
  */
 
 const FAPHOUSE_HOST = "faphouse.com";
+
+/**
+ * Sent on every provider request and echoed into `formats[].httpHeaders`, so
+ * the CDN sees the same client that was issued the signed URL.
+ */
+export const PLAYBACK_USER_AGENT =
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
 const SESSION_TIMEOUT_MS = 15_000;
 const MAX_PAGE_BYTES = 2 * 1024 * 1024;
 
@@ -100,8 +108,7 @@ async function fetchWithSession(
         Cookie: cookie,
         Accept: "text/html,application/xhtml+xml",
         "Accept-Language": "en-GB,en;q=0.8",
-        "User-Agent":
-          "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+        "User-Agent": PLAYBACK_USER_AGENT,
       },
       redirect: "manual",
       signal: AbortSignal.timeout(SESSION_TIMEOUT_MS),
@@ -197,8 +204,7 @@ export async function signIn(
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
-        "User-Agent":
-          "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+        "User-Agent": PLAYBACK_USER_AGENT,
       },
       body: JSON.stringify({ login, password }),
       redirect: "manual",
@@ -237,6 +243,58 @@ export async function signIn(
   };
 }
 
+/** Ordered biggest-first, so the client's default pick is the best quality. */
+const HEIGHT_PATTERN = /(?:^|[^0-9])(2160|1440|1080|720|480|360|240)p?(?:[^0-9]|$)/i;
+
+function heightOf(url: string): number | undefined {
+  const height = Number(HEIGHT_PATTERN.exec(url)?.[1]);
+  return Number.isFinite(height) ? height : undefined;
+}
+
+/**
+ * Turns an entitled watch page into Hot Tub `formats[]`.
+ *
+ * Supplying formats does two things the app cannot do for itself here. It
+ * bypasses yt-dlp extraction, which has no session and therefore never sees a
+ * protected source, and it carries `httpHeaders`, which the Hot Tub docs name
+ * as the mechanism for CDN hotlink protection — a device diagnostic showed
+ * playback failing with no Referer sent and `NSURLErrorDomain -1008`.
+ *
+ * The session cookie is deliberately *not* included in those headers. The
+ * signed URL already carries its own token and expiry, so the cookie should be
+ * unnecessary, and shipping an account credential to the client is not
+ * something to do on an assumption. If a CDN turns out to require it,
+ * `/account/diagnose` reports that explicitly and it becomes a decision to take
+ * knowingly rather than a default.
+ */
+export async function resolvePlaybackFormats(
+  fetcher: typeof fetch,
+  cookie: string,
+  watchUrl: string,
+): Promise<VideoFormat[]> {
+  const probe = await probePlayback(fetcher, cookie, watchUrl, { redact: false });
+  const seen = new Set<string>();
+  const formats: VideoFormat[] = [];
+  for (const url of probe.rawStreams) {
+    if (seen.has(url)) continue;
+    seen.add(url);
+    const height = heightOf(url);
+    const isHls = /\.m3u8(?:$|\?)/i.test(url);
+    formats.push({
+      url,
+      ext: isHls ? "mp4" : "mp4",
+      protocol: isHls ? "m3u8_native" : "https",
+      ...(height === undefined ? {} : { height, resolution: `${height}p` }),
+      httpHeaders: {
+        Referer: new URL(watchUrl).origin + "/",
+        "User-Agent": PLAYBACK_USER_AGENT,
+      },
+    });
+  }
+  formats.sort((left, right) => (right.height ?? 0) - (left.height ?? 0));
+  return formats.slice(0, 10);
+}
+
 export interface PlaybackProbe {
   status: number;
   /** Distinct media URLs found, with every signed token redacted. */
@@ -255,6 +313,8 @@ export interface PlaybackProbe {
    * would have to ship the account's cookie to the client to make it play.
    */
   playableWithoutSession?: boolean;
+  /** Unredacted stream URLs, for the resolver. Never rendered or logged. */
+  rawStreams: string[];
   notes: string[];
 }
 
@@ -312,6 +372,7 @@ export async function probePlayback(
   fetcher: typeof fetch,
   cookie: string,
   watchUrl: string,
+  options: { redact?: boolean } = {},
 ): Promise<PlaybackProbe> {
   const { status, html } = await fetchWithSession(fetcher, new URL(watchUrl), cookie);
   const notes: string[] = [];
@@ -353,8 +414,11 @@ export async function probePlayback(
     ? Math.round((expiry.getTime() - Date.now()) / 60_000)
     : undefined;
 
-  // The decisive question for a format resolver, asked rather than assumed.
-  const playableWithoutSession = first ? await reachableAnonymously(fetcher, first) : undefined;
+  // Skipped when resolving formats: it costs a subrequest per item and only
+  // informs the operator-facing diagnostic.
+  const probeAnonymous = options.redact !== false;
+  const playableWithoutSession =
+    first && probeAnonymous ? await reachableAnonymously(fetcher, first) : undefined;
   if (playableWithoutSession === true) {
     notes.push("The CDN served the signed URL without the account session.");
   } else if (playableWithoutSession === false) {
@@ -364,6 +428,7 @@ export async function probePlayback(
   return {
     status,
     mediaUrls: streams.slice(0, 10).map(redactSignedUrl),
+    rawStreams: streams.slice(0, 10),
     apiPaths,
     foundStreamCandidate: streams.length > 0,
     expiresAt: expiry?.toISOString(),

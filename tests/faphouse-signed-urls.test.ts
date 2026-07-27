@@ -70,8 +70,25 @@ describe("probePlayback", () => {
     expect(probe.foundStreamCandidate).toBe(true);
     expect(probe.playableWithoutSession).toBe(true);
     expect(probe.expiresAt).toBe("2026-07-28T03:00:03.000Z");
-    // Nothing rendered back to the operator may carry the live token.
-    expect(JSON.stringify(probe)).not.toContain("mCRdifT1yJ0cEGNfrv55IQ");
+    // Everything shown to the operator is redacted...
+    expect(JSON.stringify(probe.mediaUrls)).not.toContain("mCRdifT1yJ0cEGNfrv55IQ");
+    expect(probe.notes.join(" ")).not.toContain("mCRdifT1yJ0cEGNfrv55IQ");
+    // ...while rawStreams keeps the live URL, which is the whole point of it:
+    // the resolver needs a working URL to hand to the player.
+    expect(probe.rawStreams[0]).toBe(SIGNED);
+  });
+
+  it("keeps the token out of the report rendered on /account", async () => {
+    const { faphouseProvider } = await import("../src/providers/faphouse");
+    const report = await faphouseProvider.diagnosePlayback!(
+      "fhaccess=abc",
+      WATCH,
+      fetcher(206) as typeof fetch,
+    );
+    // This string is written into a redirect query parameter and rendered on
+    // the page, so it is the one that must never carry a live signature.
+    expect(report).not.toContain("mCRdifT1yJ0cEGNfrv55IQ");
+    expect(report).toContain("<signed>");
   });
 
   it("reports a CDN that refuses without the session", async () => {
