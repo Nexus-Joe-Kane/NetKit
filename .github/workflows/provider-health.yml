@@ -27,3 +27,14 @@ jobs:
       - run: npm ci
       - name: Check every provider against its live catalogue
         run: RUN_INTEGRATION_TESTS=1 npm run test:integration
+      # Listing and playing are separate failures. The step above proves a
+      # channel returns items; this one proves Hot Tub can extract a stream
+      # from the watch pages those items point at. Channels once shipped
+      # verified only for listing, and the ones with no extractor reached the
+      # operator as "video unavailable".
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install --quiet yt-dlp
+      - name: Check watch pages are extractable
+        run: node scripts/check-playability.mjs

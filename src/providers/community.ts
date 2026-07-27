@@ -59,18 +59,6 @@ const COMMUNITY_CHANNELS: readonly CommunityChannel[] = [
     ],
   },
   {
-    id: "fikfap",
-    name: "FikFap",
-    favicon: "https://www.google.com/s2/favicons?sz=64&domain=fikfap.com",
-    watch: ["fikfap.com"],
-    assets: ["b-cdn.net", "fikfap.com", "spacemoehre.de"],
-    sorts: [
-      { id: "new", title: "Latest" },
-      { id: "trending", title: "Trending" },
-      { id: "random", title: "For You" },
-    ],
-  },
-  {
     id: "freeuseporn",
     name: "FreeusePorn",
     favicon: "https://www.google.com/s2/favicons?sz=64&domain=freeuseporn.com",
@@ -83,14 +71,6 @@ const COMMUNITY_CHANNELS: readonly CommunityChannel[] = [
       { id: "favorites", title: "Top Favorites" },
       { id: "watched", title: "Being Watched" },
     ],
-  },
-  {
-    id: "fyptt",
-    name: "FYPTT",
-    favicon: "https://www.google.com/s2/favicons?sz=64&domain=fyptt.to",
-    watch: ["fyptt.to"],
-    assets: ["fyptt.to"],
-    sorts: [],
   },
   {
     id: "heavyfetish",
@@ -116,18 +96,6 @@ const COMMUNITY_CHANNELS: readonly CommunityChannel[] = [
     sorts: [],
   },
   {
-    id: "hentaitv",
-    name: "Hentai.tv",
-    favicon: "https://www.google.com/s2/favicons?sz=64&domain=hentai.tv",
-    watch: ["hentai.tv"],
-    assets: ["hentai.tv"],
-    sorts: [
-      { id: "new", title: "Most Recent" },
-      { id: "views", title: "Most Viewed" },
-      { id: "trending", title: "Trending" },
-    ],
-  },
-  {
     id: "homoxxx",
     name: "Homo.xxx",
     favicon: "https://www.google.com/s2/favicons?sz=64&domain=homo.xxx",
@@ -138,14 +106,6 @@ const COMMUNITY_CHANNELS: readonly CommunityChannel[] = [
       { id: "popular", title: "Popular" },
       { id: "trending", title: "Trending" },
     ],
-  },
-  {
-    id: "hqporner",
-    name: "HQPorner",
-    favicon: "https://www.google.com/s2/favicons?sz=64&domain=hqporner.com",
-    watch: ["hqporner.com", "spacemoehre.de"],
-    assets: ["hqporner.com", "spacemoehre.de"],
-    sorts: [],
   },
   {
     id: "hsex",
@@ -214,14 +174,6 @@ const COMMUNITY_CHANNELS: readonly CommunityChannel[] = [
     ],
   },
   {
-    id: "paradisehill",
-    name: "Paradisehill",
-    favicon: "https://www.google.com/s2/favicons?sz=64&domain=en.paradisehill.cc",
-    watch: ["paradisehill.cc"],
-    assets: ["paradisehill.cc"],
-    sorts: [],
-  },
-  {
     id: "perfectgirls",
     name: "Perfectgirls",
     favicon: "https://www.google.com/s2/favicons?sz=64&domain=perfectgirls.xxx",
@@ -232,14 +184,6 @@ const COMMUNITY_CHANNELS: readonly CommunityChannel[] = [
       { id: "popular", title: "Popular" },
       { id: "trending", title: "Trending" },
     ],
-  },
-  {
-    id: "perverzija",
-    name: "Perverzija",
-    favicon: "https://www.google.com/s2/favicons?sz=64&domain=tube.perverzija.com",
-    watch: ["perverzija.com"],
-    assets: ["perverzija.com"],
-    sorts: [],
   },
   {
     id: "ph-shorties",
@@ -253,19 +197,6 @@ const COMMUNITY_CHANNELS: readonly CommunityChannel[] = [
       { id: "mostviewed", title: "Most Viewed" },
       { id: "top_rated", title: "Top Rated" },
       { id: "hottest", title: "Hottest" },
-    ],
-  },
-  {
-    id: "pimpbunny",
-    name: "Pimpbunny",
-    favicon: "https://www.google.com/s2/favicons?sz=64&domain=pimpbunny.com",
-    watch: ["pimpbunny.com"],
-    assets: ["pimpbunny.com", "spacemoehre.de"],
-    sorts: [
-      { id: "featured", title: "Featured" },
-      { id: "most recent", title: "Most Recent" },
-      { id: "most viewed", title: "Most Viewed" },
-      { id: "best rated", title: "Best Rated" },
     ],
   },
   {
@@ -293,19 +224,6 @@ const COMMUNITY_CHANNELS: readonly CommunityChannel[] = [
       { id: "new", title: "New" },
       { id: "popular", title: "Popular" },
       { id: "top-rated", title: "Top Rated" },
-    ],
-  },
-  {
-    id: "porn4fans",
-    name: "Porn4Fans",
-    favicon: "https://www.google.com/s2/favicons?sz=64&domain=www.porn4fans.com",
-    watch: ["porn4fans.com"],
-    assets: ["porn4fans.com"],
-    sorts: [
-      { id: "new", title: "Latest" },
-      { id: "popular", title: "Most Viewed" },
-      { id: "rated", title: "Top Rated" },
-      { id: "longest", title: "Longest" },
     ],
   },
   {
@@ -410,19 +328,6 @@ const COMMUNITY_CHANNELS: readonly CommunityChannel[] = [
       { id: "rated", title: "Top Rated" },
       { id: "comments", title: "Most Commented" },
       { id: "recommended", title: "Recommended" },
-    ],
-  },
-  {
-    id: "sxyprn",
-    name: "SexyPorn",
-    favicon: "https://www.google.com/s2/favicons?sz=64&domain=sxyprn.com",
-    watch: ["spacemoehre.de", "sxyprn.com"],
-    assets: ["spacemoehre.de", "sxyprn.com", "trafficdeposit.com"],
-    sorts: [
-      { id: "latest", title: "Latest" },
-      { id: "views", title: "Views" },
-      { id: "rating", title: "Rating" },
-      { id: "orgasmic", title: "Orgasmic" },
     ],
   },
   {
