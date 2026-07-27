@@ -38,6 +38,11 @@ jobs:
       # Must run after the deploy: `wrangler secret put` targets an existing
       # Worker, so on a first deploy (or after the Worker has been deleted)
       # doing this first fails. Secrets apply live, so no redeploy is needed.
+      #
+      # Skipped when the repository secret is unset, which leaves a key set by
+      # the provision-encryption-key workflow untouched. Setting the repository
+      # secret later would overwrite that key on the next deploy and orphan every
+      # stored provider connection, so pick one mechanism and keep to it.
       - name: Configure encryption keys
         if: ${{ env.TOKEN_ENCRYPTION_KEYS != '' }}
         run: printf '%s' "$TOKEN_ENCRYPTION_KEYS" | npx wrangler secret put TOKEN_ENCRYPTION_KEYS --config .generated.wrangler.jsonc

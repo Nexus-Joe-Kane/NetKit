@@ -240,6 +240,25 @@ Configure these GitHub Actions secrets:
 - `CLOUDFLARE_API_TOKEN`
 - `TOKEN_ENCRYPTION_KEYS` only when an authorised provider connection is added
 
+`TOKEN_ENCRYPTION_KEYS` is a key ring you generate, not something a provider
+issues. It encrypts stored provider credentials with AES-256-GCM, and
+`/account/connect` returns `503` until it exists rather than writing a
+credential in plaintext. The format is `key_id:base64url-32-bytes`, comma
+separated, with the first key encrypting and the rest kept only to decrypt older
+values.
+
+The easiest way to set it is the **Provision encryption key** workflow: run it
+from the Actions tab and it generates a key on the runner and writes it straight
+to the Worker, so the value never appears in a log, a repository secret, or a
+terminal. It needs no local tooling and works from a phone. It refuses to
+overwrite an existing key unless explicitly told to, because Cloudflare will not
+return a stored secret — so a replacement cannot keep the old key in the ring,
+and every existing connection would have to be reconnected at `/account`.
+
+Use the repository secret instead only if you want to hold the key yourself, and
+then use just one of the two mechanisms: a repository secret overwrites whatever
+the workflow set, on every deploy.
+
 The committed configuration already restricts the entire source to:
 
 ```text
