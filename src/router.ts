@@ -1,12 +1,21 @@
 import { accountHandler, disconnectHandler } from "./api/account";
 import { healthHandler } from "./api/health";
+import { libraryHandler } from "./api/library";
 import {
-  createLocalPlaylistHandler,
-  followLocalUploaderHandler,
+  clearLocalHistoryHandler,
+  deleteLocalPlaylistHandler,
   localFavouritesHandler,
+  localFollowedUploadersHandler,
   localHistoryHandler,
+  localPlaylistItemsHandler,
+  localPlaylistsHandler,
   localSessionHandler,
+  moveLocalPlaylistItemHandler,
   removeLocalFavouriteHandler,
+  removeLocalHistoryHandler,
+  removeLocalPlaylistItemHandler,
+  unfollowLocalUploaderHandler,
+  updateLocalPlaylistHandler,
 } from "./api/local";
 import { statusHandler } from "./api/status";
 import { uploadersHandler } from "./api/uploaders";
@@ -33,16 +42,28 @@ function route(method: string, path: string): Handler | undefined {
     "POST /api/status": statusHandler,
     "POST /api/videos": videosHandler,
     "POST /api/uploaders": uploadersHandler,
+    "GET /library": libraryHandler,
     "GET /account": accountHandler,
     "POST /account/disconnect": disconnectHandler,
     "GET /api/local/session": localSessionHandler,
     "GET /api/local/history": localHistoryHandler,
     "POST /api/local/history": localHistoryHandler,
+    "POST /api/local/history/remove": removeLocalHistoryHandler,
+    "POST /api/local/history/clear": clearLocalHistoryHandler,
     "GET /api/local/favourites": localFavouritesHandler,
     "POST /api/local/favourites": localFavouritesHandler,
     "POST /api/local/favourites/remove": removeLocalFavouriteHandler,
-    "POST /api/local/playlists": createLocalPlaylistHandler,
-    "POST /api/local/followed-uploaders": followLocalUploaderHandler,
+    "GET /api/local/playlists": localPlaylistsHandler,
+    "POST /api/local/playlists": localPlaylistsHandler,
+    "POST /api/local/playlists/update": updateLocalPlaylistHandler,
+    "POST /api/local/playlists/delete": deleteLocalPlaylistHandler,
+    "GET /api/local/playlists/items": localPlaylistItemsHandler,
+    "POST /api/local/playlists/items": localPlaylistItemsHandler,
+    "POST /api/local/playlists/items/remove": removeLocalPlaylistItemHandler,
+    "POST /api/local/playlists/items/move": moveLocalPlaylistItemHandler,
+    "GET /api/local/followed-uploaders": localFollowedUploadersHandler,
+    "POST /api/local/followed-uploaders": localFollowedUploadersHandler,
+    "POST /api/local/followed-uploaders/remove": unfollowLocalUploaderHandler,
   };
   return routes[key];
 }

@@ -61,16 +61,34 @@ model and never rendered.
 Local data is private D1 data keyed to a stable, hashed single-admin identity. It
 is not imported from or pushed back to any provider.
 
-| Method | Path                            | Behavior                                         |
-| ------ | ------------------------------- | ------------------------------------------------ |
-| `GET`  | `/api/local/session`            | Issues an hour-long CSRF token/cookie            |
-| `GET`  | `/api/local/history`            | Lists the latest 100 local history records       |
-| `POST` | `/api/local/history`            | Creates or updates progress for a provider video |
-| `GET`  | `/api/local/favourites`         | Lists the latest 100 local favourites            |
-| `POST` | `/api/local/favourites`         | Adds or updates a local favourite                |
-| `POST` | `/api/local/favourites/remove`  | Removes a local favourite                        |
-| `POST` | `/api/local/playlists`          | Creates a named local playlist                   |
-| `POST` | `/api/local/followed-uploaders` | Creates or updates a local creator follow        |
+| Method | Path                                   | Behavior                                         |
+| ------ | -------------------------------------- | ------------------------------------------------ |
+| `GET`  | `/api/local/session`                   | Issues an hour-long CSRF token/cookie            |
+| `GET`  | `/api/local/history`                   | Lists the latest 100 local history records       |
+| `POST` | `/api/local/history`                   | Creates or updates progress for a provider video |
+| `POST` | `/api/local/history/remove`            | Removes one history record                       |
+| `POST` | `/api/local/history/clear`             | Removes every history record                     |
+| `GET`  | `/api/local/favourites`                | Lists the latest 100 local favourites            |
+| `POST` | `/api/local/favourites`                | Adds or updates a local favourite                |
+| `POST` | `/api/local/favourites/remove`         | Removes a local favourite                        |
+| `GET`  | `/api/local/playlists`                 | Lists playlists with their item counts           |
+| `POST` | `/api/local/playlists`                 | Creates a named local playlist                   |
+| `POST` | `/api/local/playlists/update`          | Renames or re-describes a playlist               |
+| `POST` | `/api/local/playlists/delete`          | Deletes a playlist and its items                 |
+| `GET`  | `/api/local/playlists/items`           | Lists one playlist's items in order              |
+| `POST` | `/api/local/playlists/items`           | Appends a provider video to a playlist           |
+| `POST` | `/api/local/playlists/items/remove`    | Removes an item and closes the position gap      |
+| `POST` | `/api/local/playlists/items/move`      | Moves an item to an absolute position            |
+| `GET`  | `/api/local/followed-uploaders`        | Lists followed creators                          |
+| `POST` | `/api/local/followed-uploaders`        | Creates or updates a local creator follow        |
+| `POST` | `/api/local/followed-uploaders/remove` | Unfollows a creator                              |
+
+`GET /api/local/playlists/items` takes the playlist as a `?playlistId=` query
+parameter; every other playlist route takes `playlistId` in the body.
+
+Playlist item positions are always a dense `0..n-1` sequence. Adding appends to
+the end, removing closes the gap, and a move past either end clamps to the first
+or last slot.
 
 All local writes require:
 
@@ -80,8 +98,18 @@ Cookie: __Host-hottub_csrf=<token>
 X-CSRF-Token: <same-token>
 ```
 
-The `/account/disconnect` HTML form submits the token as a form field instead of
-the header.
+Every write also accepts the token as a `csrf` body field instead of the header,
+which is how the `/account/disconnect` and `/library` HTML forms submit it. A
+write sent as `application/x-www-form-urlencoded` answers with a `303` redirect
+back to `/library` rather than a JSON body, so the forms work without JavaScript.
+
+## The `/library` page
+
+`GET /library` renders the D1 library for the approved VPN address: playlists and
+their ordered items, favourites, followed creators, and watch history, each with
+forms for the mutations above. The page ships no JavaScript and no inline styles,
+because the HTML content security policy sets neither `script-src` nor
+`style-src 'unsafe-inline'`.
 
 Provider video, thumbnail, uploader, and avatar URLs are accepted only when
 their host matches the selected provider allowlist. This prevents the local API
@@ -159,9 +187,10 @@ URLs must not be logged or cached beyond their expiry.
 ## Disconnect and deletion
 
 Disconnect removes only the matching user's provider connection. Local history,
-favourites, playlists, and follows remain separate by design. An operator who
-needs full erasure should delete rows for the hashed `user_key` from every local
-table using a controlled D1 administrative process.
+favourites, playlists, and follows remain separate by design and are cleared from
+`/library` or the local endpoints instead. An operator who needs full erasure
+should delete rows for the hashed `user_key` from every local table using a
+controlled D1 administrative process.
 
 The project does not provide an unauthenticated erasure endpoint because that
 would weaken the private-data boundary.
