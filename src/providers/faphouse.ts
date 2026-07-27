@@ -84,11 +84,20 @@ export const faphouseProvider = {
     const parts = [
       `HTTP ${probe.status}`,
       probe.foundStreamCandidate
-        ? `playable source candidates: ${probe.mediaUrls.join(" ") || "none"}`
+        ? `${probe.mediaUrls.length} playable candidate${probe.mediaUrls.length === 1 ? "" : "s"}: ${probe.mediaUrls.join(" ")}`
         : "no playable source embedded in the page",
-      probe.apiPaths.length ? `API paths seen: ${probe.apiPaths.slice(0, 12).join(" ")}` : "",
+      probe.expiresAt
+        ? `signed until ${probe.expiresAt} (${probe.expiresInMinutes} min left)`
+        : probe.foundStreamCandidate
+          ? "no expiry encoded in the URL"
+          : "",
+      probe.playableWithoutSession === undefined
+        ? ""
+        : `anonymous CDN fetch: ${probe.playableWithoutSession ? "accepted" : "refused"}`,
+      probe.apiPaths.length ? `API paths seen: ${probe.apiPaths.slice(0, 8).join(" ")}` : "",
       ...probe.notes,
     ];
-    return parts.filter(Boolean).join(" · ").slice(0, 300);
+    // Tokens are redacted upstream; this string is rendered on /account.
+    return parts.filter(Boolean).join(" · ").slice(0, 600);
   },
 };
