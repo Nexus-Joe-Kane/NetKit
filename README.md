@@ -25,7 +25,7 @@ route returns `403` from any other address.
 
 | Provider            | Public browse | Search | Creators | Playback hand-off | Account connection | Premium entitlement |
 | ------------------- | ------------: | -----: | -------: | ----------------: | -----------------: | ------------------: |
-| All channels        |        Merged | Merged |       No |               Yes |                 No |                  No |
+| 6 bundles           |        Merged | Merged |       No |               Yes |                 No |                  No |
 | Eporner             |           Yes |    Yes |  Derived |               Yes |                 No |                  No |
 | xHamster            |           Yes |    Yes |  Derived |               Yes |                 No |                  No |
 | XVideos             |           Yes |    Yes |  Derived |               Yes |                 No |                  No |
@@ -35,23 +35,46 @@ route returns `403` from any other address.
 | 49 further catalogs |           Yes |    Yes |  Derived |               Yes |                 No |                  No |
 
 The six named public channels above are the **featured** channels. Alongside them
-the source carries a further **49 community channels** — RedTube, YouPorn, Tube8,
-Beeg, Spankbang, Motherless, Xnxx and the rest — federated through the
-Hot Tub-compatible community source. Every one of them was checked live before
-being added; each ships only the sort orders its own upstream declares, and any
-candidate that did not return usable items was dropped rather than listed
-(`okxxx`, for instance, returns no thumbnails at all).
+the source carries a further **49 community channels** — RedTube, YouPorn, XNXX,
+Tube8, TnAflix, PornTrex, HQPorner, Beeg, Erome, RedGifs and the rest —
+federated through the Hot Tub-compatible community source. Every one of them was
+checked live before being added; each ships only the sort orders its own upstream
+declares, and any candidate that did not return usable items was dropped rather
+than listed (`okxxx`, for instance, returns no thumbnails at all).
 
-`All channels` is the source default. It is not a provider: `/api/videos`
-expands it, queries the expansion in parallel, and interleaves the results
-round-robin so no single provider dominates the feed. Items keep the channel that
-actually served them, so playback and branding are unaffected.
+### Bundles
 
-The merged feed deliberately fans out to the **six featured channels only**. A
-Worker has a bounded subrequest budget per request, and fanning out to all 55
-channels would exhaust it and fail the whole request rather than return a bigger
-feed. The other 49 remain individually selectable, and the app's own multi-select
-still works across any subset of them.
+A bundle is a virtual channel that fans out to several real ones. `All channels`
+is one of six, and is the source default:
+
+| Bundle             | Members                                            | Contents                            |
+| ------------------ | -------------------------------------------------- | ----------------------------------- |
+| All channels       | the six featured channels                          | the default mixed feed              |
+| Mainstream tubes   | Pornhub, XVideos, xHamster, XNXX, RedTube, YouPorn | the largest general-audience tubes  |
+| Amateur & creators | Erome, RedGifs, SexyPorn, Shooshtime, Tokyo Motion | creator-uploaded and amateur        |
+| Shorts & vertical  | FikFap, FYPTT, PH Shorties, Tik Porn, Viralxxxporn | short-form vertical video           |
+| Animated & hentai  | Hentai Haven, Hentai.tv, Rule34Video               | animation and rule-34               |
+| Asian & JAV        | Javtiful, VJAV, Hsex, Paradisehill, Tokyo Motion   | Japanese and wider Asian catalogues |
+
+A bundle is not a provider: `/api/videos` expands it into its members, queries
+them in parallel, and interleaves the results round-robin so no single member
+dominates. Items keep the channel that actually served them, so playback and
+branding are unaffected, and one member being down does not fail the bundle.
+
+Every member was confirmed to return a live catalogue page before being listed,
+and a channel may appear in more than one bundle. Membership is editorial, so it
+sticks to groupings recognisable from the sites themselves.
+
+**There is deliberately no "Popular" bundle.** Popularity is a sort, not a set of
+channels — every bundle already offers `Most Viewed` — so a fixed "popular"
+channel list would just be a second Mainstream under a name promising more than
+it delivered.
+
+Bundles are capped at **six members**, enforced by a test. A Worker has a bounded
+subrequest budget per request, and a bundle spanning all 55 channels would
+exhaust it and fail the whole request rather than return a bigger feed. Every
+channel remains individually selectable, and the app's own multi-select still
+works across any subset.
 
 Filters are only advertised where the provider honours them, verified against
 each site rather than assumed:
@@ -66,8 +89,17 @@ each site rather than assumed:
   orientation is chosen on `All channels`, the fan-out narrows to the providers
   that can respect it — a smaller feed of the right content rather than a wide
   feed of the wrong one.
-- **Duration** — a range slider, applied to merged results. Every item carries a
-  duration, so it behaves identically on every channel.
+- **Duration** — a range slider, applied to merged results, so it behaves the
+  same on every channel. Some federated catalogues report a duration of `0`,
+  meaning unknown rather than zero seconds; those items are kept rather than
+  hidden, so raising the minimum never silently empties a channel that simply
+  does not publish lengths.
+- **Sort on a bundle** — bundles advertise a generic intent (Newest, Most
+  Viewed, Top Rated, Longest) and translate it into each member's own sort ID
+  before the request goes out. This was measured: sending a generic `views` to
+  the community upstream changes nothing for any channel, while a channel's own
+  declared ID genuinely reorders results for most of them. A member that ignores
+  even its own declared sort falls back to its default.
 
 Eporner races three public catalogue routes: its documented
 [Webmaster API v2](https://www.eporner.com/api/v2/), the official Hot Tub
@@ -96,8 +128,9 @@ or paywall bypasses, and never submits a provider's interactive login form.
 - Current Hot Tub `POST /api/status`, `POST /api/videos`, and optional
   `POST /api/uploaders` protocol endpoints
 - Provider-isolated dispatch and multi-channel result merging
-- Self-hosted source and `All channels` artwork, served from the Worker itself so
-  no third-party image host is contacted to render the channel list
+- Self-hosted source and per-bundle artwork, served from the Worker itself so no
+  third-party image host is contacted to render the channel list. The tiles are
+  drawn by `scripts/generate-icons.mjs`; run `npm run icons` after changing it
 - Parallel public-provider fallbacks and last-known-good catalogue responses
 - Strict request and response validation with Zod
 - Public Cache API caching and D1-backed per-IP/per-account rate limits
@@ -125,7 +158,7 @@ still controlled by the provider and the user's region.
 | `GET`      | `/`                                    | Approved VPN IP                               | Source landing page and install link                         |
 | `GET`      | `/health`                              | Approved VPN IP                               | Worker, D1, and adapter health                               |
 | `GET`      | `/assets/icon.png`                     | Approved VPN IP                               | Source artwork shown by Hot Tub                              |
-| `GET`      | `/assets/icon-all.png`                 | Approved VPN IP                               | `All channels` artwork                                       |
+| `GET`      | `/assets/icon-<bundle>.png`            | Approved VPN IP                               | Per-bundle artwork; unknown names 404                        |
 | `POST`     | `/api/status`                          | Approved VPN IP                               | Source/channel discovery                                     |
 | `POST`     | `/api/videos`                          | Approved VPN IP                               | Browse and search                                            |
 | `POST`     | `/api/uploaders`                       | Approved VPN IP                               | Creator profiles for adapters with stable creator metadata   |

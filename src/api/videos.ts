@@ -7,8 +7,10 @@ import {
   type VideosRequest,
   type VideosResponse,
 } from "../hottub/schemas";
-import { featuredProviderIds, getProvider } from "../providers/registry";
-import type { ProviderContext, ProviderVideoPage } from "../providers/types";
+import { ALL_BUNDLE_ID, getBundle, type ChannelBundle } from "../providers/bundles";
+import { getProvider } from "../providers/registry";
+import { resolveSortForChannel } from "../providers/sort-dialect";
+import type { ProviderAdapter, ProviderContext, ProviderVideoPage } from "../providers/types";
 import { HttpError } from "../utils/errors";
 import {
   applyClientBlocks,
@@ -29,30 +31,32 @@ import {
 } from "../utils/cache";
 
 /**
- * A virtual channel that fans out to every browsable provider. It is expanded
- * here rather than implemented as an adapter so the existing per-channel
- * merging, validation and client-side blocking all apply unchanged — items
- * keep their real provider's channel ID, which is what the app needs for
- * playback and branding.
+ * The merged channel. Kept as a named export because several call sites and
+ * tests refer to it directly; it is just the default bundle.
  */
-export const ALL_CHANNEL_ID = "all";
+export const ALL_CHANNEL_ID = ALL_BUNDLE_ID;
 
 /**
  * Only Eporner and FapHouse can honour an orientation preference; the
  * upstreams behind the federated channels ignore it and fpo.xxx has no
- * orientation listings. When the viewer has asked for one, the merged channel
- * therefore narrows to the providers that can actually respect it — a smaller
- * feed of the right content beats a large feed of the wrong content.
+ * orientation listings. When the viewer has asked for one, a bundle therefore
+ * narrows to the members that can actually respect it — a smaller feed of the
+ * right content beats a large feed of the wrong content.
+ *
+ * A bundle with no orientation-aware members is left intact rather than
+ * emptied: narrowing it would return nothing at all, which is strictly worse
+ * than returning a feed that ignores the preference.
  */
 export const ORIENTATION_AWARE_CHANNELS = ["eporner", "faphouse-ultra"] as const;
 
-function expandedChannels(request: VideosRequest): string[] {
+function expandBundle(bundle: ChannelBundle, request: VideosRequest): string[] {
+  const members = bundle.members().filter((id) => getProvider(id));
   const orientation = resolveOrientation(request);
-  const narrow = orientation === "straight" || orientation === "gay";
-  const all = featuredProviderIds();
-  if (!narrow) return [...all];
-  const aware = all.filter((id) => (ORIENTATION_AWARE_CHANNELS as readonly string[]).includes(id));
-  return aware.length > 0 ? aware : [...all];
+  if (orientation !== "straight" && orientation !== "gay") return members;
+  const aware = members.filter((id) =>
+    (ORIENTATION_AWARE_CHANNELS as readonly string[]).includes(id),
+  );
+  return aware.length > 0 ? aware : members;
 }
 
 function requestedChannels(request: VideosRequest): string[] {
@@ -64,9 +68,26 @@ function requestedChannels(request: VideosRequest): string[] {
         : [];
   return [
     ...new Set(
-      requested.flatMap((id) => (id === ALL_CHANNEL_ID ? expandedChannels(request) : [id])),
+      requested.flatMap((id) => {
+        const bundle = getBundle(id);
+        return bundle ? expandBundle(bundle, request) : [id];
+      }),
     ),
   ];
+}
+
+/**
+ * Rewrites the requested sort into the dialect this channel declares, because
+ * bundles advertise a generic intent and their members disagree on naming.
+ *
+ * When nothing matches the request is passed through untouched: `sort` carries
+ * a schema default so it is never absent, and each adapter already has its own
+ * fallback for a value it does not recognise.
+ */
+function requestForChannel(provider: ProviderAdapter, request: VideosRequest): VideosRequest {
+  const declared = provider.channel.options?.find((option) => option.id === "sort")?.options ?? [];
+  const sort = resolveSortForChannel(declared, request.sort);
+  return sort === undefined || sort === request.sort ? request : { ...request, sort };
 }
 
 /**
@@ -87,10 +108,11 @@ async function callProvider(
 ): Promise<ProviderVideoPage> {
   const provider = getProvider(channelId);
   if (!provider) throw new HttpError(400, `Unknown channel: ${channelId}`, "unknown_channel");
+  const scoped = requestForChannel(provider, request);
   try {
     return request.query
-      ? await provider.searchVideos(request, providerContext)
-      : await provider.listVideos(request, providerContext);
+      ? await provider.searchVideos(scoped, providerContext)
+      : await provider.listVideos(scoped, providerContext);
   } catch {
     logger.warn("provider_request_failed", {
       requestId: providerContext.requestId,

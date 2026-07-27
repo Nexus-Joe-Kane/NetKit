@@ -79,9 +79,14 @@ export function parseDurationRange(value: unknown): DurationRange {
 }
 
 /**
- * Applied to merged results rather than pushed down to providers: only two of
- * the six expose any duration filter, but every item carries a duration, so
- * filtering here makes the control behave identically on every channel.
+ * Applied to merged results rather than pushed down to providers, since only
+ * two of the featured channels expose any duration filter upstream.
+ *
+ * Not every catalogue reports a duration: several federated channels — Erome,
+ * FikFap, FYPTT, Tik Porn, Hentai Haven and Paradisehill among them — return
+ * `0`, which means unknown rather than zero seconds. Those items are kept, so
+ * raising the minimum narrows the feed instead of silently emptying whole
+ * channels that simply never reported a length.
  */
 export function applyDurationRange(items: Video[], range: DurationRange): Video[] {
   const { min, max } = range;

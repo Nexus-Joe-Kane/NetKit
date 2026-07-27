@@ -78,6 +78,38 @@ official source about a channel it does not carry.
 has a bounded subrequest budget, and a 55-way fan-out would exhaust it and fail
 the request outright.
 
+### Bundles
+
+`src/providers/bundles.ts` defines the virtual channels that fan out to several
+real ones. A bundle is not a `ProviderAdapter`: `/api/videos` expands it in
+`requestedChannels`, so per-channel validation, client-side blocking and
+round-robin merging all apply unchanged and each item keeps the channel that
+actually served it. `all` is simply the default bundle, with its members
+resolved from `featuredProviderIds()`.
+
+Two rules are enforced rather than documented:
+
+- **Six members maximum**, checked by a test, for the subrequest budget above.
+- **Orientation narrowing is conditional.** A bundle containing an
+  orientation-aware channel narrows to those members when a preference is set;
+  a bundle containing none is left intact, because narrowing it would return
+  nothing at all rather than a feed that ignores the preference.
+
+### Sort dialects
+
+Catalogues disagree about sort naming — `most-viewed`, `video_viewed`,
+`popular`, `hot` — so a bundle cannot forward one member's ID to another.
+`src/providers/sort-dialect.ts` maps a generic intent onto whatever the target
+channel declares, matching against both the option ID and its title, most
+specific pattern first. `resolveSortForChannel` returns `undefined` when it
+cannot translate, and the caller then passes the request through untouched so
+the adapter applies its own fallback.
+
+This is measured behaviour, not a guess: sending a generic `views` to the
+community upstream changes nothing for any channel, while a channel's own
+declared ID reorders results for most of them. Without translation the bundle
+sort control would be a placebo.
+
 ### Browse and search flow
 
 `POST /api/videos` gives `channels` precedence over `channel`, matching the
