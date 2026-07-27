@@ -32,15 +32,29 @@ route returns `403` from any other address.
 | Pornhub             |           Yes |    Yes |  Derived |               Yes |                 No |                  No |
 | fpo.xxx             |           Yes |    Yes |       No |               Yes |                 No |                  No |
 | FapHouse Ultra      |  Catalog only |    Yes |       No |                No |             Opt-in |                  No |
-| 49 further catalogs |           Yes |    Yes |  Derived |               Yes |                 No |                  No |
+| 40 further catalogs |           Yes |    Yes |  Derived |               Yes |                 No |                  No |
 
 The six named public channels above are the **featured** channels. Alongside them
-the source carries a further **49 community channels** — RedTube, YouPorn, XNXX,
-Tube8, TnAflix, PornTrex, HQPorner, Beeg, Erome, RedGifs and the rest —
-federated through the Hot Tub-compatible community source. Every one of them was
-checked live before being added; each ships only the sort orders its own upstream
-declares, and any candidate that did not return usable items was dropped rather
-than listed (`okxxx`, for instance, returns no thumbnails at all).
+the source carries a further **40 community channels** — RedTube, YouPorn, XNXX,
+Tube8, TnAflix, PornTrex, Beeg, Erome, RedGifs and the rest — federated through
+the Hot Tub-compatible community source. Each ships only the sort orders its own
+upstream declares.
+
+Channels have to pass two separate checks, because **listing and playing fail
+independently**. A channel can return a perfect catalogue of items whose watch
+pages Hot Tub cannot extract a stream from, and the operator meets that as
+"video unavailable" rather than as a broken channel. Nine channels shipped
+having passed only the first check and were removed once the second was applied:
+`fikfap`, `fyptt`, `hentaitv`, `paradisehill` and `perverzija` have no extractor
+at all, and `hqporner`, `pimpbunny`, `porn4fans` and `sxyprn` have one that
+cannot parse their pages.
+
+`scripts/check-playability.mjs` runs the second check on a schedule. Hot Tub
+extracts playback from `Video.url` itself and its `formats[]` schema is yt-dlp's
+format dict field for field, so yt-dlp stands in for the app's extractor. Only a
+_missing_ extractor fails the run: a 403, a 410 or an anti-bot interstitial says
+where the check ran from, not whether the channel works. Pornhub fails exactly
+that way from a datacentre address while working normally on a phone.
 
 ### Bundles
 
@@ -51,10 +65,10 @@ is one of six, and is the source default:
 | ------------------ | -------------------------------------------------- | ----------------------------------- |
 | All channels       | the six featured channels                          | the default mixed feed              |
 | Mainstream tubes   | Pornhub, XVideos, xHamster, XNXX, RedTube, YouPorn | the largest general-audience tubes  |
-| Amateur & creators | Erome, RedGifs, SexyPorn, Shooshtime, Tokyo Motion | creator-uploaded and amateur        |
-| Shorts & vertical  | FikFap, FYPTT, PH Shorties, Tik Porn, Viralxxxporn | short-form vertical video           |
-| Animated & hentai  | Hentai Haven, Hentai.tv, Rule34Video               | animation and rule-34               |
-| Asian & JAV        | Javtiful, VJAV, Hsex, Paradisehill, Tokyo Motion   | Japanese and wider Asian catalogues |
+| Amateur & creators | Erome, RedGifs, Shooshtime, Tokyo Motion, Pornzog  | creator-uploaded and amateur        |
+| Shorts & vertical  | PH Shorties, Tik Porn, Viralxxxporn                | short-form vertical video           |
+| Animated & hentai  | Hentai Haven, Rule34Video                          | animation and rule-34               |
+| Asian & JAV        | Javtiful, VJAV, Hsex, Tokyo Motion                 | Japanese and wider Asian catalogues |
 
 A bundle is not a provider: `/api/videos` expands it into its members, queries
 them in parallel, and interleaves the results round-robin so no single member
@@ -71,7 +85,7 @@ channel list would just be a second Mainstream under a name promising more than
 it delivered.
 
 Bundles are capped at **six members**, enforced by a test. A Worker has a bounded
-subrequest budget per request, and a bundle spanning all 55 channels would
+subrequest budget per request, and a bundle spanning all 46 channels would
 exhaust it and fail the whole request rather than return a bigger feed. Every
 channel remains individually selectable, and the app's own multi-select still
 works across any subset.
@@ -91,7 +105,7 @@ each site rather than assumed:
   receives `gay=0`.
 
   **Gay** points `All channels` at the catalogues that genuinely carry it:
-  Homo.xxx, which is the only dedicated gay catalogue among the upstream's 80
+  Homo.xxx, the only dedicated gay catalogue among the upstream's 80
   channels, FapHouse with `?orientation=gay`, and Eporner. Eporner needs both
   levers — measured 2026-07-27, `gay=2` on its own returns overwhelmingly trans
   and femboy titles, so the browse query becomes `gay men`, which returns
