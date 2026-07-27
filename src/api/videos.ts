@@ -10,7 +10,12 @@ import {
 import { activeProviderIds, getProvider } from "../providers/registry";
 import type { ProviderContext, ProviderVideoPage } from "../providers/types";
 import { HttpError } from "../utils/errors";
-import { applyClientBlocks, mergeProviderResults } from "../utils/filters";
+import {
+  applyClientBlocks,
+  applyDurationRange,
+  mergeProviderResults,
+  parseDurationRange,
+} from "../utils/filters";
 import { jsonResponse, parseBody } from "../utils/http";
 import { logger } from "../utils/logging";
 import { enforceRateLimit, rateLimitHeaders } from "../utils/rate-limit";
@@ -138,18 +143,25 @@ export async function videosHandler(
     requestId: context.requestId,
     now: new Date(),
   };
+  // Duration is filtered after fetching, since only some providers can express
+  // it upstream. Over-fetching keeps a filtered page from looking half-empty.
+  const durationRange = parseDurationRange(request.durationSecondsRange);
+  const filtersLocally = durationRange.min !== undefined || durationRange.max !== undefined;
   const perProvider: VideosRequest = {
     ...request,
-    pageSize: providerPageSize(request, channels.length),
+    pageSize: Math.min(100, providerPageSize(request, channels.length) * (filtersLocally ? 2 : 1)),
   };
   const pages = await Promise.all(
     channels.map((channelId) => callProvider(channelId, perProvider, providerContext)),
   );
   const groups = pages.map((page, index) =>
-    applyClientBlocks(
-      validateProviderItems(page.items, channels[index] ?? ""),
-      request.blockedKeywords,
-      request.blockedUploaders,
+    applyDurationRange(
+      applyClientBlocks(
+        validateProviderItems(page.items, channels[index] ?? ""),
+        request.blockedKeywords,
+        request.blockedUploaders,
+      ),
+      durationRange,
     ),
   );
   const items = mergeProviderResults(groups, request.pageSize);

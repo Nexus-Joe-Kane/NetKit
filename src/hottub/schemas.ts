@@ -34,7 +34,12 @@ export const ChannelOptionSchema: z.ZodType<ChannelOption> = z.object({
   systemImage: z.string().max(100).optional(),
   colorName: z.string().max(50).optional(),
   multiSelect: z.boolean().optional(),
-  options: z.array(ChannelOptionChoiceSchema).min(1).max(50),
+  // A range control carries no choices, so an empty list is legitimate.
+  options: z.array(ChannelOptionChoiceSchema).max(50),
+  // Undocumented but used by the official source to describe non-list
+  // controls: `control: "range"` plus min/max/step/ticks. Every value is a
+  // string there, and the client decodes it that way.
+  properties: z.record(z.string(), z.string().max(2_000)).optional(),
   value: z.union([z.string(), z.number(), z.boolean()]).optional(),
 });
 
@@ -52,6 +57,7 @@ export interface ChannelOption {
   colorName?: string;
   multiSelect?: boolean;
   options: ChannelOptionChoice[];
+  properties?: Record<string, string>;
   value?: string | number | boolean;
 }
 

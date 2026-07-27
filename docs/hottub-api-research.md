@@ -68,10 +68,57 @@ down — the items are fine and never get rendered.
 `totalResults` is also omitted unless a provider actually reported one, rather
 than sending `"0"` alongside a full page of results.
 
+## Range controls are undocumented
+
+The public field reference describes channel options only as lists of choices,
+so a duration slider looks impossible from the documentation alone. The official
+source's live `/api/status` shows otherwise:
+
+```json
+{
+  "id": "durationSecondsRange",
+  "title": "Duration",
+  "systemImage": "timer",
+  "options": [],
+  "properties": {
+    "control": "range",
+    "min": "0",
+    "max": "3600",
+    "step": "60",
+    "displayDivisor": "60",
+    "unit": "min",
+    "ticks": "[{\"value\":0,\"label\":\"0 min\"}, ...]",
+    "minClientVersion": "2.3.0",
+    "minClientBuild": "41"
+  }
+}
+```
+
+Three things worth noting, none of them documented:
+
+- `properties` is an extra object on a channel option, and `control: "range"`
+  is what makes the client draw a slider instead of a picker.
+- Every value under `properties` is a **string**, including `ticks`, which is
+  JSON encoded as text. This is the same trap as `pageInfo.parameters`.
+- `options` is an empty array. A schema requiring at least one choice — as this
+  project's did — rejects the control outright.
+
+The client-version gate is reproduced as published, so builds older than
+2.3.0/41 do not render a control they cannot draw.
+
+What the app sends back when the slider moves is not documented either, so
+`parseDurationRange` accepts `"min,max"`, `"min-max"`, `"min..max"`, a
+two-element array, and `{min,max}`/`{from,to}` objects, and treats anything
+unrecognised as no filter rather than as an empty result. The range is applied
+to merged results instead of pushed down to providers, because only some of
+them can express duration upstream while every item carries one.
+
 ## Status
 
-`POST /api/status` returns a server with six channels:
+`POST /api/status` returns a server with seven channels:
 
+- `all` — the merged channel, and the source default. It is not a provider;
+  `/api/videos` expands it into every browsable channel.
 - `xhamster`
 - `faphouse-ultra`
 - `xvideos`
@@ -124,10 +171,9 @@ The response always follows:
   "pageInfo": {
     "hasNextPage": false,
     "parameters": {
-      "page": 1,
-      "pageSize": 40,
-      "returnedResults": 0,
-      "totalResults": 0
+      "page": "1",
+      "pageSize": "40",
+      "returnedResults": "0"
     }
   },
   "items": []

@@ -3,6 +3,7 @@ import {
   ServerStatusSchema,
   StatusRequestSchema,
   type Channel,
+  type ChannelOption,
   type ServerStatus,
 } from "../hottub/schemas";
 import { ALL_CHANNEL_ID } from "./videos";
@@ -48,6 +49,51 @@ function allChannel(providerCount: number): Channel {
   };
 }
 
+/**
+ * The duration slider, mirroring the shape the official Hot Tub source ships.
+ *
+ * `control: "range"` and the rest of `properties` are undocumented — they were
+ * read off `hottubapp.io/api/status` — and every value there is a string,
+ * including `ticks`, which holds JSON encoded as text. The client-version gate
+ * is copied too, so older builds that cannot render a range control simply do
+ * not show it.
+ *
+ * It is attached to every channel because the filter is applied to merged
+ * results rather than pushed down to providers, so it behaves the same
+ * everywhere.
+ */
+function durationRangeOption(): ChannelOption {
+  return {
+    id: "durationSecondsRange",
+    title: "Duration",
+    systemImage: "timer",
+    colorName: "blue",
+    multiSelect: false,
+    options: [],
+    properties: {
+      control: "range",
+      min: "0",
+      max: "3600",
+      step: "60",
+      displayDivisor: "60",
+      unit: "min",
+      ticks: JSON.stringify([
+        { value: 0, label: "0 min" },
+        { value: 120, label: "2 min" },
+        { value: 600, label: "10 min" },
+        { value: 1800, label: "30 min" },
+        { value: 3600, label: "60+ min" },
+      ]),
+      minClientVersion: "2.3.0",
+      minClientBuild: "41",
+    },
+  };
+}
+
+function withDurationSlider(channel: Channel): Channel {
+  return { ...channel, options: [...(channel.options ?? []), durationRangeOption()] };
+}
+
 export async function statusHandler(context: RequestContext): Promise<Response> {
   await parseBody(context.request, StatusRequestSchema);
   const rateLimit = await enforceRateLimit(context, "status", 120, 60);
@@ -90,7 +136,7 @@ export async function statusHandler(context: RequestContext): Promise<Response> 
           ]
         : []),
     ],
-    channels: [merged, ...providers.map((provider) => provider.channel)],
+    channels: [merged, ...providers.map((provider) => provider.channel)].map(withDurationSlider),
     channelGroups: [
       {
         id: "public",

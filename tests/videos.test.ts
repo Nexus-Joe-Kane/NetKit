@@ -315,3 +315,63 @@ describe("the merged all channel", () => {
     expect(await response.text()).toContain("unknown_channel");
   });
 });
+
+describe("duration range filter", () => {
+  it("accepts every plausible encoding of a range value", async () => {
+    const { parseDurationRange } = await import("../src/utils/filters");
+    // The range control is undocumented, so the wire format is not pinned
+    // down; all of these should read as 120..1800.
+    for (const value of [
+      "120,1800",
+      "120-1800",
+      "120..1800",
+      " 120 , 1800 ",
+      [120, 1800],
+      { min: 120, max: 1800 },
+      { from: 120, to: 1800 },
+    ]) {
+      expect(parseDurationRange(value), JSON.stringify(value)).toEqual({ min: 120, max: 1800 });
+    }
+    expect(parseDurationRange("600")).toEqual({ min: 600 });
+    // A leading separator reads as an open-ended lower bound, i.e. "up to".
+    expect(parseDurationRange("-300")).toEqual({ max: 300 });
+    // Anything unrecognised must yield no bounds rather than filtering
+    // everything away.
+    for (const value of [undefined, null, "", "abc", {}, [], "999999999"]) {
+      expect(parseDurationRange(value), JSON.stringify(value)).toEqual({});
+    }
+  });
+
+  it("keeps only videos inside the selected range", async () => {
+    const { applyDurationRange } = await import("../src/utils/filters");
+    const items = [60, 300, 1200, 4000].map(
+      (duration) => ({ duration, channel: "x", title: "t", url: "u", thumb: "h" }) as never,
+    );
+    expect(applyDurationRange(items, { min: 120, max: 1800 }).map((item) => item.duration)).toEqual(
+      [300, 1200],
+    );
+    // The top of the slider means "and longer", so a maximum at the ceiling
+    // must not exclude anything.
+    expect(applyDurationRange(items, { min: 0, max: 86_400 })).toHaveLength(4);
+    expect(applyDurationRange(items, {})).toHaveLength(4);
+  });
+
+  it("applies the range end to end over the merged channel", async () => {
+    const response = await handleRequest(
+      post("/api/videos", {
+        channel: "all",
+        page: 1,
+        pageSize: 20,
+        durationSecondsRange: "0,60",
+      }),
+      createEnv(),
+      createExecutionContext(),
+      multiProviderFetch(),
+    );
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { items: Array<{ duration: number }> };
+    // Fixture videos are 125s and 600s, so a 0-60s window excludes them all
+    // without erroring.
+    expect(body.items.every((item) => item.duration <= 60)).toBe(true);
+  });
+});
