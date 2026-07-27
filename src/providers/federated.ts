@@ -69,6 +69,25 @@ const upstreamVideoSchema = z
   })
   .passthrough();
 
+/**
+ * Trims decorative label lists and drops the blanks.
+ *
+ * The output schema requires each tag to be non-empty, and at least one
+ * upstream channel returns an array of empty strings, which failed validation
+ * and silently discarded every video on the page. Decorative metadata must
+ * never be able to do that — the same mistake previously cost a page to an
+ * empty `thumb` and several channels to a numeric `uploadedAt`.
+ */
+function cleanLabels(values: string[] | undefined, limit: number): string[] | undefined {
+  if (!values) return undefined;
+  const cleaned = [
+    ...new Set(values.map((value) => value.trim()).filter((value) => value.length > 0)),
+  ]
+    .map((value) => value.slice(0, 120))
+    .slice(0, limit);
+  return cleaned.length > 0 ? cleaned : undefined;
+}
+
 /** Upstreams send ISO strings, epoch seconds, or epoch milliseconds. */
 function normaliseUploadedAt(value: string | number | undefined): string | undefined {
   if (value === undefined) return undefined;
@@ -110,6 +129,15 @@ interface FederatedProviderDefinition {
    * about a channel it does not carry.
    */
   upstreams?: ReadonlyArray<(typeof UPSTREAMS)[number]["id"]>;
+  /**
+   * Set where an upstream ignores `page` and answers every request with the
+   * same first results. Scrolling then repeats the same videos forever, and in
+   * a merged feed those repeats crowd out channels that can page.
+   *
+   * Such a channel serves page 1 and reports no next page; later pages return
+   * empty without a request, which is both honest and one fewer subrequest.
+   */
+  singlePageOnly?: boolean;
 }
 
 const capabilities: ProviderCapabilities = {
@@ -158,8 +186,8 @@ function normaliseVideo(
     uploaderId: input.uploaderId || undefined,
     verified: input.verified,
     isVR: input.isVR,
-    tags: input.tags?.slice(0, 200),
-    categories: input.categories?.slice(0, 100),
+    tags: cleanLabels(input.tags, 200),
+    categories: cleanLabels(input.categories, 100),
     uploadedAt: normaliseUploadedAt(input.uploadedAt),
     preview,
     aspectRatio: input.aspectRatio,
@@ -247,6 +275,11 @@ export function createFederatedProvider(definition: FederatedProviderDefinition)
     request: VideosRequest,
     context: ProviderContext,
   ): Promise<ProviderVideoPage> {
+    // Asking again would return page one a second time, so the honest answer
+    // is that there is nothing further.
+    if (definition.singlePageOnly && request.page > 1) {
+      return { items: [], hasNextPage: false };
+    }
     const selected = definition.upstreams
       ? UPSTREAMS.filter((upstream) => definition.upstreams!.includes(upstream.id))
       : UPSTREAMS;
@@ -280,7 +313,9 @@ export function createFederatedProvider(definition: FederatedProviderDefinition)
 
       return {
         items: items.slice(0, request.pageSize),
-        hasNextPage: parsed.data.pageInfo.hasNextPage,
+        // An upstream that cannot page still reports a next page; believing it
+        // would make the app fetch the same results again.
+        hasNextPage: definition.singlePageOnly ? false : parsed.data.pageInfo.hasNextPage,
         message: parsed.data.pageInfo.message ?? undefined,
       };
     });

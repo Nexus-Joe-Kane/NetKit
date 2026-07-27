@@ -82,6 +82,77 @@ describe("federated upstream tolerance", () => {
     expect(result.items).toHaveLength(1);
     expect(result.items[0]?.title).toBe(good.title);
   });
+
+  it("does not re-serve page one for a channel that cannot page", async () => {
+    const fetcher = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            // The upstream claims a next page even though it ignores `page`.
+            pageInfo: { hasNextPage: true },
+            items: upstreamFixture("xhamster").items,
+          }),
+          { headers: { "Content-Type": "application/json" } },
+        ),
+    ) as unknown as typeof fetch;
+
+    const base = {
+      channel: "xhamster",
+      sort: "new",
+      pageSize: 10,
+      blockedKeywords: [],
+      blockedUploaders: [],
+    };
+    const context = { env: createEnv(), fetch: fetcher, requestId: "test", now: new Date() };
+
+    const first = await xhamsterProvider.listVideos({ ...base, page: 1 } as never, context);
+    expect(first.items.length).toBeGreaterThan(0);
+    // Believing the upstream's hasNextPage would make the app fetch the same
+    // ten videos forever.
+    expect(first.hasNextPage).toBe(false);
+
+    const callsAfterFirst = vi.mocked(fetcher).mock.calls.length;
+    const second = await xhamsterProvider.listVideos({ ...base, page: 2 } as never, context);
+    expect(second.items).toEqual([]);
+    expect(second.hasNextPage).toBe(false);
+    // And the request is not even made, which saves a subrequest.
+    expect(vi.mocked(fetcher).mock.calls.length).toBe(callsAfterFirst);
+  });
+
+  it("survives an upstream that sends blank tags", async () => {
+    const fixture = upstreamFixture("xhamster");
+    const good = fixture.items[0]!;
+    const fetcher = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            pageInfo: { hasNextPage: false },
+            // Exactly what one channel returns: a tag array of empty strings.
+            // The output schema requires each tag to be non-empty, so this
+            // silently discarded every video on the page.
+            items: [{ ...good, tags: ["", "", ""], categories: ["  ", "Real"] }],
+          }),
+          { headers: { "Content-Type": "application/json" } },
+        ),
+    ) as unknown as typeof fetch;
+
+    const result = await xhamsterProvider.listVideos(
+      {
+        channel: "xhamster",
+        sort: "new",
+        page: 1,
+        pageSize: 10,
+        blockedKeywords: [],
+        blockedUploaders: [],
+      } as never,
+      { env: createEnv(), fetch: fetcher, requestId: "test", now: new Date() },
+    );
+
+    expect(result.items).toHaveLength(1);
+    // Blank labels are dropped rather than passed on to fail validation.
+    expect(result.items[0]?.tags).toBeUndefined();
+    expect(result.items[0]?.categories).toEqual(["Real"]);
+  });
 });
 
 describe("isChallengePage", () => {
