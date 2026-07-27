@@ -44,11 +44,55 @@ export function resolveOrientation(request: Record<string, unknown>): Orientatio
   return classify(request.orientation) ?? classify(request.gender);
 }
 
-/** Eporner's documented `gay` parameter: 0 excludes gay, 1 both, 2 gay only. */
+/**
+ * Eporner's `gay` parameter: 0 excludes it, 1 includes it, 2 restricts to it.
+ *
+ * "Restricts to it" is not the same as "gay male". Measured 2026-07-27, the
+ * top weekly results for `gay=2` are overwhelmingly trans and femboy titles —
+ * which is why choosing Gay used to come back looking like straight content.
+ * Pairing it with a `gay` browse query (below) is what actually produces
+ * male-on-male results from this API.
+ */
 export function epornerGayParameter(orientation: Orientation | undefined): string {
   if (orientation === "gay") return "2";
   if (orientation === "any") return "1";
   return "0";
+}
+
+/**
+ * Eporner has no browse mode — the catalogue is a search for the special query
+ * `all` — so the query is the only other lever on what comes back. Asking for
+ * `gay men` alongside `gay=2` returns male-on-male titles, where `all` with the
+ * same flag returns the trans-heavy bucket described above.
+ *
+ * A query the viewer actually typed is never replaced.
+ */
+export function epornerBrowseQuery(
+  orientation: Orientation | undefined,
+  query: string | undefined,
+): string {
+  if (query) return query;
+  return orientation === "gay" ? "gay men" : "all";
+}
+
+/**
+ * Channels that genuinely serve an orientation, used to narrow a merged feed.
+ *
+ * `undefined` means "do not narrow". Straight is deliberately in that case:
+ * every general catalogue is straight by default, so restricting the feed
+ * would shrink it for no gain — Eporner still receives `gay=0` either way.
+ *
+ * Gay is narrowed, because most channels have no gay catalogue at all and
+ * would simply dilute the feed with straight titles. Verified 2026-07-27:
+ * Homo.xxx is a dedicated gay catalogue and the only one of the upstream's 80
+ * channels, FapHouse's `?orientation=gay` returns genuinely different gay
+ * listings, and Eporner contributes through the query above.
+ */
+export function orientationChannels(
+  orientation: Orientation | undefined,
+): readonly string[] | undefined {
+  if (orientation !== "gay") return undefined;
+  return ["homoxxx", "faphouse-ultra", "eporner"];
 }
 
 /** FapHouse's `?orientation=` accepts the same two words the app uses. */

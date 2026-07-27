@@ -21,7 +21,7 @@ import {
 import { jsonResponse, parseBody } from "../utils/http";
 import { logger } from "../utils/logging";
 import { enforceRateLimit, rateLimitHeaders } from "../utils/rate-limit";
-import { resolveOrientation } from "../utils/orientation";
+import { orientationChannels, resolveOrientation } from "../utils/orientation";
 import { getPublicBaseUrl } from "../utils/urls";
 import {
   matchPublicCache,
@@ -37,26 +37,33 @@ import {
 export const ALL_CHANNEL_ID = ALL_BUNDLE_ID;
 
 /**
- * Only Eporner and FapHouse can honour an orientation preference; the
- * upstreams behind the federated channels ignore it and fpo.xxx has no
- * orientation listings. When the viewer has asked for one, a bundle therefore
- * narrows to the members that can actually respect it — a smaller feed of the
- * right content beats a large feed of the wrong content.
+ * Narrows a bundle to the members that genuinely serve the chosen orientation.
  *
- * A bundle with no orientation-aware members is left intact rather than
- * emptied: narrowing it would return nothing at all, which is strictly worse
- * than returning a feed that ignores the preference.
+ * Only "gay" narrows. Straight needs no narrowing because every general
+ * catalogue is straight by default, and restricting the feed to two channels —
+ * which is what this used to do — shrank it for no benefit.
+ *
+ * When a bundle contains none of the channels that serve the orientation, it is
+ * left intact rather than emptied: a feed that ignores the preference is worse
+ * than nothing, but not by as much as nothing.
  */
-export const ORIENTATION_AWARE_CHANNELS = ["eporner", "faphouse-ultra"] as const;
-
 function expandBundle(bundle: ChannelBundle, request: VideosRequest): string[] {
   const members = bundle.members().filter((id) => getProvider(id));
-  const orientation = resolveOrientation(request);
-  if (orientation !== "straight" && orientation !== "gay") return members;
-  const aware = members.filter((id) =>
-    (ORIENTATION_AWARE_CHANNELS as readonly string[]).includes(id),
-  );
-  return aware.length > 0 ? aware : members;
+  const serving = orientationChannels(resolveOrientation(request));
+  if (!serving) return members;
+
+  const inBundle = members.filter((id) => serving.includes(id));
+  // The merged feed stands for the whole source, so it may reach for a
+  // dedicated catalogue that is not one of the featured channels — otherwise
+  // choosing Gay there would fall back to Eporner alone, which is how this
+  // came to return trans and straight titles under a Gay label.
+  if (bundle.orientation) {
+    return [...new Set([...serving.filter((id) => getProvider(id)), ...inBundle])];
+  }
+  // A themed bundle keeps its theme. Replacing its members would hand someone
+  // who picked "Animated & hentai" a feed with no animation in it, so when no
+  // member serves the orientation the bundle is left alone.
+  return inBundle.length > 0 ? inBundle : members;
 }
 
 function requestedChannels(request: VideosRequest): string[] {

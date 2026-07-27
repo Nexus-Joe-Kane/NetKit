@@ -355,27 +355,6 @@ describe("the merged all channel", () => {
     expect(sorts.get("hentaihaven")).toBe("views");
   });
 
-  it("leaves a bundle intact when no member can honour an orientation", async () => {
-    const seen: string[] = [];
-    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const payload = JSON.parse(String(init?.body ?? "{}")) as { channel: string };
-      seen.push(payload.channel);
-      return new Response(JSON.stringify(upstreamFixture("xhamster")), {
-        headers: { "Content-Type": "application/json" },
-      });
-    }) as typeof fetch;
-
-    await handleRequest(
-      post("/api/videos", { channel: "anime", page: 1, pageSize: 12, gender: "gay" }),
-      createEnv(),
-      createExecutionContext(),
-      fetcher,
-    );
-    // Narrowing to the orientation-aware channels would empty this bundle
-    // entirely, which is strictly worse than ignoring the preference.
-    expect(seen.length).toBe(3);
-  });
-
   it("still rejects a channel that does not exist", async () => {
     const response = await handleRequest(
       post("/api/videos", { channel: "not-a-channel", page: 1 }),
@@ -477,7 +456,30 @@ describe("orientation preference", () => {
     expect(faphouseOrientationParameter(undefined)).toBeUndefined();
   });
 
-  it("narrows the merged channel to providers that can honour the choice", async () => {
+  it("asks Eporner for gay men rather than its trans-heavy default bucket", async () => {
+    const { epornerBrowseQuery } = await import("../src/utils/orientation");
+    // `gay=2` alone returns mostly trans and femboy titles, which is why the
+    // Gay option used to come back looking like straight content.
+    expect(epornerBrowseQuery("gay", undefined)).toBe("gay men");
+    expect(epornerBrowseQuery("straight", undefined)).toBe("all");
+    expect(epornerBrowseQuery(undefined, undefined)).toBe("all");
+    // A query the viewer typed is never overwritten.
+    expect(epornerBrowseQuery("gay", "amateur")).toBe("amateur");
+  });
+
+  it("routes gay to catalogues that actually carry it", async () => {
+    const { orientationChannels } = await import("../src/utils/orientation");
+    // Homo.xxx is the only dedicated gay catalogue among the upstream's 80
+    // channels, and unlike FapHouse its items are playable.
+    expect(orientationChannels("gay")).toContain("homoxxx");
+    // Straight needs no narrowing: general catalogues are straight by default,
+    // and narrowing merely shrank the feed.
+    expect(orientationChannels("straight")).toBeUndefined();
+    expect(orientationChannels("any")).toBeUndefined();
+    expect(orientationChannels(undefined)).toBeUndefined();
+  });
+
+  it("keeps the merged feed wide for straight and points it at gay catalogues for gay", async () => {
     const mixed = await handleRequest(
       post("/api/videos", { channel: "all", page: 1, pageSize: 12, gender: "none" }),
       createEnv(),
@@ -491,21 +493,59 @@ describe("orientation preference", () => {
     );
     expect(mixedChannels.size).toBeGreaterThan(2);
 
-    // The federated upstreams and fpo provably ignore orientation, so a
-    // narrowed feed of the right content beats a wide feed of the wrong one.
-    const gay = await handleRequest(
+    const seen: string[] = [];
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(input instanceof Request ? input.url : input.toString());
+      if (url.hostname === "www.eporner.com") {
+        seen.push("eporner");
+        return new Response(JSON.stringify(epornerFixture), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.hostname === "faphouse.com") {
+        seen.push("faphouse-ultra");
+        return new Response("<html></html>", { headers: { "Content-Type": "text/html" } });
+      }
+      const payload = JSON.parse(String(init?.body ?? "{}")) as { channel: string };
+      seen.push(payload.channel);
+      return new Response(JSON.stringify(upstreamFixture("xhamster")), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    await handleRequest(
       post("/api/videos", { channel: "all", page: 1, pageSize: 12, gender: "gay" }),
       createEnv(),
       createExecutionContext(),
-      multiProviderFetch(),
+      fetcher,
     );
-    const gayChannels = new Set(
-      ((await gay.json()) as { items: Array<{ channel: string }> }).items.map(
-        (item) => item.channel,
-      ),
+    // The dedicated gay catalogue must be reached even though it is not one of
+    // the featured channels the merged feed normally fans out to.
+    expect(seen).toContain("homoxxx");
+    // Straight-only tubes must not be queried under a gay preference.
+    expect(seen).not.toContain("pornhub");
+    expect(seen).not.toContain("xvideos");
+  });
+
+  it("does not strip a themed bundle of its theme", async () => {
+    const seen: string[] = [];
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const payload = JSON.parse(String(init?.body ?? "{}")) as { channel: string };
+      seen.push(payload.channel);
+      return new Response(JSON.stringify(upstreamFixture("xhamster")), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    await handleRequest(
+      post("/api/videos", { channel: "anime", page: 1, pageSize: 12, gender: "gay" }),
+      createEnv(),
+      createExecutionContext(),
+      fetcher,
     );
-    for (const channel of gayChannels) {
-      expect(["eporner", "faphouse-ultra"]).toContain(channel);
-    }
+    // Someone who picked "Animated & hentai" must not be handed a feed with no
+    // animation in it, so a bundle whose members serve no orientation is left
+    // exactly as chosen.
+    expect(new Set(seen)).toEqual(new Set(["hentaihaven", "hentaitv", "rule34video"]));
   });
 });

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Channel, Uploader, UploadersRequest, Video, VideosRequest } from "../hottub/schemas";
-import { epornerGayParameter, resolveOrientation } from "../utils/orientation";
+import { epornerBrowseQuery, epornerGayParameter, resolveOrientation } from "../utils/orientation";
 import { assertAllowedHttpsUrl, fetchProviderJson } from "../utils/urls";
 import { createFederatedProvider } from "./federated";
 import { firstNonEmptyPage } from "./race";
@@ -199,12 +199,13 @@ async function getOfficialVideos(
   context: ProviderContext,
 ): Promise<ProviderVideoPage> {
   const url = new URL(API_URL);
-  url.searchParams.set("query", request.query || "all");
+  const orientation = resolveOrientation(request);
+  url.searchParams.set("query", epornerBrowseQuery(orientation, request.query));
   url.searchParams.set("per_page", String(request.pageSize));
   url.searchParams.set("page", String(request.page));
   url.searchParams.set("thumbsize", "big");
   url.searchParams.set("order", sortMap[request.sort] ?? "most-popular");
-  url.searchParams.set("gay", epornerGayParameter(resolveOrientation(request)));
+  url.searchParams.set("gay", epornerGayParameter(orientation));
   url.searchParams.set("lq", mapQuality(request.quality));
   url.searchParams.set("format", "json");
 
