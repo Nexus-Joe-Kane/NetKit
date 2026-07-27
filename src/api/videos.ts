@@ -1,3 +1,4 @@
+import { verifyAdminIp } from "../auth/access";
 import type { RequestContext } from "../config";
 import {
   VideoSchema,
@@ -9,6 +10,7 @@ import {
 } from "../hottub/schemas";
 import { ALL_BUNDLE_ID, getBundle, type ChannelBundle } from "../providers/bundles";
 import { getProvider } from "../providers/registry";
+import { ConnectionRepository } from "../storage/connections";
 import { resolveSortForChannel } from "../providers/sort-dialect";
 import type { ProviderAdapter, ProviderContext, ProviderVideoPage } from "../providers/types";
 import { HttpError } from "../utils/errors";
@@ -133,6 +135,56 @@ async function callProvider(
   }
 }
 
+/**
+ * Attaches playable formats to channels the operator has connected an account
+ * to. Without this a premium catalogue lists but never plays: the app extracts
+ * with yt-dlp on the device, which has no session and so cannot see a
+ * protected source.
+ *
+ * Everything is best-effort. A missing key ring, a missing connection or a
+ * failed resolve all leave the items exactly as the catalogue returned them,
+ * because a feed that lists is strictly better than an error.
+ */
+async function resolveConnectedPlayback(
+  context: RequestContext,
+  channels: string[],
+  groups: Video[][],
+  providerContext: ProviderContext,
+): Promise<Video[][]> {
+  const resolvable = channels
+    .map((id, index) => ({ id, index, provider: getProvider(id) }))
+    .filter((entry) => entry.provider?.resolvePlayback && (groups[entry.index]?.length ?? 0) > 0);
+  if (resolvable.length === 0) return groups;
+
+  const keys = context.env.TOKEN_ENCRYPTION_KEYS?.trim();
+  if (!keys) return groups;
+
+  const identity = await verifyAdminIp(context.request, context.env);
+  const repository = new ConnectionRepository(context.env.DB);
+  const result = [...groups];
+
+  await Promise.all(
+    resolvable.map(async (entry) => {
+      try {
+        const stored = await repository.get(identity.userKey, entry.id, keys);
+        if (!stored?.accessToken) return;
+        const items = await entry.provider!.resolvePlayback!(
+          groups[entry.index] ?? [],
+          stored.accessToken,
+          providerContext,
+        );
+        result[entry.index] = items;
+      } catch {
+        logger.warn("playback_resolve_failed", {
+          requestId: providerContext.requestId,
+          providerId: entry.id,
+        });
+      }
+    }),
+  );
+  return result;
+}
+
 function validateProviderItems(items: Video[], channelId: string): Video[] {
   const valid: Video[] = [];
   for (const item of items) {
@@ -212,7 +264,8 @@ export async function videosHandler(
       durationRange,
     ),
   );
-  const items = mergeProviderResults(groups, request.pageSize);
+  const enriched = await resolveConnectedPlayback(context, channels, groups, providerContext);
+  const items = mergeProviderResults(enriched, request.pageSize);
   const errors = pages
     .map((page, index) => (page.error ? `${channels[index]}: ${page.error}` : null))
     .filter((value): value is string => value !== null);

@@ -1,4 +1,19 @@
-import { assertUsableCookie, probePlayback, probeSession, signIn } from "./faphouse-session";
+import type { Video } from "../hottub/schemas";
+import {
+  assertUsableCookie,
+  probePlayback,
+  probeSession,
+  resolvePlaybackFormats,
+  signIn,
+} from "./faphouse-session";
+import type { ProviderContext } from "./types";
+
+/**
+ * Each resolved item costs one authenticated watch-page fetch. A Worker
+ * request has a hard subrequest budget, so this bounds how many are attempted
+ * rather than letting a large page exhaust it and fail outright.
+ */
+const MAX_RESOLVED_PER_PAGE = 12;
 import { createHtmlCatalogProvider } from "./html-catalog";
 import { faphouseOrientationParameter, resolveOrientation } from "../utils/orientation";
 
@@ -78,6 +93,34 @@ export const faphouseProvider = {
   },
   async connectCredentials(login: string, password: string, fetcher: typeof fetch) {
     return signIn(fetcher, login, password);
+  },
+  /**
+   * Resolves real playable formats for catalogue items using the connected
+   * account. Capped, because each item costs one authenticated page fetch and
+   * a Worker request has a bounded subrequest budget; items past the cap keep
+   * their watch page and simply behave as they did before.
+   */
+  async resolvePlayback(
+    items: readonly Video[],
+    sessionCookie: string,
+    context: ProviderContext,
+  ): Promise<Video[]> {
+    const cookie = assertUsableCookie(sessionCookie);
+    const resolved = await Promise.all(
+      items.map(async (item, index) => {
+        if (index >= MAX_RESOLVED_PER_PAGE) return item;
+        try {
+          const formats = await resolvePlaybackFormats(context.fetch, cookie, item.url);
+          if (formats.length === 0) return item;
+          // Only claim availability once there is something to play.
+          return { ...item, formats, availability: undefined };
+        } catch {
+          // A single failed resolve must not remove the item from the feed.
+          return item;
+        }
+      }),
+    );
+    return resolved;
   },
   async diagnosePlayback(sessionCookie: string, watchUrl: string, fetcher: typeof fetch) {
     const probe = await probePlayback(fetcher, assertUsableCookie(sessionCookie), watchUrl);

@@ -142,6 +142,11 @@ each site rather than assumed:
   orientation, and leaves the bundle untouched when none do, rather than
   handing back a feed with no animation in it.
 
+- **Paging** — xHamster is served page one only. Both upstreams answer every
+  page with the same ten results and a larger page size does not widen them, so
+  continuing to include it repeated those ten on every scroll and crowded out
+  channels that can page. It reports no next page rather than believing the
+  upstream's own claim. All 53 channels were measured; it is the only one.
 - **Duration** — a range slider, applied to merged results, so it behaves the
   same on every channel. Some federated catalogues report a duration of `0`,
   meaning unknown rather than zero seconds; those items are kept rather than

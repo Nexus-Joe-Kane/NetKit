@@ -75,6 +75,20 @@ export interface ProviderAdapter {
   }>;
 
   /**
+   * Attaches playable `formats[]` to catalogue items using a stored session.
+   *
+   * Present only where the app cannot extract playback for itself: yt-dlp runs
+   * on the device with no account, so a protected source is invisible to it.
+   * Supplying formats bypasses that extraction entirely and carries the
+   * `httpHeaders` a hotlink-protected CDN needs.
+   */
+  resolvePlayback?(
+    items: readonly Video[],
+    sessionCookie: string,
+    context: ProviderContext,
+  ): Promise<Video[]>;
+
+  /**
    * Reports what an authenticated session exposes on a watch page. Used to
    * establish how playback is delivered to an entitled account before a
    * format resolver is written against it.

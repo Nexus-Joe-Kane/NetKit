@@ -293,6 +293,7 @@ export const UploadersRequestSchema = z
 
 export type ChannelStatus = z.infer<typeof ChannelStatusSchema>;
 export type Channel = z.infer<typeof ChannelSchema>;
+export type VideoFormat = z.infer<typeof VideoFormatSchema>;
 export type ChannelGroup = z.infer<typeof ChannelGroupSchema>;
 export type Notice = z.infer<typeof NoticeSchema>;
 export type ServerStatus = z.infer<typeof ServerStatusSchema>;
