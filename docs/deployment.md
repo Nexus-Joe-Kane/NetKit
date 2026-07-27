@@ -96,11 +96,47 @@ On each push to `main`, `.github/workflows/deploy.yml`:
 5. writes `.generated.wrangler.jsonc` with the real D1 UUID and any optional IP
    allowlist override;
 6. applies all remote migrations;
-7. sets `TOKEN_ENCRYPTION_KEYS` when the secret is present;
-8. deploys the Worker and custom domain.
+7. deploys the Worker and custom domain;
+8. sets `TOKEN_ENCRYPTION_KEYS` when the secret is present;
+9. verifies the deployment is live and locked down.
 
 The zero UUID in committed `wrangler.jsonc` is a safe placeholder. The generated
 file is gitignored and written mode `0600`.
+
+Steps 7 and 8 are in that order deliberately. `wrangler secret put` targets an
+existing Worker, so setting the secret first fails on a first deploy or after
+the Worker has been deleted. Secrets apply to the live Worker immediately, so
+no redeploy is needed afterwards.
+
+### Deployment verification
+
+The source rejects every address except the VPN egress, so a GitHub runner can
+never receive a `200`. `403 admin_ip_forbidden` is therefore the success
+signal — it proves DNS resolves, the Worker is serving on the custom domain,
+and the allowlist is switched on. The final step polls `/health` until it sees
+that, and fails the deployment on a `200`, a `5xx`, or a timeout.
+
+Because the whole deployment is recreated from configuration, deleting the
+Worker in the Cloudflare dashboard is a safe way to start over: the next push
+to `main` recreates the Worker, the D1 database if missing, and the custom
+domain. Data already stored in D1 is only lost if the database itself is
+deleted.
+
+### Public hostnames
+
+`workers_dev` and `preview_urls` are disabled, so `hottub.joekane.org` is the
+only address serving this Worker. Re-enable them in `wrangler.jsonc` only if
+you need a fallback URL while debugging a custom-domain problem; the IP
+allowlist applies to those hostnames too, but they are additional public
+surface that a single-operator deployment does not need.
+
+## Provider health
+
+`.github/workflows/provider-health.yml` runs the live catalogue test daily and
+on demand. The unit suite runs on fixtures and stays green through a total
+provider outage, so this is the check that notices a provider changing its
+URLs or response shape. It deliberately does not gate deployment: a failure
+there means a channel is broken, not that a change is bad.
 
 ## Encryption key
 

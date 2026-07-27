@@ -33,8 +33,31 @@ jobs:
         run: node scripts/prepare-deploy-config.mjs .generated.wrangler.jsonc
       - name: Apply D1 migrations
         run: npx wrangler d1 migrations apply hot-tub --remote --config .generated.wrangler.jsonc
+      - name: Deploy Worker
+        run: npx wrangler deploy --config .generated.wrangler.jsonc
+      # Must run after the deploy: `wrangler secret put` targets an existing
+      # Worker, so on a first deploy (or after the Worker has been deleted)
+      # doing this first fails. Secrets apply live, so no redeploy is needed.
       - name: Configure encryption keys
         if: ${{ env.TOKEN_ENCRYPTION_KEYS != '' }}
         run: printf '%s' "$TOKEN_ENCRYPTION_KEYS" | npx wrangler secret put TOKEN_ENCRYPTION_KEYS --config .generated.wrangler.jsonc
-      - name: Deploy Worker
-        run: npx wrangler deploy --config .generated.wrangler.jsonc
+      # The source is locked to the VPN egress address, so a GitHub runner can
+      # never see a 200. That makes 403 the success signal: it proves DNS
+      # resolves, the Worker is serving on the custom domain, and the allowlist
+      # is switched on. A 5xx, a timeout, or a 200 all mean something is wrong.
+      - name: Verify the deployment is live and locked down
+        run: |
+          set -euo pipefail
+          url="${PUBLIC_BASE_URL:-https://hottub.joekane.org}/health"
+          for attempt in 1 2 3 4 5; do
+            code=$(curl -sS -o body.txt -w '%{http_code}' --max-time 20 "$url" || echo 000)
+            echo "attempt $attempt: HTTP $code"
+            if [ "$code" = "403" ] && grep -q admin_ip_forbidden body.txt; then
+              echo "Deployment is live and rejecting non-VPN addresses."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Unexpected final response ($code):"
+          cat body.txt
+          exit 1
