@@ -36,6 +36,28 @@ export function assertAllowedHttpsUrl(value: string, allowedHostnames: readonly 
   return url;
 }
 
+/**
+ * Markers that only appear on an actual interstitial, not on an ordinary
+ * catalogue page. A bare "captcha" match is deliberately not one of them:
+ * both fpo.xxx and FapHouse serve a Cloudflare Turnstile widget script
+ * (`challenges.cloudflare.com/turnstile/v0/api.js?compat=recaptcha`) on
+ * perfectly normal pages, which previously made every fetch fail closed.
+ */
+const CHALLENGE_MARKERS: readonly RegExp[] = [
+  /cf-chl-/i,
+  /cf_chl_opt/i,
+  /\/cdn-cgi\/challenge-platform/i,
+  /verify (?:that )?you are (?:a )?human/i,
+  /enable javascript and cookies to continue/i,
+  /checking your browser before accessing/i,
+  /access denied/i,
+  /<title>[^<]*just a moment[^<]*<\/title>/i,
+];
+
+export function isChallengePage(html: string): boolean {
+  return CHALLENGE_MARKERS.some((marker) => marker.test(html));
+}
+
 async function readLimitedText(response: Response, maxBytes: number): Promise<string> {
   if (!response.body) return "";
   const reader = response.body.getReader();
@@ -190,7 +212,7 @@ export async function fetchProviderHtml(
     },
   });
   const html = await readLimitedText(response, MAX_PROVIDER_RESPONSE_BYTES);
-  if (/captcha|cf-chl-|verify you are human|access denied/i.test(html)) {
+  if (isChallengePage(html)) {
     throw new ProviderError(providerId, "provider requires interactive browser verification");
   }
   return html;

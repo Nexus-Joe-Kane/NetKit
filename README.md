@@ -126,12 +126,19 @@ Run the quality gate with:
 npm run validate
 ```
 
-Unit tests use fixtures and never call providers. The optional live catalogue
-smoke test is intentionally excluded from the normal suite:
+Unit tests use fixtures and never call providers, so they stay green through a
+total provider outage. The live catalogue test covers browse and search for
+every channel and is the only check that catches a provider changing its URLs
+or response shape. It is excluded from the normal suite because it needs the
+network:
 
 ```bash
 RUN_INTEGRATION_TESTS=1 npm run test:integration
 ```
+
+Run it before trusting the provider table above. All six channels were verified
+live on 2026-07-27; see [Provider research](docs/provider-research.md) for what
+was broken and why.
 
 ## Deployment
 

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Channel, Uploader, UploadersRequest, Video, VideosRequest } from "../hottub/schemas";
 import { assertAllowedHttpsUrl, postProviderJson } from "../utils/urls";
+import { firstNonEmptyPage } from "./race";
 import type {
   ProviderAdapter,
   ProviderCapabilities,
@@ -57,6 +58,10 @@ const upstreamVideoSchema = z
   })
   .passthrough();
 
+// Items are deliberately left unvalidated here and checked one at a time
+// below. Validating them as `z.array(upstreamVideoSchema)` is all-or-nothing:
+// upstreams routinely emit a few records with an empty `thumb`, and that was
+// enough to reject an otherwise good page of results.
 const upstreamResponseSchema = z.object({
   pageInfo: z
     .object({
@@ -66,7 +71,7 @@ const upstreamResponseSchema = z.object({
       error: z.string().nullish(),
     })
     .passthrough(),
-  items: z.array(upstreamVideoSchema),
+  items: z.array(z.unknown()),
 });
 
 interface FederatedProviderDefinition {
@@ -216,7 +221,7 @@ export function createFederatedProvider(definition: FederatedProviderDefinition)
     request: VideosRequest,
     context: ProviderContext,
   ): Promise<ProviderVideoPage> {
-    const calls = UPSTREAMS.map(async (upstream): Promise<ProviderVideoPage> => {
+    const calls: Array<Promise<ProviderVideoPage>> = UPSTREAMS.map(async (upstream) => {
       const payload = await postProviderJson(
         definition.id,
         context.fetch,
@@ -232,8 +237,10 @@ export function createFederatedProvider(definition: FederatedProviderDefinition)
 
       const items: Video[] = [];
       for (const input of parsed.data.items) {
+        const record = upstreamVideoSchema.safeParse(input);
+        if (!record.success) continue;
         try {
-          items.push(normaliseVideo(definition, input));
+          items.push(normaliseVideo(definition, record.data));
         } catch {
           // Drop off-domain or malformed upstream records.
         }
@@ -249,11 +256,7 @@ export function createFederatedProvider(definition: FederatedProviderDefinition)
       };
     });
 
-    try {
-      return await Promise.any(calls);
-    } catch {
-      throw new Error(`${definition.name} has no available Hot Tub upstream.`);
-    }
+    return firstNonEmptyPage(calls, `${definition.name} has no available Hot Tub upstream.`);
   }
 
   async function getUploader(
