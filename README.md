@@ -31,16 +31,28 @@ route returns `403` from any other address.
 | XVideos        |           Yes |    Yes |  Derived |               Yes |                 No |                  No |
 | Pornhub        |           Yes |    Yes |  Derived |               Yes |                 No |                  No |
 | fpo.xxx        |           Yes |    Yes |       No |               Yes |                 No |                  No |
-| FapHouse Ultra |  Catalog only |    Yes |       No |                No |                 No |                  No |
+| FapHouse Ultra |  Catalog only |    Yes |       No |                No |             Opt-in |                  No |
 
 `All channels` is the source default. It is not a provider: `/api/videos`
 expands it into every public channel, queries them in parallel, and interleaves
 the results round-robin so no single provider dominates the feed. Items keep the
 channel that actually served them, so playback and branding are unaffected.
 
-Sort options are only advertised where the provider honours them. fpo.xxx has
-two real listing orders and FapHouse ignores its sort parameter entirely, so no
-sort control is offered for it rather than showing one that does nothing.
+Filters are only advertised where the provider honours them, verified against
+each site rather than assumed:
+
+- **Sort** — fpo.xxx has two real listing orders; FapHouse ignores its sort
+  parameter entirely, so no sort control is offered for it.
+- **Orientation** (straight/all/gay, and Hot Tub's global preference) — Eporner's
+  `gay` parameter and FapHouse's `?orientation=` each return genuinely different
+  catalogues. The Hot Tub-compatible upstreams behind xHamster, XVideos and
+  Pornhub return identical results with and without it, and fpo.xxx has no
+  orientation listings, so those channels do not offer the control. When an
+  orientation is chosen on `All channels`, the fan-out narrows to the providers
+  that can respect it — a smaller feed of the right content rather than a wide
+  feed of the wrong one.
+- **Duration** — a range slider, applied to merged results. Every item carries a
+  duration, so it behaves identically on every channel.
 
 Eporner races three public catalogue routes: its documented
 [Webmaster API v2](https://www.eporner.com/api/v2/), the official Hot Tub
@@ -50,16 +62,19 @@ server-rendered catalogue pages. A seven-day request-specific last-known-good
 cache is used only when every live route fails.
 
 FapHouse public metadata is visible, but its items are marked offline because
-no provider-supported delegated subscription API exists. The operator may opt in
-to connecting their own FapHouse session at `/account`: they sign in on their
-own browser and paste the resulting cookie, which is stored encrypted and used
-server-side only. That does not yet enable protected playback — see
-[Account connections](docs/account-connections.md) for why, and for the risks of
-using a copied session.
+no delegated subscription API exists. The operator may opt in to connecting
+their own FapHouse account at `/account`, using revocable app credentials
+generated in the FapHouse portal or a session cookie copied from their own
+browser. Either is stored encrypted and used server-side only. That does not yet
+enable protected playback — see
+[Account connections](docs/account-connections.md) for why, and for the risks.
+
+There is deliberately no xHamster login: that channel is federated through
+Hot Tub-compatible upstreams and never contacts xhamster.com, so credentials
+would have nowhere to go.
 
 The service does not use browser stealth, CAPTCHA bypasses, DRM circumvention,
-paywall bypasses, or password collection, and never submits a provider's login
-form.
+or paywall bypasses, and never submits a provider's interactive login form.
 
 ## What is included
 

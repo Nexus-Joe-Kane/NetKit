@@ -1,5 +1,6 @@
-import { assertUsableCookie, probePlayback, probeSession } from "./faphouse-session";
+import { assertUsableCookie, probePlayback, probeSession, signIn } from "./faphouse-session";
 import { createHtmlCatalogProvider } from "./html-catalog";
+import { faphouseOrientationParameter, resolveOrientation } from "../utils/orientation";
 
 const baseProvider = createHtmlCatalogProvider({
   id: "faphouse-ultra",
@@ -18,14 +19,18 @@ const baseProvider = createHtmlCatalogProvider({
   // byte the same first results — so no sort is sent and none is advertised.
   buildUrls(request) {
     const page = Math.max(1, request.page);
+    // Verified to change results, unlike `?sort=` and `?sexuality=`.
+    const orientation = faphouseOrientationParameter(resolveOrientation(request));
     if (request.query) {
       const primary = new URL("https://faphouse.com/search/videos");
       primary.searchParams.set("q", request.query);
       primary.searchParams.set("page", String(page));
+      if (orientation) primary.searchParams.set("orientation", orientation);
       return [primary];
     }
     const primary = new URL("https://faphouse.com/videos");
     primary.searchParams.set("page", String(page));
+    if (orientation) primary.searchParams.set("orientation", orientation);
     return [primary];
   },
   isWatchUrl(url) {
@@ -35,6 +40,22 @@ const baseProvider = createHtmlCatalogProvider({
   tags: [
     { name: "Catalog only", systemImage: "rectangle.stack" },
     { name: "Premium", systemImage: "star.fill" },
+  ],
+  // `?orientation=` was verified to return a genuinely different catalogue,
+  // unlike `?sort=` and `?sexuality=`, which the site ignores.
+  extraOptions: [
+    {
+      id: "orientation",
+      title: "Catalogue",
+      systemImage: "person.2",
+      colorName: "purple",
+      multiSelect: false,
+      options: [
+        { id: "straight", title: "Straight" },
+        { id: "all", title: "All" },
+        { id: "gay", title: "Gay" },
+      ],
+    },
   ],
 });
 
@@ -54,6 +75,9 @@ export const faphouseProvider = {
   ...baseProvider,
   async connectSession(sessionCookie: string, fetcher: typeof fetch) {
     return probeSession(fetcher, assertUsableCookie(sessionCookie));
+  },
+  async connectCredentials(login: string, password: string, fetcher: typeof fetch) {
+    return signIn(fetcher, login, password);
   },
   async diagnosePlayback(sessionCookie: string, watchUrl: string, fetcher: typeof fetch) {
     const probe = await probePlayback(fetcher, assertUsableCookie(sessionCookie), watchUrl);

@@ -1,5 +1,5 @@
 import { parse, type HTMLElement } from "node-html-parser";
-import type { Channel, Video, VideosRequest } from "../hottub/schemas";
+import type { Channel, ChannelOption, Video, VideosRequest } from "../hottub/schemas";
 import { assertAllowedHttpsUrl, fetchProviderHtml } from "../utils/urls";
 import type {
   ProviderAdapter,
@@ -29,6 +29,8 @@ interface HtmlCatalogDefinition {
    * nothing.
    */
   sortOptions?: ReadonlyArray<{ id: string; title: string }>;
+  /** Extra controls this catalogue genuinely honours. */
+  extraOptions?: ReadonlyArray<ChannelOption>;
 }
 
 const capabilities: ProviderCapabilities = {
@@ -190,17 +192,20 @@ export function createHtmlCatalogProvider(definition: HtmlCatalogDefinition): Pr
     groupKey: definition.premium ? "Premium" : "Public",
     cacheDuration: 900,
     tags: [...definition.tags],
-    options: definition.sortOptions?.length
-      ? [
-          {
-            id: "sort",
-            title: "Sort",
-            systemImage: "list.number",
-            colorName: "indigo",
-            options: [...definition.sortOptions],
-          },
-        ]
-      : undefined,
+    options: [
+      ...(definition.sortOptions?.length
+        ? [
+            {
+              id: "sort",
+              title: "Sort",
+              systemImage: "list.number",
+              colorName: "indigo",
+              options: [...definition.sortOptions],
+            },
+          ]
+        : []),
+      ...(definition.extraOptions ?? []),
+    ],
   };
 
   async function getVideos(

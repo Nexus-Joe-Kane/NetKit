@@ -1,13 +1,19 @@
 import { ProviderError } from "../utils/errors";
 
 /**
- * FapHouse publishes no OAuth or delegated-access API, so the only way to act
- * on behalf of an entitled account without collecting a password or defeating
- * the login form's bot protection is for the operator to sign in themselves
- * and hand over the resulting session cookie.
+ * FapHouse publishes no OAuth or delegated-access API, but `/api/auth/signin`
+ * is a plain JSON endpoint taking `login` and `password`. There are therefore
+ * two ways to connect an account:
  *
- * The cookie is stored encrypted and used server-side only. Nothing here logs
- * in, submits credentials, or solves a challenge.
+ * 1. Revocable, app-specific credentials generated in the operator's account
+ *    portal. Preferred — the session renews itself when it lapses, and the
+ *    credentials can be withdrawn without touching the account password.
+ * 2. A session cookie the operator copies from their own signed-in browser.
+ *    No renewal, so it has to be re-pasted when it expires.
+ *
+ * Both are stored encrypted and used server-side only. Nothing here solves a
+ * challenge or works around bot protection; the sign-in endpoint accepts an
+ * ordinary JSON request.
  */
 
 const FAPHOUSE_HOST = "faphouse.com";
@@ -133,6 +139,101 @@ export async function probeSession(fetcher: typeof fetch, cookie: string): Promi
   return {
     authenticated: true,
     detail: `Session accepted (${signedIn} signed-in marker${signedIn === 1 ? "" : "s"}).`,
+  };
+}
+
+const SIGNIN_URL = new URL("https://faphouse.com/api/auth/signin");
+
+export interface CredentialSignIn {
+  authenticated: boolean;
+  detail: string;
+  /** Cookie header to replay on subsequent authenticated requests. */
+  sessionCookie?: string;
+  premium?: boolean;
+}
+
+interface SignInBody {
+  errors?: Record<string, string[]>;
+  userId?: number | string | null;
+  hasGoldSubscription?: boolean;
+}
+
+function collectSetCookie(response: Response): string {
+  const headers = response.headers as Headers & { getSetCookie?: () => string[] };
+  const raw =
+    headers.getSetCookie?.() ?? (response.headers.get("set-cookie") ?? "").split(/,(?=[^;]+=)/);
+  return raw
+    .map((entry) => entry.split(";", 1)[0]!.trim())
+    .filter((pair) => /^[^\s=;]+=[^;]*$/.test(pair) && !/=(?:deleted|)$/.test(pair))
+    .join("; ");
+}
+
+function firstError(body: SignInBody): string | undefined {
+  for (const messages of Object.values(body.errors ?? {})) {
+    if (messages?.[0]) return messages[0];
+  }
+  return undefined;
+}
+
+/**
+ * Exchanges credentials for a session.
+ *
+ * FapHouse has no OAuth, but `/api/auth/signin` is a plain JSON endpoint
+ * taking `login` and `password` and answering with `userId` and
+ * `hasGoldSubscription`. Storing revocable, app-specific credentials rather
+ * than a copied cookie means the session can be renewed automatically when it
+ * expires, and the operator can revoke them without touching their account
+ * password.
+ */
+export async function signIn(
+  fetcher: typeof fetch,
+  login: string,
+  password: string,
+): Promise<CredentialSignIn> {
+  let response: Response;
+  try {
+    response = await fetcher(SIGNIN_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "User-Agent":
+          "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+      },
+      body: JSON.stringify({ login, password }),
+      redirect: "manual",
+      signal: AbortSignal.timeout(SESSION_TIMEOUT_MS),
+    });
+  } catch {
+    throw new ProviderError("faphouse-ultra", "provider request failed", true);
+  }
+
+  let body: SignInBody;
+  try {
+    body = JSON.parse(await readLimited(response)) as SignInBody;
+  } catch {
+    // A non-JSON answer means the endpoint changed or a challenge intervened.
+    return { authenticated: false, detail: `Sign-in returned HTTP ${response.status}.` };
+  }
+
+  const error = firstError(body);
+  if (error || !body.userId) {
+    // The provider's own wording is surfaced, truncated, and never echoes the
+    // submitted credentials.
+    return { authenticated: false, detail: (error ?? "Sign-in was rejected.").slice(0, 160) };
+  }
+
+  const sessionCookie = collectSetCookie(response);
+  if (!sessionCookie) {
+    return { authenticated: false, detail: "Sign-in succeeded but returned no session cookie." };
+  }
+  return {
+    authenticated: true,
+    sessionCookie,
+    premium: body.hasGoldSubscription === true,
+    detail: body.hasGoldSubscription
+      ? "Signed in with an active Gold subscription."
+      : "Signed in. The account has no Gold subscription, so protected titles stay unavailable.",
   };
 }
 

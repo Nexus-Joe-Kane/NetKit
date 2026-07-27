@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Channel, Uploader, UploadersRequest, Video, VideosRequest } from "../hottub/schemas";
+import { epornerGayParameter, resolveOrientation } from "../utils/orientation";
 import { assertAllowedHttpsUrl, fetchProviderJson } from "../utils/urls";
 import { createFederatedProvider } from "./federated";
 import { firstNonEmptyPage } from "./race";
@@ -133,22 +134,6 @@ const channel: Channel = {
   ],
 };
 
-/**
- * Eporner's `gay` parameter: 0 straight, 1 both, 2 gay.
- *
- * `orientation` is this channel's own filter, chosen from the options this
- * source advertises. `gender` is Hot Tub's global preference and arrives on
- * every request whether or not a channel filter is set — it was previously
- * ignored, so the app-wide preference did nothing here. The channel filter
- * wins when the user has set one.
- */
-function mapOrientation(value: unknown, gender: unknown): string {
-  const choice = value ?? gender;
-  if (choice === "all" || choice === "both") return "1";
-  if (choice === "gay" || choice === "male") return "2";
-  return "0";
-}
-
 function mapQuality(value: unknown): string {
   if (value === "all") return "1";
   if (value === "low") return "2";
@@ -219,7 +204,7 @@ async function getOfficialVideos(
   url.searchParams.set("page", String(request.page));
   url.searchParams.set("thumbsize", "big");
   url.searchParams.set("order", sortMap[request.sort] ?? "most-popular");
-  url.searchParams.set("gay", mapOrientation(request.orientation, request.gender));
+  url.searchParams.set("gay", epornerGayParameter(resolveOrientation(request)));
   url.searchParams.set("lq", mapQuality(request.quality));
   url.searchParams.set("format", "json");
 

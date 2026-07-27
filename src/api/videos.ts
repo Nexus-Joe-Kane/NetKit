@@ -10,10 +10,16 @@ import {
 import { activeProviderIds, getProvider } from "../providers/registry";
 import type { ProviderContext, ProviderVideoPage } from "../providers/types";
 import { HttpError } from "../utils/errors";
-import { applyClientBlocks, mergeProviderResults } from "../utils/filters";
+import {
+  applyClientBlocks,
+  applyDurationRange,
+  mergeProviderResults,
+  parseDurationRange,
+} from "../utils/filters";
 import { jsonResponse, parseBody } from "../utils/http";
 import { logger } from "../utils/logging";
 import { enforceRateLimit, rateLimitHeaders } from "../utils/rate-limit";
+import { resolveOrientation } from "../utils/orientation";
 import { getPublicBaseUrl } from "../utils/urls";
 import {
   matchPublicCache,
@@ -31,6 +37,24 @@ import {
  */
 export const ALL_CHANNEL_ID = "all";
 
+/**
+ * Only Eporner and FapHouse can honour an orientation preference; the
+ * upstreams behind the federated channels ignore it and fpo.xxx has no
+ * orientation listings. When the viewer has asked for one, the merged channel
+ * therefore narrows to the providers that can actually respect it — a smaller
+ * feed of the right content beats a large feed of the wrong content.
+ */
+export const ORIENTATION_AWARE_CHANNELS = ["eporner", "faphouse-ultra"] as const;
+
+function expandedChannels(request: VideosRequest): string[] {
+  const orientation = resolveOrientation(request);
+  const narrow = orientation === "straight" || orientation === "gay";
+  const all = activeProviderIds();
+  if (!narrow) return [...all];
+  const aware = all.filter((id) => (ORIENTATION_AWARE_CHANNELS as readonly string[]).includes(id));
+  return aware.length > 0 ? aware : [...all];
+}
+
 function requestedChannels(request: VideosRequest): string[] {
   const requested =
     request.channels && request.channels.length > 0
@@ -40,7 +64,7 @@ function requestedChannels(request: VideosRequest): string[] {
         : [];
   return [
     ...new Set(
-      requested.flatMap((id) => (id === ALL_CHANNEL_ID ? [...activeProviderIds()] : [id])),
+      requested.flatMap((id) => (id === ALL_CHANNEL_ID ? expandedChannels(request) : [id])),
     ),
   ];
 }
@@ -138,18 +162,25 @@ export async function videosHandler(
     requestId: context.requestId,
     now: new Date(),
   };
+  // Duration is filtered after fetching, since only some providers can express
+  // it upstream. Over-fetching keeps a filtered page from looking half-empty.
+  const durationRange = parseDurationRange(request.durationSecondsRange);
+  const filtersLocally = durationRange.min !== undefined || durationRange.max !== undefined;
   const perProvider: VideosRequest = {
     ...request,
-    pageSize: providerPageSize(request, channels.length),
+    pageSize: Math.min(100, providerPageSize(request, channels.length) * (filtersLocally ? 2 : 1)),
   };
   const pages = await Promise.all(
     channels.map((channelId) => callProvider(channelId, perProvider, providerContext)),
   );
   const groups = pages.map((page, index) =>
-    applyClientBlocks(
-      validateProviderItems(page.items, channels[index] ?? ""),
-      request.blockedKeywords,
-      request.blockedUploaders,
+    applyDurationRange(
+      applyClientBlocks(
+        validateProviderItems(page.items, channels[index] ?? ""),
+        request.blockedKeywords,
+        request.blockedUploaders,
+      ),
+      durationRange,
     ),
   );
   const items = mergeProviderResults(groups, request.pageSize);

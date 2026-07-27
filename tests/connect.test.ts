@@ -210,3 +210,126 @@ describe("POST /account/connect", () => {
     }
   });
 });
+
+const SIGNIN = "https://faphouse.com/api/auth/signin";
+
+function signinFetch(
+  body: Record<string, unknown>,
+  status = 200,
+  setCookie = "fhaccess=live-session; Path=/; HttpOnly",
+): typeof fetch {
+  return vi.fn(async (input: RequestInfo | URL) => {
+    const url = new URL(input instanceof Request ? input.url : input.toString());
+    expect(url.toString()).toBe(SIGNIN);
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { "Content-Type": "application/json", "Set-Cookie": setCookie },
+    });
+  }) as unknown as typeof fetch;
+}
+
+describe("connecting with revocable credentials", () => {
+  it("exchanges credentials for a session and records the entitlement", async () => {
+    const database = new FakeD1Database();
+    const keys = keyRing();
+    const env = envWith(database, keys);
+    const token = await openAccount(env);
+
+    const response = await handleRequest(
+      connectRequest(token, {
+        providerId: "faphouse-ultra",
+        login: "app-user",
+        password: "app-secret",
+      }),
+      env,
+      createExecutionContext(),
+      signinFetch({ userId: 4242, hasGoldSubscription: true }),
+    );
+    expect(response.status).toBe(303);
+    expect(response.headers.get("Location")).toContain("Gold");
+
+    const raw = [...database.connections.values()][0]!;
+    // Both the session and the renewal credentials are encrypted at rest.
+    expect(String(raw.encrypted_access_token)).not.toContain("live-session");
+    expect(String(raw.encrypted_refresh_token)).not.toContain("app-secret");
+
+    const stored = await new ConnectionRepository(database as unknown as D1Database).get(
+      raw.user_key as string,
+      "faphouse-ultra",
+      keys,
+    );
+    expect(stored?.accessToken).toContain("fhaccess=live-session");
+    expect(JSON.parse(stored!.refreshToken!)).toEqual({ l: "app-user", p: "app-secret" });
+    expect(stored?.summary.capabilities).toMatchObject({ premiumAccess: true, renewable: true });
+  });
+
+  it("says so when the account has no subscription", async () => {
+    const env = envWith(new FakeD1Database(), keyRing());
+    const token = await openAccount(env);
+    const response = await handleRequest(
+      connectRequest(token, {
+        providerId: "faphouse-ultra",
+        login: "app-user",
+        password: "app-secret",
+      }),
+      env,
+      createExecutionContext(),
+      signinFetch({ userId: 7, hasGoldSubscription: false }),
+    );
+    expect(response.headers.get("Location")).toContain("no%20Gold%20subscription");
+  });
+
+  it("stores nothing when the provider rejects the credentials", async () => {
+    const database = new FakeD1Database();
+    const env = envWith(database, keyRing());
+    const token = await openAccount(env);
+
+    const response = await handleRequest(
+      connectRequest(token, {
+        providerId: "faphouse-ultra",
+        login: "app-user",
+        password: "wrong",
+      }),
+      env,
+      createExecutionContext(),
+      signinFetch({ errors: { _global: ["Invalid credentials"] }, userId: null }, 400, ""),
+    );
+    expect(response.status).toBe(303);
+    const location = response.headers.get("Location") ?? "";
+    expect(location).toContain("Invalid%20credentials");
+    // The submitted secret must never be echoed back in a redirect or page.
+    expect(location).not.toContain("wrong");
+    expect(database.connections.size).toBe(0);
+  });
+
+  it("rejects a sign-in that returns no session cookie", async () => {
+    const database = new FakeD1Database();
+    const env = envWith(database, keyRing());
+    const token = await openAccount(env);
+    const response = await handleRequest(
+      connectRequest(token, {
+        providerId: "faphouse-ultra",
+        login: "app-user",
+        password: "app-secret",
+      }),
+      env,
+      createExecutionContext(),
+      signinFetch({ userId: 1, hasGoldSubscription: true }, 200, ""),
+    );
+    expect(response.headers.get("Location")).toContain("no%20session%20cookie");
+    expect(database.connections.size).toBe(0);
+  });
+
+  it("refuses credentials for a provider that has no sign-in endpoint", async () => {
+    const env = envWith(new FakeD1Database(), keyRing());
+    const token = await openAccount(env);
+    const response = await handleRequest(
+      connectRequest(token, { providerId: "xhamster", login: "a", password: "b" }),
+      env,
+      createExecutionContext(),
+      signinFetch({ userId: 1 }),
+    );
+    expect(response.status).toBe(400);
+    expect(await response.text()).toContain("connection_not_supported");
+  });
+});

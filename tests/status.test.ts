@@ -71,3 +71,27 @@ describe("advertised filters", () => {
     expect(sortsFor("xhamster")?.length).toBeGreaterThan(1);
   });
 });
+
+describe("duration slider", () => {
+  it("advertises a range control on every channel", async () => {
+    const response = await handleRequest(
+      post("/api/status", {}),
+      createEnv(),
+      createExecutionContext(),
+    );
+    const status = ServerStatusSchema.parse(await response.json());
+
+    for (const channel of status.channels) {
+      const duration = channel.options?.find((option) => option.id === "durationSecondsRange");
+      expect(duration, `${channel.id} has no duration control`).toBeDefined();
+      expect(duration!.options).toEqual([]);
+      // Every properties value must be a string; the client decodes them that
+      // way, exactly as it does pageInfo.parameters.
+      for (const [key, value] of Object.entries(duration!.properties ?? {})) {
+        expect(typeof value, `properties.${key}`).toBe("string");
+      }
+      expect(duration!.properties?.control).toBe("range");
+      expect(JSON.parse(duration!.properties!.ticks!)).toHaveLength(5);
+    }
+  });
+});

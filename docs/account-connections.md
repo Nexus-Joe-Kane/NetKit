@@ -16,19 +16,33 @@ the Hot Tub app is unauthenticated or broken.
 FapHouse publishes no OAuth, API token, or delegated-access mechanism. Verified
 2026-07-27: `/api`, `/api/v1`, `/developers`, `/partners`, and `/affiliate` all
 return `404`, there is no OAuth discovery document, and no developer
-documentation exists publicly. Their internal API includes `/api/auth/signin`,
-but driving it would mean collecting the operator's password and working around
-the login form's bot protection. This project does neither.
+documentation exists publicly.
 
-The supported route is instead: the operator signs in on their own browser,
-copies the `Cookie` header, and pastes it into `/account`. The Worker validates
-it against the live site before storing it, encrypts it with AES-256-GCM under
-`TOKEN_ENCRYPTION_KEYS`, and uses it server-side only. No password is collected,
-no login form is submitted, and no challenge is solved.
+`/api/auth/signin` is however an ordinary JSON endpoint taking `login` and
+`password` and answering with `userId` and `hasGoldSubscription`. Verified with
+deliberately invalid credentials: it returns
+`400 {"errors":{"_global":["Invalid credentials"]}}` and demands no challenge
+token. There are therefore two ways to connect an account, both validated
+against the live site before anything is stored, both encrypted with
+AES-256-GCM under `TOKEN_ENCRYPTION_KEYS`, and both used server-side only.
+
+**Revocable app credentials (preferred).** Generate app-specific credentials in
+the FapHouse account portal and enter them at `/account`. They are exchanged for
+a session immediately; the credentials are kept as the refresh secret so the
+session can be renewed when it lapses, and they can be revoked on their own
+without changing the account password. `hasGoldSubscription` is recorded, so the
+page states plainly whether the connected account can actually reach protected
+titles.
+
+**A copied session cookie.** The operator signs in on their own browser and
+pastes the `Cookie` header. No renewal, so it must be re-pasted when it expires.
+Kept as a fallback for accounts with no app-credential feature.
+
+Neither path submits the interactive login form or works around bot protection.
 
 | Method | Path                  | Behavior                                              |
 | ------ | --------------------- | ----------------------------------------------------- |
-| `POST` | `/account/connect`    | Validates and stores an encrypted provider session    |
+| `POST` | `/account/connect`    | Validates credentials or a cookie, stores encrypted   |
 | `POST` | `/account/diagnose`   | Reports what an entitled session exposes for playback |
 | `POST` | `/account/disconnect` | Removes a stored connection                           |
 
@@ -59,22 +73,38 @@ API paths appear, with query strings stripped so signed tokens are never
 rendered or logged. A format resolver should be written against that output
 rather than guessed at.
 
+### xHamster has nowhere to send credentials
+
+There is deliberately no xHamster login. The xHamster channel never contacts
+`xhamster.com`: it is federated through `hottubapp.io` and
+`hottub.spacemoehre.de`, which return xHamster watch URLs but would not accept
+an operator's xHamster credentials. Storing them would be a control that cannot
+possibly work.
+
+Making them meaningful would mean writing a direct `xhamster.com` adapter with
+its own sign-in and authenticated browsing, replacing the federated path. Every
+probe of `xhamster.com/api`, `/oauth/authorize` and `/.well-known/*` returned
+`520` from Cloudflare, so that is not obviously feasible either.
+
 ### Operator risk
 
-Using a copied session is very likely contrary to FapHouse's terms, and the
-account carrying it is the operator's own. A stored session grants whatever the
-signed-in account can do, expires on the provider's schedule, and has to be
-re-pasted when it does. Disconnecting removes it immediately.
+The connected account is the operator's own, and a stored connection grants
+whatever that account can do. App credentials are preferred precisely because
+they can be revoked independently; a copied session is very likely contrary to
+FapHouse's terms and expires on the provider's schedule. Disconnecting removes
+either immediately.
 
 ## Current state
 
 None of the requested providers has a verified OAuth, provider-issued token, or
 delegated account API suitable for this project. Therefore:
 
-- no provider login form exists and no password is ever requested;
-- FapHouse is the one exception to "no session is requested": the operator may
-  paste their own browser session, as described above;
-- no other provider account is connected by the current UI;
+- the interactive login form of a provider is never submitted, and no bot
+  protection is worked around;
+- FapHouse is the one connectable provider, via revocable app credentials or a
+  copied session, as described above;
+- no other provider account is connected by the current UI, and xHamster
+  deliberately offers none because its channel never contacts the site;
 - provider-side history, likes, playlists, subscriptions, and premium playback
   are not claimed;
 - the `/account` page truthfully shows what is and is not connected.
