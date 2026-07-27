@@ -81,14 +81,27 @@ each site rather than assumed:
 
 - **Sort** — fpo.xxx has two real listing orders; FapHouse ignores its sort
   parameter entirely, so no sort control is offered for it.
-- **Orientation** (straight/all/gay, and Hot Tub's global preference) — Eporner's
-  `gay` parameter and FapHouse's `?orientation=` each return genuinely different
-  catalogues. The Hot Tub-compatible upstreams behind xHamster, XVideos and
-  Pornhub return identical results with and without it, and fpo.xxx has no
-  orientation listings, so those channels do not offer the control. When an
-  orientation is chosen on `All channels`, the fan-out narrows to the providers
-  that can respect it — a smaller feed of the right content rather than a wide
-  feed of the wrong one.
+- **Orientation** (straight/all/gay, and Hot Tub's global preference) — the
+  Hot Tub-compatible upstreams behind xHamster, XVideos and Pornhub return
+  identical results with and without an orientation parameter, and fpo.xxx has
+  no orientation listings, so those channels do not offer the control.
+
+  **Straight** does not narrow the feed at all. Every general catalogue is
+  straight by default, so restricting it would only shrink it; Eporner still
+  receives `gay=0`.
+
+  **Gay** points `All channels` at the catalogues that genuinely carry it:
+  Homo.xxx, which is the only dedicated gay catalogue among the upstream's 80
+  channels, FapHouse with `?orientation=gay`, and Eporner. Eporner needs both
+  levers — measured 2026-07-27, `gay=2` on its own returns overwhelmingly trans
+  and femboy titles, so the browse query becomes `gay men`, which returns
+  male-on-male results.
+
+  A themed bundle is never re-pointed this way. Choosing Gay while browsing
+  `Animated & hentai` filters to whichever of its members serve the
+  orientation, and leaves the bundle untouched when none do, rather than
+  handing back a feed with no animation in it.
+
 - **Duration** — a range slider, applied to merged results, so it behaves the
   same on every channel. Some federated catalogues report a duration of `0`,
   meaning unknown rather than zero seconds; those items are kept rather than
