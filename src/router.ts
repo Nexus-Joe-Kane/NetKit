@@ -31,13 +31,26 @@ import {
   pngResponse,
 } from "./utils/http";
 import { logger } from "./utils/logging";
-import { allChannelIconPng, sourceIconPng } from "./icons";
+import { hasIcon, iconPng } from "./icons";
 import { appCss, rootPage } from "./views";
 
 type Handler = (context: RequestContext, fetcher: typeof fetch) => Promise<Response>;
 
+/**
+ * Bundle artwork, one route per bundle so a typo in a bundle's `icon` key is a
+ * 404 in a test rather than a missing tile on a phone.
+ */
+function iconRoute(method: string, path: string): Handler | undefined {
+  if (method !== "GET") return undefined;
+  const name = path.match(/^\/assets\/icon-([a-z0-9-]{1,32})\.png$/)?.[1];
+  if (!name || !hasIcon(name)) return undefined;
+  return async () => pngResponse(iconPng(name)!);
+}
+
 function route(method: string, path: string): Handler | undefined {
   const key = `${method} ${path}`;
+  const icon = iconRoute(method, path);
+  if (icon) return icon;
   const routes: Record<string, Handler> = {
     "GET /": async (context) => htmlResponse(rootPage(context.env)),
     "HEAD /": async (context) => {
@@ -45,8 +58,7 @@ function route(method: string, path: string): Handler | undefined {
       return new Response(null, { status: response.status, headers: response.headers });
     },
     "GET /assets/app.css": async () => cssResponse(appCss),
-    "GET /assets/icon.png": async () => pngResponse(sourceIconPng),
-    "GET /assets/icon-all.png": async () => pngResponse(allChannelIconPng),
+    "GET /assets/icon.png": async () => pngResponse(iconPng("source")!),
     "GET /health": healthHandler,
     "POST /api/status": statusHandler,
     "POST /api/videos": videosHandler,

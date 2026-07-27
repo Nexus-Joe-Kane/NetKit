@@ -6,33 +6,33 @@ import {
   type ChannelOption,
   type ServerStatus,
 } from "../hottub/schemas";
-import { ALL_CHANNEL_ID } from "./videos";
-import { featuredProviderIds, listProviders } from "../providers/registry";
+import { listBundles, type ChannelBundle } from "../providers/bundles";
+import { getProvider, listProviders } from "../providers/registry";
 import { jsonResponse, parseBody } from "../utils/http";
 import { getPublicBaseUrl } from "../utils/urls";
 import { enforceRateLimit, rateLimitHeaders } from "../utils/rate-limit";
 
 /**
- * The merged channel. `/api/videos` expands it into every browsable provider,
- * so only the sorts that all of them can honour are advertised — a provider
- * that does not recognise one falls back to its own default rather than
- * failing.
+ * A bundle rendered as a channel. `/api/videos` expands it into its members, so
+ * the sort control advertises a generic intent that is translated into each
+ * member's own dialect before the request goes out — the members disagree on
+ * naming, and forwarding one catalogue's ID to another simply gets ignored.
  */
-function allChannel(providerCount: number, baseUrl: URL): Channel {
+function bundleChannel(bundle: ChannelBundle, memberCount: number, baseUrl: URL): Channel {
   return {
-    id: ALL_CHANNEL_ID,
-    name: "All channels",
-    favicon: new URL("/assets/icon-all.png", baseUrl).toString(),
-    description: `Every public channel interleaved into one feed, across ${providerCount} providers.`,
+    id: bundle.id,
+    name: bundle.name,
+    favicon: new URL(`/assets/icon-${bundle.icon}.png`, baseUrl).toString(),
+    description: `${bundle.description} Interleaved across ${memberCount} channels.`,
     premium: false,
     status: "active",
     nsfw: true,
-    default: true,
-    sortOrder: 0,
-    groupKey: "Public",
+    default: bundle.default ?? false,
+    sortOrder: bundle.sortOrder,
+    groupKey: "Bundles",
     cacheDuration: 900,
     tags: [
-      { name: "Merged", systemImage: "square.stack.3d.up" },
+      { name: "Merged", systemImage: bundle.systemImage },
       { name: "Public", systemImage: "globe" },
     ],
     options: [
@@ -41,24 +41,24 @@ function allChannel(providerCount: number, baseUrl: URL): Channel {
         title: "Sort",
         systemImage: "list.number",
         colorName: "indigo",
-        options: [
-          { id: "relevance", title: "Most Relevant" },
-          { id: "new", title: "Newest" },
-          { id: "views", title: "Most Viewed" },
-        ],
+        options: [...bundle.sortOptions],
       },
-      {
-        id: "orientation",
-        title: "Catalogue",
-        systemImage: "person.2",
-        colorName: "purple",
-        multiSelect: false,
-        options: [
-          { id: "straight", title: "Straight" },
-          { id: "all", title: "All" },
-          { id: "gay", title: "Gay" },
-        ],
-      },
+      ...(bundle.orientation
+        ? [
+            {
+              id: "orientation",
+              title: "Catalogue",
+              systemImage: "person.2",
+              colorName: "purple",
+              multiSelect: false,
+              options: [
+                { id: "straight", title: "Straight" },
+                { id: "all", title: "All" },
+                { id: "gay", title: "Gay" },
+              ],
+            },
+          ]
+        : []),
     ],
   };
 }
@@ -113,7 +113,9 @@ export async function statusHandler(context: RequestContext): Promise<Response> 
   const rateLimit = await enforceRateLimit(context, "status", 120, 60);
   const providers = listProviders();
   const baseUrl = getPublicBaseUrl(context.env.PUBLIC_BASE_URL);
-  const merged = allChannel(featuredProviderIds().length, baseUrl);
+  const bundles = listBundles().map((bundle) =>
+    bundleChannel(bundle, bundle.members().filter(getProvider).length, baseUrl),
+  );
   const publicIds = providers
     .filter((provider) => !provider.channel.premium)
     .map((provider) => provider.id);
@@ -125,7 +127,7 @@ export async function statusHandler(context: RequestContext): Promise<Response> 
   const status: ServerStatus = {
     id: "joe-unified-hottub",
     name: context.env.SOURCE_NAME?.trim() || "Joe's Unified Hot Tub Source",
-    subtitle: "Six channels with working public catalogues",
+    subtitle: `${providers.length} channels and ${bundles.length} bundles`,
     description:
       "A self-hosted Hot Tub source using an official provider API, redundant Hot Tub-compatible sources, and ordinary public catalogue pages.",
     color: "#FF6B35",
@@ -152,12 +154,20 @@ export async function statusHandler(context: RequestContext): Promise<Response> 
           ]
         : []),
     ],
-    channels: [merged, ...providers.map((provider) => provider.channel)].map(withDurationSlider),
+    channels: [...bundles, ...providers.map((provider) => provider.channel)].map(
+      withDurationSlider,
+    ),
     channelGroups: [
+      {
+        id: "bundles",
+        title: "Bundles",
+        channelIds: bundles.map((channel) => channel.id),
+        systemImage: "square.stack.3d.up",
+      },
       {
         id: "public",
         title: "Public",
-        channelIds: [ALL_CHANNEL_ID, ...publicIds],
+        channelIds: publicIds,
         systemImage: "globe",
       },
       ...(premiumIds.length

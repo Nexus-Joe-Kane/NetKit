@@ -304,6 +304,78 @@ describe("the merged all channel", () => {
     expect(new Set(leading).size).toBe(leading.length);
   });
 
+  it("expands a themed bundle only into its own members", async () => {
+    const seen: string[] = [];
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(input instanceof Request ? input.url : input.toString());
+      const payload = JSON.parse(String(init?.body ?? "{}")) as { channel: string };
+      seen.push(payload.channel);
+      expect(url.hostname).toBe("hottub.spacemoehre.de");
+      return new Response(JSON.stringify(upstreamFixture("xhamster")), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    const response = await handleRequest(
+      post("/api/videos", { channel: "anime", page: 1, pageSize: 12 }),
+      createEnv(),
+      createExecutionContext(),
+      fetcher,
+    );
+    expect(response.status).toBe(200);
+    expect(new Set(seen)).toEqual(new Set(["hentaihaven", "hentaitv", "rule34video"]));
+  });
+
+  it("asks each member for the sort in that member's own dialect", async () => {
+    const sorts = new Map<string, string | undefined>();
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const payload = JSON.parse(String(init?.body ?? "{}")) as {
+        channel: string;
+        sort?: string;
+      };
+      sorts.set(payload.channel, payload.sort);
+      return new Response(JSON.stringify(upstreamFixture("xhamster")), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    await handleRequest(
+      post("/api/videos", { channel: "anime", page: 1, pageSize: 12, sort: "views" }),
+      createEnv(),
+      createExecutionContext(),
+      fetcher,
+    );
+
+    // Each catalogue names its own most-viewed ordering differently. Sending
+    // the generic "views" to all three would be ignored by all three.
+    expect(sorts.get("rule34video")).toBe("video_viewed");
+    expect(sorts.get("hentaitv")).toBe("views");
+    // Hentai Haven declares no sorts, so it keeps the caller's value and falls
+    // back to its own default upstream.
+    expect(sorts.get("hentaihaven")).toBe("views");
+  });
+
+  it("leaves a bundle intact when no member can honour an orientation", async () => {
+    const seen: string[] = [];
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const payload = JSON.parse(String(init?.body ?? "{}")) as { channel: string };
+      seen.push(payload.channel);
+      return new Response(JSON.stringify(upstreamFixture("xhamster")), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    await handleRequest(
+      post("/api/videos", { channel: "anime", page: 1, pageSize: 12, gender: "gay" }),
+      createEnv(),
+      createExecutionContext(),
+      fetcher,
+    );
+    // Narrowing to the orientation-aware channels would empty this bundle
+    // entirely, which is strictly worse than ignoring the preference.
+    expect(seen.length).toBe(3);
+  });
+
   it("still rejects a channel that does not exist", async () => {
     const response = await handleRequest(
       post("/api/videos", { channel: "not-a-channel", page: 1 }),
