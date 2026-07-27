@@ -123,8 +123,9 @@ single-admin identity.
 ### Authentication and local data
 
 The Worker checks Cloudflare's `CF-Connecting-IP` against the exact,
-comma-separated `ADMIN_ALLOWED_IPS` allowlist. Production defaults to the fixed
-VPN egress address `92.71.54.161`; other or missing addresses fail with `403`.
+comma-separated `ADMIN_ALLOWED_IPS` allowlist. Production allows the VPN egress
+addresses `92.71.54.161` and `177.7.57.50`; other or missing addresses fail
+with `403`.
 Forwarded-IP headers are not used for this whole-source decision.
 
 The D1 `user_key` is a stable SHA-256 digest for the single operator, so a

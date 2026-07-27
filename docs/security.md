@@ -59,7 +59,8 @@ requires a new narrow allowlist; a user-controlled hostname is never acceptable.
 
 Every request compares the Cloudflare-provided `CF-Connecting-IP` value with the
 comma-separated `ADMIN_ALLOWED_IPS` configuration before route matching.
-Production defaults to the fixed VPN address `92.71.54.161`.
+Production allows the two VPN egress addresses `92.71.54.161` and
+`177.7.57.50`.
 
 The comparison is exact and fails closed:
 

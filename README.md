@@ -17,8 +17,9 @@ Add it to Hot Tub with:
 hottub://source?url=https%3A%2F%2Fhottub.joekane.org
 ```
 
-The iPhone must route this hostname through the VPN so Cloudflare sees
-`92.71.54.161`. Every source route returns `403` from any other address.
+The iPhone must route this hostname through the VPN so Cloudflare sees one of
+the approved egress addresses, `92.71.54.161` or `177.7.57.50`. Every source
+route returns `403` from any other address.
 
 ## Provider support
 
@@ -52,7 +53,7 @@ DRM circumvention, paywall bypasses, or password collection.
 - Strict request and response validation with Zod
 - Public Cache API caching and D1-backed per-IP/per-account rate limits
 - Exact Cloudflare source-IP verification before every route, preconfigured for
-  the fixed VPN egress address `92.71.54.161`
+  the VPN egress addresses `92.71.54.161` and `177.7.57.50`
 - AES-256-GCM token storage with key rotation support for future authorised
   provider connections
 - Optional private D1 history, favourites, ordered playlists, and followed
@@ -156,11 +157,13 @@ Configure these GitHub Actions secrets:
 The committed configuration already restricts the entire source to:
 
 ```text
-92.71.54.161
+92.71.54.161,177.7.57.50
 ```
 
 Set the optional `ADMIN_ALLOWED_IPS` GitHub Actions variable only when replacing
-that address or adding another comma-separated VPN egress address.
+those addresses or adding another comma-separated VPN egress address. The
+variable replaces the committed list rather than adding to it, so it must
+repeat every address that should keep working.
 
 See [Deployment](docs/deployment.md) for Cloudflare token permissions, IP
 allowlist behavior, local migrations, manual deployment, and custom-domain
