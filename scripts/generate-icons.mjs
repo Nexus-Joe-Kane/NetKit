@@ -115,6 +115,24 @@ const GLYPHS = {
   },
   /** A solid disc, for the Asian catalogue bundle. */
   disc: (x, y) => Math.hypot(x - 0.5, y - 0.5) <= 0.25,
+  /** A screen with a play triangle, for the second tier of large tubes. */
+  screen: (x, y) => {
+    const frame =
+      roundedRect(x, y, 0.22, 0.3, 0.78, 0.7, 0.06) &&
+      !roundedRect(x, y, 0.26, 0.34, 0.74, 0.66, 0.04);
+    // Triangle pointing right, centred in the frame.
+    const inTriangle =
+      x >= 0.44 && x <= 0.6 && Math.abs(y - 0.5) <= (0.6 - x) * (0.14 / 0.16) + 0.001;
+    return frame || inTriangle;
+  },
+  /** Two interlocking rings, for the fetish and kink bundle. */
+  links: (x, y) => {
+    const ring = (cx) => {
+      const distance = Math.hypot(x - cx, y - 0.5);
+      return distance <= 0.2 && distance >= 0.12;
+    };
+    return ring(0.38) || ring(0.62);
+  },
 };
 
 const ICONS = [
@@ -125,6 +143,8 @@ const ICONS = [
   { name: "shorts", colour: [0x7c, 0x3a, 0xed], glyph: "portrait" },
   { name: "anime", colour: [0x05, 0x96, 0x69], glyph: "sparkle" },
   { name: "asian", colour: [0xdc, 0x26, 0x26], glyph: "disc" },
+  { name: "tubes", colour: [0x0d, 0x94, 0x88], glyph: "screen" },
+  { name: "fetish", colour: [0xd9, 0x77, 0x06], glyph: "links" },
 ];
 
 function render({ colour, glyph }) {

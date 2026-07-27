@@ -156,6 +156,9 @@ export const VideoFormatSchema = z.object({
   filesize: z.number().int().nonnegative().optional(),
   language: z.string().max(40).optional(),
   container: z.string().max(40).optional(),
+  // Documented as "download configuration (defaults to 1MB chunks)". Accepted
+  // so a format supplied by this source can carry it, though nothing sets it.
+  downloaderOptions: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
 });
 
 export const UploaderProfileSchema = z.object({
