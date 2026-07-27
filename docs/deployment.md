@@ -189,6 +189,23 @@ printf '%s' "$TOKEN_ENCRYPTION_KEYS" |
     --config .generated.wrangler.jsonc
 ```
 
+### Provisioning the encryption key without a terminal
+
+The **Provision encryption key** workflow (`workflow_dispatch`) does the same
+thing from the Actions tab, which works from a phone. It generates 32 random
+bytes on the runner, pipes them directly into `wrangler secret put`, and never
+echoes the value, so the key exists only on the Worker — not in a log, a
+repository secret, or a shell history.
+
+It refuses to run when a key is already present unless `replace` is ticked.
+Cloudflare does not return a stored secret's value, so a replacement cannot keep
+the previous key in the ring the way a normal rotation does; every existing
+connection becomes undecryptable and has to be reconnected at `/account`.
+
+Choose one mechanism. If the `TOKEN_ENCRYPTION_KEYS` repository secret is set,
+the deploy workflow rewrites the Worker's copy on every deploy and will overwrite
+whatever this workflow provisioned.
+
 The preparation script reads `CLOUDFLARE_ACCOUNT_ID` and
 `CLOUDFLARE_API_TOKEN`; optional `ADMIN_ALLOWED_IPS` and `D1_DATABASE_NAME`
 override defaults.
