@@ -1,4 +1,4 @@
-import { accountHandler, disconnectHandler } from "./api/account";
+import { accountHandler, connectHandler, diagnoseHandler, disconnectHandler } from "./api/account";
 import { healthHandler } from "./api/health";
 import { libraryHandler } from "./api/library";
 import {
@@ -44,6 +44,8 @@ function route(method: string, path: string): Handler | undefined {
     "POST /api/uploaders": uploadersHandler,
     "GET /library": libraryHandler,
     "GET /account": accountHandler,
+    "POST /account/connect": connectHandler,
+    "POST /account/diagnose": diagnoseHandler,
     "POST /account/disconnect": disconnectHandler,
     "GET /api/local/session": localSessionHandler,
     "GET /api/local/history": localHistoryHandler,
