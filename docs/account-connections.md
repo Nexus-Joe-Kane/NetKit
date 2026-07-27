@@ -8,20 +8,76 @@ device. The source protocol has no account-connect callback and consists of
 status, videos, and optional uploader profiles.
 
 The `/account` page is therefore an administrative capability screen for this
-Worker. Seeing “No provider accounts are connected” is expected and does not
-mean the Hot Tub app is unauthenticated or broken.
+Worker. Seeing “No provider account is connected” is expected and does not mean
+the Hot Tub app is unauthenticated or broken.
+
+## FapHouse session connection
+
+FapHouse publishes no OAuth, API token, or delegated-access mechanism. Verified
+2026-07-27: `/api`, `/api/v1`, `/developers`, `/partners`, and `/affiliate` all
+return `404`, there is no OAuth discovery document, and no developer
+documentation exists publicly. Their internal API includes `/api/auth/signin`,
+but driving it would mean collecting the operator's password and working around
+the login form's bot protection. This project does neither.
+
+The supported route is instead: the operator signs in on their own browser,
+copies the `Cookie` header, and pastes it into `/account`. The Worker validates
+it against the live site before storing it, encrypts it with AES-256-GCM under
+`TOKEN_ENCRYPTION_KEYS`, and uses it server-side only. No password is collected,
+no login form is submitted, and no challenge is solved.
+
+| Method | Path                  | Behavior                                              |
+| ------ | --------------------- | ----------------------------------------------------- |
+| `POST` | `/account/connect`    | Validates and stores an encrypted provider session    |
+| `POST` | `/account/diagnose`   | Reports what an entitled session exposes for playback |
+| `POST` | `/account/disconnect` | Removes a stored connection                           |
+
+Connecting requires `TOKEN_ENCRYPTION_KEYS` to be set; without it the endpoint
+returns `503 encryption_not_configured` rather than writing an unencrypted
+session to D1. A session the provider does not confirm as signed-in is never
+stored.
+
+### Protected playback is not solved yet
+
+Connecting an account does **not** by itself make FapHouse playback work, for a
+structural reason. This Worker never proxies media: Hot Tub performs playback
+extraction on the device from the watch-page `url`, so a session held by the
+Worker does not authenticate the phone.
+
+Hot Tub's contract does provide a route — `formats[].httpHeaders` lets a source
+hand the app a playable URL together with the headers needed to fetch it — but
+using it requires knowing how an entitled session receives its stream, and that
+is currently unknown. The anonymous watch page embeds no playable source at all;
+its 300-odd `.mp4` references are heat-map scrubbing previews. FapHouse also
+serves signed URLs rather than DRM, so if those signatures are bound to the
+requesting address, a URL resolved by the Worker may still be unplayable from
+the phone.
+
+`POST /account/diagnose` exists to answer this against a real subscription. It
+fetches one watch page with the stored session and reports which media URLs and
+API paths appear, with query strings stripped so signed tokens are never
+rendered or logged. A format resolver should be written against that output
+rather than guessed at.
+
+### Operator risk
+
+Using a copied session is very likely contrary to FapHouse's terms, and the
+account carrying it is the operator's own. A stored session grants whatever the
+signed-in account can do, expires on the provider's schedule, and has to be
+re-pasted when it does. Disconnecting removes it immediately.
 
 ## Current state
 
 None of the requested providers has a verified OAuth, provider-issued token, or
 delegated account API suitable for this project. Therefore:
 
-- no provider login form exists;
-- no password, cookie, or browser session is requested;
-- no provider account is connected by the current UI;
+- no provider login form exists and no password is ever requested;
+- FapHouse is the one exception to "no session is requested": the operator may
+  paste their own browser session, as described above;
+- no other provider account is connected by the current UI;
 - provider-side history, likes, playlists, subscriptions, and premium playback
   are not claimed;
-- the `/account` page truthfully shows no connections.
+- the `/account` page truthfully shows what is and is not connected.
 
 The account infrastructure is deliberately ready for a future authorised
 adapter without pretending that such an adapter exists today.

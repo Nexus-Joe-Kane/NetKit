@@ -358,16 +358,61 @@ export function libraryPage(env: Env, data: LibraryPageData): string {
   );
 }
 
+export interface AccountPageOptions {
+  note?: string;
+  encryptionConfigured: boolean;
+}
+
+/** Providers where the operator can supply their own signed-in session. */
+function connectableProviders() {
+  return listProviders().filter((provider) => Boolean(provider.connectSession));
+}
+
+function connectSection(csrfToken: string, options: AccountPageOptions): string {
+  const providers = connectableProviders();
+  if (providers.length === 0) return "";
+  if (!options.encryptionConfigured) {
+    return `<div class="panel">
+      <h3>Connect an account</h3>
+      <p class="note">Set the <code>TOKEN_ENCRYPTION_KEYS</code> secret before connecting a provider account. Sessions are stored encrypted, so the key ring has to exist first. See <a href="/">Deployment</a> notes.</p>
+    </div>`;
+  }
+  return providers
+    .map(
+      (provider) => `<div class="panel">
+        <h3>Connect ${escapeHtml(provider.name)}</h3>
+        <p>${escapeHtml(provider.name)} publishes no OAuth or delegated-access API. Sign in on your own browser, copy the <code>Cookie</code> header from a request to the site, and paste it below. This Worker never receives your password and never submits the login form.</p>
+        <form class="stack" method="post" action="/account/connect">
+          ${csrfInput(csrfToken)}${hiddenField("providerId", provider.id)}
+          <div class="field-row">
+            <label>Session cookie<input name="sessionCookie" maxlength="8000" required placeholder="name=value; other=value"></label>
+            <button type="submit">Connect</button>
+          </div>
+        </form>
+        <form class="stack" method="post" action="/account/diagnose">
+          ${csrfInput(csrfToken)}${hiddenField("providerId", provider.id)}
+          <div class="field-row">
+            <label>Diagnose playback for a watch URL<input name="watchUrl" maxlength="2000" required placeholder="https://faphouse.com/videos/..."></label>
+            <button type="submit">Run diagnostic</button>
+          </div>
+        </form>
+        <p class="note">Connecting does not enable protected playback on its own. The anonymous watch page carries no playable source, so the diagnostic is how we learn what an entitled session actually returns.</p>
+      </div>`,
+    )
+    .join("");
+}
+
 export function accountPage(
   env: Env,
   identity: AdminIdentity,
   connections: ConnectionSummary[],
   csrfToken: string,
+  options: AccountPageOptions = { encryptionConfigured: false },
 ): string {
   const providers = listProviders();
   const connectionRows =
     connections.length === 0
-      ? `<p class="empty">There is nothing to connect here. Hot Tub's source API has no provider-login callback, and these providers do not publish a delegated account API that this Worker can use safely.</p>`
+      ? `<p class="empty">No provider account is connected.</p>`
       : connections
           .map(
             (connection) => `<article class="card">
@@ -409,9 +454,11 @@ export function accountPage(
       <h1>Source control</h1>
       <p class="lead">Connected from approved address ${escapeHtml(identity.sourceIp)}. This page reports server-side connections; it is not required for Hot Tub favourites, history, or queues.</p>
     </header>
+    ${options.note ? `<p class="note">${escapeHtml(options.note)}</p>` : ""}
     <section>
       <div class="section-heading"><p class="eyebrow">Connections</p><h2>Provider account grants</h2></div>
       <div class="grid">${connectionRows}</div>
+      ${connectSection(csrfToken, options)}
     </section>
     <section>
       <div class="section-heading"><p class="eyebrow">Capabilities</p><h2>What this source supplies</h2></div>

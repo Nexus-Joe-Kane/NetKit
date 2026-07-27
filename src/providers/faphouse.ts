@@ -1,6 +1,7 @@
+import { assertUsableCookie, probePlayback, probeSession } from "./faphouse-session";
 import { createHtmlCatalogProvider } from "./html-catalog";
 
-export const faphouseProvider = createHtmlCatalogProvider({
+const baseProvider = createHtmlCatalogProvider({
   id: "faphouse-ultra",
   name: "FapHouse Ultra",
   description:
@@ -38,3 +39,34 @@ export const faphouseProvider = createHtmlCatalogProvider({
     { name: "Premium", systemImage: "star.fill" },
   ],
 });
+
+/**
+ * FapHouse publishes no OAuth or delegated-access API, so an account is
+ * connected by the operator signing in themselves and pasting the resulting
+ * session cookie. Nothing here submits credentials or works around the login
+ * form's bot protection.
+ *
+ * Connecting does not yet make protected playback work: the anonymous watch
+ * page embeds only heat-map scrubbing previews and no playable source, so how
+ * an entitled session receives its stream is still unknown. `diagnosePlayback`
+ * answers that against a real subscription, and a format resolver can then be
+ * written against the observed behaviour rather than guessed at.
+ */
+export const faphouseProvider = {
+  ...baseProvider,
+  async connectSession(sessionCookie: string, fetcher: typeof fetch) {
+    return probeSession(fetcher, assertUsableCookie(sessionCookie));
+  },
+  async diagnosePlayback(sessionCookie: string, watchUrl: string, fetcher: typeof fetch) {
+    const probe = await probePlayback(fetcher, assertUsableCookie(sessionCookie), watchUrl);
+    const parts = [
+      `HTTP ${probe.status}`,
+      probe.foundStreamCandidate
+        ? `playable source candidates: ${probe.mediaUrls.join(" ") || "none"}`
+        : "no playable source embedded in the page",
+      probe.apiPaths.length ? `API paths seen: ${probe.apiPaths.slice(0, 12).join(" ")}` : "",
+      ...probe.notes,
+    ];
+    return parts.filter(Boolean).join(" · ").slice(0, 300);
+  },
+};
