@@ -55,9 +55,9 @@ DRM circumvention, paywall bypasses, or password collection.
   the fixed VPN egress address `92.71.54.161`
 - AES-256-GCM token storage with key rotation support for future authorised
   provider connections
-- Optional private D1 history, favourites, playlists, and followed creators for
-  the web-side admin tools; Hot Tub itself keeps its own history, favourites,
-  and queues locally on the device
+- Optional private D1 history, favourites, ordered playlists, and followed
+  creators, with a no-JavaScript `/library` page to manage them; Hot Tub itself
+  keeps its own history, favourites, and queues locally on the device
 - Origin checks, double-submit CSRF protection, CSP, URL/hostname allowlists,
   timeouts, body limits, and redacted structured logs
 - D1 migrations and GitHub Actions for linting, testing, provisioning, migration,
@@ -70,20 +70,29 @@ still controlled by the provider and the user's region.
 
 ## Endpoints
 
-| Method     | Path                            | Access                                        | Purpose                                                    |
-| ---------- | ------------------------------- | --------------------------------------------- | ---------------------------------------------------------- |
-| `GET`      | `/`                             | Approved VPN IP                               | Source landing page and install link                       |
-| `GET`      | `/health`                       | Approved VPN IP                               | Worker, D1, and adapter health                             |
-| `POST`     | `/api/status`                   | Approved VPN IP                               | Source/channel discovery                                   |
-| `POST`     | `/api/videos`                   | Approved VPN IP                               | Browse and search                                          |
-| `POST`     | `/api/uploaders`                | Approved VPN IP                               | Creator profiles for adapters with stable creator metadata |
-| `GET`      | `/account`                      | Approved VPN IP                               | Connection metadata; never renders secrets                 |
-| `POST`     | `/account/disconnect`           | Approved VPN IP + origin + CSRF               | Remove a stored connection                                 |
-| `GET/POST` | `/api/local/history`            | Approved VPN IP; writes require origin + CSRF | Local history                                              |
-| `GET/POST` | `/api/local/favourites`         | Approved VPN IP; writes require origin + CSRF | Local favourites                                           |
-| `POST`     | `/api/local/favourites/remove`  | Approved VPN IP + origin + CSRF               | Remove a local favourite                                   |
-| `POST`     | `/api/local/playlists`          | Approved VPN IP + origin + CSRF               | Create a local playlist                                    |
-| `POST`     | `/api/local/followed-uploaders` | Approved VPN IP + origin + CSRF               | Follow a creator locally                                   |
+| Method     | Path                                   | Access                                        | Purpose                                                      |
+| ---------- | -------------------------------------- | --------------------------------------------- | ------------------------------------------------------------ |
+| `GET`      | `/`                                    | Approved VPN IP                               | Source landing page and install link                         |
+| `GET`      | `/health`                              | Approved VPN IP                               | Worker, D1, and adapter health                               |
+| `POST`     | `/api/status`                          | Approved VPN IP                               | Source/channel discovery                                     |
+| `POST`     | `/api/videos`                          | Approved VPN IP                               | Browse and search                                            |
+| `POST`     | `/api/uploaders`                       | Approved VPN IP                               | Creator profiles for adapters with stable creator metadata   |
+| `GET`      | `/library`                             | Approved VPN IP                               | Local library page: playlists, favourites, creators, history |
+| `GET`      | `/account`                             | Approved VPN IP                               | Connection metadata; never renders secrets                   |
+| `POST`     | `/account/disconnect`                  | Approved VPN IP + origin + CSRF               | Remove a stored connection                                   |
+| `GET/POST` | `/api/local/history`                   | Approved VPN IP; writes require origin + CSRF | Local history                                                |
+| `POST`     | `/api/local/history/remove`            | Approved VPN IP + origin + CSRF               | Remove one history record                                    |
+| `POST`     | `/api/local/history/clear`             | Approved VPN IP + origin + CSRF               | Clear all history                                            |
+| `GET/POST` | `/api/local/favourites`                | Approved VPN IP; writes require origin + CSRF | Local favourites                                             |
+| `POST`     | `/api/local/favourites/remove`         | Approved VPN IP + origin + CSRF               | Remove a local favourite                                     |
+| `GET/POST` | `/api/local/playlists`                 | Approved VPN IP; writes require origin + CSRF | List or create local playlists                               |
+| `POST`     | `/api/local/playlists/update`          | Approved VPN IP + origin + CSRF               | Rename or re-describe a playlist                             |
+| `POST`     | `/api/local/playlists/delete`          | Approved VPN IP + origin + CSRF               | Delete a playlist and its items                              |
+| `GET/POST` | `/api/local/playlists/items`           | Approved VPN IP; writes require origin + CSRF | List a playlist's ordered items, or append one               |
+| `POST`     | `/api/local/playlists/items/remove`    | Approved VPN IP + origin + CSRF               | Remove a playlist item                                       |
+| `POST`     | `/api/local/playlists/items/move`      | Approved VPN IP + origin + CSRF               | Reorder a playlist item                                      |
+| `GET/POST` | `/api/local/followed-uploaders`        | Approved VPN IP; writes require origin + CSRF | List creators, or follow one locally                         |
+| `POST`     | `/api/local/followed-uploaders/remove` | Approved VPN IP + origin + CSRF               | Unfollow a creator                                           |
 
 ## Local development
 
@@ -117,12 +126,19 @@ Run the quality gate with:
 npm run validate
 ```
 
-Unit tests use fixtures and never call providers. The optional live catalogue
-smoke test is intentionally excluded from the normal suite:
+Unit tests use fixtures and never call providers, so they stay green through a
+total provider outage. The live catalogue test covers browse and search for
+every channel and is the only check that catches a provider changing its URLs
+or response shape. It is excluded from the normal suite because it needs the
+network:
 
 ```bash
 RUN_INTEGRATION_TESTS=1 npm run test:integration
 ```
+
+Run it before trusting the provider table above. All six channels were verified
+live on 2026-07-27; see [Provider research](docs/provider-research.md) for what
+was broken and why.
 
 ## Deployment
 

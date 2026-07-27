@@ -3,8 +3,12 @@
   "name": "unified-hottub-source",
   "main": "src/index.ts",
   "compatibility_date": "2026-07-26",
-  "workers_dev": true,
-  "preview_urls": true,
+  // The source is reachable only through the custom domain below. Leaving the
+  // workers.dev and per-version preview hostnames enabled would publish the
+  // same Worker on two extra public addresses; the IP allowlist still rejects
+  // them, but they are unnecessary surface for a single-operator deployment.
+  "workers_dev": false,
+  "preview_urls": false,
   "routes": [
     {
       "pattern": "hottub.joekane.org",

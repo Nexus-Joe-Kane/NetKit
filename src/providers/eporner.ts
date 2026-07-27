@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Channel, Uploader, UploadersRequest, Video, VideosRequest } from "../hottub/schemas";
 import { assertAllowedHttpsUrl, fetchProviderJson } from "../utils/urls";
 import { createFederatedProvider } from "./federated";
+import { firstNonEmptyPage } from "./race";
 import type {
   ProviderAdapter,
   ProviderCapabilities,
@@ -211,7 +212,10 @@ async function getOfficialVideos(
   url.searchParams.set("lq", mapQuality(request.quality));
   url.searchParams.set("format", "json");
 
-  const payload = await fetchProviderJson("eporner", context.fetch, url, EPORNER_HOSTS, 8_000);
+  // Eporner's own API regularly takes 5-6 seconds to answer a catalogue
+  // query, so the previous 8s budget expired under normal conditions and
+  // handed every request to the fallbacks.
+  const payload = await fetchProviderJson("eporner", context.fetch, url, EPORNER_HOSTS, 12_000);
   const parsed = epornerResponseSchema.safeParse(payload);
   if (!parsed.success) {
     throw new Error("Eporner returned an incompatible API response.");
@@ -237,16 +241,15 @@ async function getVideos(
   request: VideosRequest,
   context: ProviderContext,
 ): Promise<ProviderVideoPage> {
-  try {
-    return await Promise.any([
+  return firstNonEmptyPage(
+    [
       getOfficialVideos(request, context),
       request.query
         ? federatedFallback.searchVideos(request, context)
         : federatedFallback.listVideos(request, context),
-    ]);
-  } catch {
-    throw new Error("Eporner has no available catalogue backend.");
-  }
+    ],
+    "Eporner has no available catalogue backend.",
+  );
 }
 
 async function getUploader(request: UploadersRequest, context: ProviderContext): Promise<Uploader> {

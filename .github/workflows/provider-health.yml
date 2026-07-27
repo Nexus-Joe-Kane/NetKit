@@ -1,0 +1,29 @@
+name: Provider health
+
+# The unit suite runs entirely on fixtures, so it stays green even if every
+# provider goes down. This is the check that actually notices a provider
+# changing its catalogue URLs or response shape. It is deliberately kept out
+# of Lint/Test/Deploy: it depends on third-party sites, so a failure here
+# means "a channel is broken", not "this change is bad", and it must never
+# block a deploy.
+
+on:
+  schedule:
+    - cron: "17 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  providers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Check every provider against its live catalogue
+        run: RUN_INTEGRATION_TESTS=1 npm run test:integration

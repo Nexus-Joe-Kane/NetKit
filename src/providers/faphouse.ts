@@ -12,19 +12,20 @@ export const faphouseProvider = createHtmlCatalogProvider({
   pageSize: 40,
   hostnames: ["faphouse.com", "faphouse2.com", "faphouse4k.com"],
   assetHostnames: ["faphouse.com", "faphouse2.com", "faphouse4k.com", "flixcdn.com"],
+  // FapHouse dropped its `/en/` locale prefix; those paths now 404.
   buildUrls(request) {
     const page = Math.max(1, request.page);
     if (request.query) {
-      const primary = new URL("https://faphouse.com/en/search/videos");
+      const primary = new URL("https://faphouse.com/search/videos");
       primary.searchParams.set("q", request.query);
       primary.searchParams.set("page", String(page));
       primary.searchParams.set("sort", request.sort);
       return [primary];
     }
-    const primary = new URL("https://faphouse.com/en/videos");
+    const primary = new URL("https://faphouse.com/videos");
     primary.searchParams.set("page", String(page));
     primary.searchParams.set("sort", request.sort);
-    const fallback = new URL("https://faphouse.com/en");
+    const fallback = new URL("https://faphouse.com/videos");
     fallback.searchParams.set("page", String(page));
     return [primary, fallback];
   },

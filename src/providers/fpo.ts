@@ -11,26 +11,21 @@ export const fpoProvider = createHtmlCatalogProvider({
   pageSize: 24,
   hostnames: ["fpo.xxx"],
   assetHostnames: ["fpo.xxx"],
+  // fpo.xxx paginates with trailing path segments, not query parameters:
+  // `/new-1/` and `/new-1/3/` for browse, `/search/<query>/` and
+  // `/search/<query>/3/` for search. The old `/videos/` and `?page=` forms
+  // return 404.
   buildUrls(request) {
     const page = Math.max(1, request.page);
+    const suffix = page === 1 ? "" : `${page}/`;
     if (request.query) {
       const encoded = encodeURIComponent(request.query);
-      const primary = new URL(`https://www.fpo.xxx/search/${encoded}/`);
-      primary.searchParams.set("page", String(page));
-      primary.searchParams.set("sort", request.sort);
-      const fallback = new URL("https://www.fpo.xxx/");
-      fallback.searchParams.set("s", request.query);
-      fallback.searchParams.set("page", String(page));
-      return [primary, fallback];
+      return [
+        new URL(`https://www.fpo.xxx/search/${encoded}/${suffix}`),
+        new URL(`https://www.fpo.xxx/search/${encoded}/`),
+      ];
     }
-    const primary = new URL(
-      page === 1 ? "https://www.fpo.xxx/videos/" : `https://www.fpo.xxx/videos/page/${page}/`,
-    );
-    primary.searchParams.set("sort", request.sort);
-    const fallback = new URL("https://www.fpo.xxx/");
-    fallback.searchParams.set("page", String(page));
-    fallback.searchParams.set("sort", request.sort);
-    return [primary, fallback];
+    return [new URL(`https://www.fpo.xxx/new-1/${suffix}`), new URL("https://www.fpo.xxx/")];
   },
   isWatchUrl(url) {
     return /\/video\/\d+\/[^/]+\/?$/i.test(url.pathname);

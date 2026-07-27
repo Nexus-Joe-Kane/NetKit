@@ -3,6 +3,12 @@ import type { Env } from "./config";
 import { DEFAULT_SOURCE_NAME } from "./config";
 import { listProviders } from "./providers/registry";
 import type { ConnectionSummary } from "./storage/connections";
+import type {
+  FollowedUploaderRow,
+  LocalVideoRow,
+  PlaylistItemRow,
+  PlaylistRow,
+} from "./storage/library";
 import { getPublicBaseUrl } from "./utils/urls";
 
 export function escapeHtml(value: string): string {
@@ -60,6 +66,7 @@ export function rootPage(env: Env): string {
       <p class="lead">One source with six provider channels, public browsing, search, creator profiles where available, and normal Hot Tub playback extraction.</p>
       <div class="actions">
         <a class="primary" href="${escapeHtml(installUrl)}">Add to Hot Tub</a>
+        <a href="/library">Local library</a>
         <a href="/account">Source details</a>
       </div>
     </header>
@@ -78,6 +85,275 @@ export function rootPage(env: Env): string {
     <footer>
       <a href="/health">Health</a>
       <span>Media is never proxied or permanently stored.</span>
+    </footer>`,
+  );
+}
+
+export interface LibraryPageData {
+  history: LocalVideoRow[];
+  favourites: LocalVideoRow[];
+  playlists: PlaylistRow[];
+  selectedPlaylist?: PlaylistRow;
+  playlistItems: PlaylistItemRow[];
+  followed: FollowedUploaderRow[];
+  csrfToken: string;
+}
+
+function formatDuration(seconds: number | null | undefined): string {
+  if (!seconds || seconds <= 0) return "—";
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainder = seconds % 60;
+  const parts = hours > 0 ? [hours, minutes, remainder] : [minutes, remainder];
+  return parts
+    .map((part, index) => (index === 0 ? String(part) : String(part).padStart(2, "0")))
+    .join(":");
+}
+
+function formatDate(value: string | null | undefined): string {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? "—" : parsed.toISOString().slice(0, 16).replace("T", " ");
+}
+
+function hiddenField(name: string, value: string): string {
+  return `<input type="hidden" name="${escapeHtml(name)}" value="${escapeHtml(value)}">`;
+}
+
+function csrfInput(token: string): string {
+  return hiddenField("csrf", token);
+}
+
+/** A one-button form; every mutation on this page is a plain POST. */
+function actionForm(
+  action: string,
+  fields: Record<string, string>,
+  label: string,
+  csrfToken: string,
+  danger = false,
+): string {
+  const inputs = Object.entries(fields)
+    .map(([name, value]) => hiddenField(name, value))
+    .join("");
+  return `<form class="inline" method="post" action="${escapeHtml(action)}">
+    ${csrfInput(csrfToken)}${inputs}
+    <button class="${danger ? "danger" : "quiet"}" type="submit">${escapeHtml(label)}</button>
+  </form>`;
+}
+
+function videoRow(
+  video: LocalVideoRow,
+  csrfToken: string,
+  removeAction: string,
+  extraFields: Record<string, string> = {},
+  trailing = "",
+): string {
+  // Inline `style` attributes are blocked by the page CSP (`style-src 'self'`),
+  // so watch progress is reported as text rather than a styled bar.
+  const meta = [
+    video.provider_id,
+    formatDuration(video.duration),
+    formatDate(video.watched_at ?? video.created_at),
+  ];
+  if (video.progress_seconds && video.duration) {
+    const percent = Math.min(100, Math.round((video.progress_seconds / video.duration) * 100));
+    meta.push(`${percent}% watched`);
+  }
+  return `<li class="item">
+    <div class="item-body">
+      <a class="item-title" href="${escapeHtml(video.video_url)}" rel="noreferrer noopener">${escapeHtml(
+        video.title,
+      )}</a>
+      <p class="item-meta">${meta.map((part) => escapeHtml(String(part))).join(" · ")}</p>
+    </div>
+    <div class="item-actions">
+      ${trailing}
+      ${actionForm(
+        removeAction,
+        { providerId: video.provider_id, videoId: video.video_id, ...extraFields },
+        "Remove",
+        csrfToken,
+        true,
+      )}
+    </div>
+  </li>`;
+}
+
+function emptyState(message: string): string {
+  return `<p class="empty">${escapeHtml(message)}</p>`;
+}
+
+function playlistPicker(data: LibraryPageData): string {
+  if (data.playlists.length === 0) return "";
+  return `<nav class="chips">${data.playlists
+    .map(
+      (playlist) =>
+        `<a class="chip${playlist.id === data.selectedPlaylist?.id ? " current" : ""}" href="/library?playlist=${encodeURIComponent(
+          playlist.id,
+        )}">${escapeHtml(playlist.name)} <span>${playlist.item_count}</span></a>`,
+    )
+    .join("")}</nav>`;
+}
+
+function playlistDetail(data: LibraryPageData): string {
+  const playlist = data.selectedPlaylist;
+  if (!playlist) return emptyState("No playlists yet. Create one below.");
+  const lastIndex = data.playlistItems.length - 1;
+  const items = data.playlistItems
+    .map((item, index) => {
+      const move = (position: number, label: string) =>
+        actionForm(
+          "/api/local/playlists/items/move",
+          {
+            playlistId: playlist.id,
+            providerId: item.provider_id,
+            videoId: item.video_id,
+            position: String(position),
+          },
+          label,
+          data.csrfToken,
+        );
+      const controls = [
+        index > 0 ? move(index - 1, "Up") : "",
+        index < lastIndex ? move(index + 1, "Down") : "",
+      ].join("");
+      return videoRow(
+        item,
+        data.csrfToken,
+        "/api/local/playlists/items/remove",
+        { playlistId: playlist.id },
+        controls,
+      );
+    })
+    .join("");
+
+  return `<div class="panel">
+      <div class="panel-heading">
+        <div>
+          <h3>${escapeHtml(playlist.name)}</h3>
+          <p>${escapeHtml(playlist.description ?? "No description")} · ${playlist.item_count} item${
+            playlist.item_count === 1 ? "" : "s"
+          } · updated ${escapeHtml(formatDate(playlist.updated_at))}</p>
+        </div>
+        ${actionForm(
+          "/api/local/playlists/delete",
+          { playlistId: playlist.id },
+          "Delete playlist",
+          data.csrfToken,
+          true,
+        )}
+      </div>
+      ${items ? `<ul class="items">${items}</ul>` : emptyState("This playlist is empty.")}
+      <form class="stack" method="post" action="/api/local/playlists/update">
+        ${csrfInput(data.csrfToken)}${hiddenField("playlistId", playlist.id)}
+        <div class="field-row">
+          <label>Rename<input name="name" maxlength="100" placeholder="${escapeHtml(
+            playlist.name,
+          )}"></label>
+          <label>Description<input name="description" maxlength="500" placeholder="${escapeHtml(
+            playlist.description ?? "",
+          )}"></label>
+          <button type="submit">Save</button>
+        </div>
+      </form>
+    </div>`;
+}
+
+export function libraryPage(env: Env, data: LibraryPageData): string {
+  const history = data.history
+    .map((video) => videoRow(video, data.csrfToken, "/api/local/history/remove"))
+    .join("");
+  const favourites = data.favourites
+    .map((video) => videoRow(video, data.csrfToken, "/api/local/favourites/remove"))
+    .join("");
+  const followed = data.followed
+    .map(
+      (uploader) => `<li class="item">
+        <div class="item-body">
+          ${
+            uploader.uploader_url
+              ? `<a class="item-title" href="${escapeHtml(uploader.uploader_url)}" rel="noreferrer noopener">${escapeHtml(
+                  uploader.uploader_name,
+                )}</a>`
+              : `<span class="item-title">${escapeHtml(uploader.uploader_name)}</span>`
+          }
+          <p class="item-meta">${escapeHtml(uploader.provider_id)} · followed ${escapeHtml(
+            formatDate(uploader.followed_at),
+          )}</p>
+        </div>
+        <div class="item-actions">
+          ${actionForm(
+            "/api/local/followed-uploaders/remove",
+            { providerId: uploader.provider_id, uploaderId: uploader.uploader_id },
+            "Unfollow",
+            data.csrfToken,
+            true,
+          )}
+        </div>
+      </li>`,
+    )
+    .join("");
+
+  return page(
+    "Local library",
+    `<header class="compact">
+      <a class="back" href="/">← Source home</a>
+      <p class="eyebrow">Restricted to the approved VPN IP</p>
+      <h1>Local library</h1>
+      <p class="lead">The Worker's own D1 history, favourites, playlists, and followed creators. Hot Tub keeps its own copies on the iPhone; nothing here is synchronised back to a provider.</p>
+    </header>
+    <section>
+      <div class="section-heading">
+        <p class="eyebrow">Playlists</p>
+        <h2>${data.playlists.length} saved playlist${data.playlists.length === 1 ? "" : "s"}</h2>
+      </div>
+      ${playlistPicker(data)}
+      ${playlistDetail(data)}
+      <form class="stack" method="post" action="/api/local/playlists">
+        ${csrfInput(data.csrfToken)}
+        <div class="field-row">
+          <label>New playlist<input name="name" maxlength="100" required placeholder="Watch later"></label>
+          <label>Description<input name="description" maxlength="500" placeholder="Optional"></label>
+          <button type="submit">Create</button>
+        </div>
+      </form>
+    </section>
+    <section>
+      <div class="section-heading">
+        <p class="eyebrow">Favourites</p>
+        <h2>${data.favourites.length} saved video${data.favourites.length === 1 ? "" : "s"}</h2>
+      </div>
+      ${favourites ? `<ul class="items">${favourites}</ul>` : emptyState("No favourites saved yet.")}
+    </section>
+    <section>
+      <div class="section-heading">
+        <p class="eyebrow">Followed creators</p>
+        <h2>${data.followed.length} creator${data.followed.length === 1 ? "" : "s"}</h2>
+      </div>
+      ${followed ? `<ul class="items">${followed}</ul>` : emptyState("No creators followed yet.")}
+    </section>
+    <section>
+      <div class="section-heading">
+        <p class="eyebrow">History</p>
+        <h2>${data.history.length} recent item${data.history.length === 1 ? "" : "s"}</h2>
+      </div>
+      ${history ? `<ul class="items">${history}</ul>` : emptyState("No watch history recorded yet.")}
+      ${
+        data.history.length > 0
+          ? `<div class="stack">${actionForm(
+              "/api/local/history/clear",
+              {},
+              "Clear all history",
+              data.csrfToken,
+              true,
+            )}</div>`
+          : ""
+      }
+    </section>
+    <footer>
+      <a href="/">Source home</a>
+      <a href="/account">Source details</a>
+      <span>${escapeHtml(env.SOURCE_NAME?.trim() || DEFAULT_SOURCE_NAME)}</span>
     </footer>`,
   );
 }
@@ -149,6 +425,7 @@ export function accountPage(
     </section>
     <footer>
       <a href="/">Source home</a>
+      <a href="/library">Local library</a>
       <span>${escapeHtml(env.SOURCE_NAME?.trim() || DEFAULT_SOURCE_NAME)}</span>
     </footer>`,
   );
@@ -204,6 +481,27 @@ thead { background: #151a24; }
 .note, .empty { border-left: 3px solid var(--accent); padding-left: 16px; }
 form { margin-top: 20px; }
 button.danger { border-color: #67322f; color: #ffaaa3; }
+button.quiet { background: transparent; padding: 8px 12px; font-size: .82rem; }
+form.inline { display: inline-block; margin: 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+.chip { padding: 8px 12px; font-size: .85rem; }
+.chip.current { border-color: var(--accent); color: var(--accent); }
+.chip span { color: var(--muted); margin-left: 6px; }
+.panel { border: 1px solid var(--line); border-radius: 16px; padding: 22px; background: color-mix(in srgb, var(--panel) 92%, transparent); }
+.panel-heading { display: flex; justify-content: space-between; align-items: start; gap: 16px; flex-wrap: wrap; }
+.panel-heading p { margin: 6px 0 0; font-size: .85rem; }
+.items { list-style: none; margin: 20px 0 0; padding: 0; display: grid; gap: 2px; }
+.item { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 14px 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.item-body { min-width: 0; flex: 1 1 320px; }
+.item-title { display: inline-block; padding: 0; background: none; border: 0; border-radius: 0; overflow-wrap: anywhere; font-weight: 600; }
+.item-title:hover { color: var(--accent); }
+.item-meta { margin: 4px 0 0; font-size: .78rem; }
+.item-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.stack { display: block; margin-top: 24px; }
+.field-row { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; }
+.field-row label { display: grid; gap: 6px; font-size: .78rem; color: var(--muted); flex: 1 1 220px; }
+.field-row input { padding: 11px 13px; border-radius: 10px; border: 1px solid var(--line); background: #141925; color: #fff; font: inherit; }
+.field-row input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 footer { margin-top: 80px; padding-top: 24px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 16px; color: var(--muted); }
 footer a { padding: 8px 10px; }
 @media (max-width: 820px) {
