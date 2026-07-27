@@ -268,3 +268,50 @@ describe("Hot Tub client compatibility", () => {
     expect(body.pageInfo.parameters?.totalResults).toBeUndefined();
   });
 });
+
+describe("the merged all channel", () => {
+  it("fans out to every provider and keeps each item's real channel", async () => {
+    const response = await handleRequest(
+      post("/api/videos", { channel: "all", page: 1, pageSize: 12 }),
+      createEnv(),
+      createExecutionContext(),
+      multiProviderFetch(),
+    );
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { items: Array<{ channel: string }> };
+
+    // Items must carry the provider that actually served them, never "all",
+    // because the app uses the channel for playback and branding.
+    const channels = new Set(body.items.map((item) => item.channel));
+    expect(channels.has("all")).toBe(false);
+    expect(channels.size).toBeGreaterThan(1);
+    for (const channel of channels) {
+      expect(["xhamster", "xvideos", "pornhub", "eporner", "fpo", "faphouse-ultra"]).toContain(
+        channel,
+      );
+    }
+  });
+
+  it("interleaves providers rather than emptying one before starting the next", async () => {
+    const response = await handleRequest(
+      post("/api/videos", { channel: "all", page: 1, pageSize: 12 }),
+      createEnv(),
+      createExecutionContext(),
+      multiProviderFetch(),
+    );
+    const body = (await response.json()) as { items: Array<{ channel: string }> };
+    const leading = body.items.slice(0, 3).map((item) => item.channel);
+    expect(new Set(leading).size).toBe(leading.length);
+  });
+
+  it("still rejects a channel that does not exist", async () => {
+    const response = await handleRequest(
+      post("/api/videos", { channel: "not-a-channel", page: 1 }),
+      createEnv(),
+      createExecutionContext(),
+      multiProviderFetch(),
+    );
+    expect(response.status).toBe(400);
+    expect(await response.text()).toContain("unknown_channel");
+  });
+});

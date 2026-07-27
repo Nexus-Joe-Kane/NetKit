@@ -186,7 +186,8 @@ export function createFederatedProvider(definition: FederatedProviderDefinition)
     favicon: definition.favicon,
     status: "active",
     nsfw: true,
-    default: definition.id === "xhamster",
+    // The merged "all" channel is the source default now.
+    default: false,
     sortOrder: definition.sortOrder,
     groupKey: "Public",
     cacheDuration: 1_800,

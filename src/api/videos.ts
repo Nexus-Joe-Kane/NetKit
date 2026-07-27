@@ -7,7 +7,7 @@ import {
   type VideosRequest,
   type VideosResponse,
 } from "../hottub/schemas";
-import { getProvider } from "../providers/registry";
+import { activeProviderIds, getProvider } from "../providers/registry";
 import type { ProviderContext, ProviderVideoPage } from "../providers/types";
 import { HttpError } from "../utils/errors";
 import { applyClientBlocks, mergeProviderResults } from "../utils/filters";
@@ -22,16 +22,38 @@ import {
   videoLastGoodCacheRequest,
 } from "../utils/cache";
 
+/**
+ * A virtual channel that fans out to every browsable provider. It is expanded
+ * here rather than implemented as an adapter so the existing per-channel
+ * merging, validation and client-side blocking all apply unchanged — items
+ * keep their real provider's channel ID, which is what the app needs for
+ * playback and branding.
+ */
+export const ALL_CHANNEL_ID = "all";
+
 function requestedChannels(request: VideosRequest): string[] {
+  const requested =
+    request.channels && request.channels.length > 0
+      ? request.channels
+      : request.channel
+        ? [request.channel]
+        : [];
   return [
     ...new Set(
-      request.channels && request.channels.length > 0
-        ? request.channels
-        : request.channel
-          ? [request.channel]
-          : [],
+      requested.flatMap((id) => (id === ALL_CHANNEL_ID ? [...activeProviderIds()] : [id])),
     ),
   ];
+}
+
+/**
+ * With one channel the caller's page size is used as-is. Fanning out would
+ * otherwise ask every provider for a full page and discard most of it, so the
+ * per-provider size is scaled down — with headroom, because merging dedupes
+ * and client-side blocking can remove items.
+ */
+function providerPageSize(request: VideosRequest, channelCount: number): number {
+  if (channelCount <= 1) return request.pageSize;
+  return Math.min(request.pageSize, Math.max(10, Math.ceil((request.pageSize / channelCount) * 2)));
 }
 
 async function callProvider(
@@ -116,8 +138,12 @@ export async function videosHandler(
     requestId: context.requestId,
     now: new Date(),
   };
+  const perProvider: VideosRequest = {
+    ...request,
+    pageSize: providerPageSize(request, channels.length),
+  };
   const pages = await Promise.all(
-    channels.map((channelId) => callProvider(channelId, request, providerContext)),
+    channels.map((channelId) => callProvider(channelId, perProvider, providerContext)),
   );
   const groups = pages.map((page, index) =>
     applyClientBlocks(

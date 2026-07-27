@@ -23,6 +23,12 @@ interface HtmlCatalogDefinition {
   isWatchUrl(url: URL): boolean;
   availability?: string;
   tags: ReadonlyArray<{ name: string; systemImage?: string }>;
+  /**
+   * Sorts this catalogue genuinely honours. Omitted entirely when the site
+   * offers none, so the app does not present a control that silently does
+   * nothing.
+   */
+  sortOptions?: ReadonlyArray<{ id: string; title: string }>;
 }
 
 const capabilities: ProviderCapabilities = {
@@ -184,20 +190,17 @@ export function createHtmlCatalogProvider(definition: HtmlCatalogDefinition): Pr
     groupKey: definition.premium ? "Premium" : "Public",
     cacheDuration: 900,
     tags: [...definition.tags],
-    options: [
-      {
-        id: "sort",
-        title: "Sort",
-        systemImage: "list.number",
-        colorName: "indigo",
-        options: [
-          { id: "relevance", title: "Relevant" },
-          { id: "new", title: "Newest" },
-          { id: "views", title: "Most Viewed" },
-          { id: "rating", title: "Top Rated" },
-        ],
-      },
-    ],
+    options: definition.sortOptions?.length
+      ? [
+          {
+            id: "sort",
+            title: "Sort",
+            systemImage: "list.number",
+            colorName: "indigo",
+            options: [...definition.sortOptions],
+          },
+        ]
+      : undefined,
   };
 
   async function getVideos(

@@ -1,13 +1,58 @@
 import type { RequestContext } from "../config";
-import { ServerStatusSchema, StatusRequestSchema, type ServerStatus } from "../hottub/schemas";
-import { listProviders } from "../providers/registry";
+import {
+  ServerStatusSchema,
+  StatusRequestSchema,
+  type Channel,
+  type ServerStatus,
+} from "../hottub/schemas";
+import { ALL_CHANNEL_ID } from "./videos";
+import { activeProviderIds, listProviders } from "../providers/registry";
 import { jsonResponse, parseBody } from "../utils/http";
 import { enforceRateLimit, rateLimitHeaders } from "../utils/rate-limit";
+
+/**
+ * The merged channel. `/api/videos` expands it into every browsable provider,
+ * so only the sorts that all of them can honour are advertised — a provider
+ * that does not recognise one falls back to its own default rather than
+ * failing.
+ */
+function allChannel(providerCount: number): Channel {
+  return {
+    id: ALL_CHANNEL_ID,
+    name: "All channels",
+    description: `Every public channel interleaved into one feed, across ${providerCount} providers.`,
+    premium: false,
+    status: "active",
+    nsfw: true,
+    default: true,
+    sortOrder: 0,
+    groupKey: "Public",
+    cacheDuration: 900,
+    tags: [
+      { name: "Merged", systemImage: "square.stack.3d.up" },
+      { name: "Public", systemImage: "globe" },
+    ],
+    options: [
+      {
+        id: "sort",
+        title: "Sort",
+        systemImage: "list.number",
+        colorName: "indigo",
+        options: [
+          { id: "relevance", title: "Most Relevant" },
+          { id: "new", title: "Newest" },
+          { id: "views", title: "Most Viewed" },
+        ],
+      },
+    ],
+  };
+}
 
 export async function statusHandler(context: RequestContext): Promise<Response> {
   await parseBody(context.request, StatusRequestSchema);
   const rateLimit = await enforceRateLimit(context, "status", 120, 60);
   const providers = listProviders();
+  const merged = allChannel(activeProviderIds().length);
   const publicIds = providers
     .filter((provider) => !provider.channel.premium)
     .map((provider) => provider.id);
@@ -45,12 +90,12 @@ export async function statusHandler(context: RequestContext): Promise<Response> 
           ]
         : []),
     ],
-    channels: providers.map((provider) => provider.channel),
+    channels: [merged, ...providers.map((provider) => provider.channel)],
     channelGroups: [
       {
         id: "public",
         title: "Public",
-        channelIds: publicIds,
+        channelIds: [ALL_CHANNEL_ID, ...publicIds],
         systemImage: "globe",
       },
       ...(premiumIds.length
