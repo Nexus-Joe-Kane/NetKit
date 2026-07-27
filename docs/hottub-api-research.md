@@ -33,6 +33,41 @@ Cloudflare source IP. Hot Tub must therefore use the source while the device is
 routed through one of the approved VPN egress addresses, `92.71.54.161` or
 `177.7.57.50`.
 
+## `pageInfo.parameters` must hold strings
+
+The iOS client rejected valid responses with a generic
+`APIError -1 / "Server Error"` while the diagnostics showed a `200` carrying a
+full page of usable items. Nothing in the response was an error.
+
+The cause is a type mismatch the prose documentation does not make obvious.
+The published types
+([`@hottubapp/api-core`](https://www.npmjs.com/package/@hottubapp/api-core),
+`VideoResult`) declare:
+
+```ts
+pageInfo?: {
+  hasNextPage: boolean;
+  parameters?: Record<string, string>;
+  [key: string]: any;
+};
+```
+
+`parameters` is `Record<string, string>`, and the client decodes it strictly.
+This source was emitting `page`, `pageSize`, `returnedResults`, and
+`totalResults` as JSON numbers, so decoding failed and the app reported a
+server error for a response the server considered successful. Neither
+reference source triggers it: `hottubapp.io` omits `parameters` entirely and
+puts `total` at the top level of `pageInfo`, where `[key: string]: any`
+permits any type.
+
+Every value under `parameters` is now serialised as a string, and
+`tests/videos.test.ts` asserts it. The failure mode is worth remembering: an
+invalid `pageInfo` is indistinguishable, from the app, from the source being
+down — the items are fine and never get rendered.
+
+`totalResults` is also omitted unless a provider actually reported one, rather
+than sending `"0"` alongside a full page of results.
+
 ## Status
 
 `POST /api/status` returns a server with six channels:

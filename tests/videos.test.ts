@@ -226,3 +226,45 @@ describe("POST /api/videos", () => {
     expect(unknownResponse.status).toBe(400);
   });
 });
+
+describe("Hot Tub client compatibility", () => {
+  it("serialises every pageInfo.parameters value as a string", async () => {
+    // Hot Tub types `parameters` as Record<string, string> and the iOS client
+    // decodes it strictly. A numeric value there makes the app report a
+    // generic "Server Error" on an otherwise perfectly good page of results,
+    // which is indistinguishable from the source being down.
+    const response = await handleRequest(
+      post("/api/videos", { channel: "eporner", page: 1, pageSize: 5 }),
+      createEnv(),
+      createExecutionContext(),
+      multiProviderFetch(),
+    );
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      pageInfo: { parameters?: Record<string, unknown> };
+      items: unknown[];
+    };
+
+    const parameters = body.pageInfo.parameters ?? {};
+    expect(Object.keys(parameters).length).toBeGreaterThan(0);
+    for (const [key, value] of Object.entries(parameters)) {
+      expect(typeof value, `pageInfo.parameters.${key} must be a string`).toBe("string");
+    }
+    expect(parameters.returnedResults).toBe(String(body.items.length));
+  });
+
+  it("omits totalResults rather than reporting zero next to real results", async () => {
+    const response = await handleRequest(
+      post("/api/videos", { channel: "xhamster", page: 1, pageSize: 5 }),
+      createEnv(),
+      createExecutionContext(),
+      multiProviderFetch(),
+    );
+    const body = (await response.json()) as {
+      pageInfo: { parameters?: Record<string, string> };
+      items: unknown[];
+    };
+    expect(body.items.length).toBeGreaterThan(0);
+    expect(body.pageInfo.parameters?.totalResults).toBeUndefined();
+  });
+});
