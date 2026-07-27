@@ -375,3 +375,65 @@ describe("duration range filter", () => {
     expect(body.items.every((item) => item.duration <= 60)).toBe(true);
   });
 });
+
+describe("orientation preference", () => {
+  it("reads the channel filter first and the global preference second", async () => {
+    const { resolveOrientation } = await import("../src/utils/orientation");
+    expect(resolveOrientation({ gender: "gay" })).toBe("gay");
+    expect(resolveOrientation({ gender: "straight" })).toBe("straight");
+    expect(resolveOrientation({ gender: "both" })).toBe("any");
+    // An explicit channel filter beats the app-wide preference.
+    expect(resolveOrientation({ orientation: "straight", gender: "gay" })).toBe("straight");
+    // "none" is what the app sends when no preference is set, so it must not
+    // be treated as a value to act on.
+    for (const value of ["none", "", undefined, null, "wat"]) {
+      expect(resolveOrientation({ gender: value }), String(value)).toBeUndefined();
+    }
+  });
+
+  it("maps to each provider's own parameter", async () => {
+    const { epornerGayParameter, faphouseOrientationParameter } =
+      await import("../src/utils/orientation");
+    expect(epornerGayParameter("straight")).toBe("0");
+    expect(epornerGayParameter("any")).toBe("1");
+    expect(epornerGayParameter("gay")).toBe("2");
+    expect(epornerGayParameter(undefined)).toBe("0");
+    expect(faphouseOrientationParameter("gay")).toBe("gay");
+    expect(faphouseOrientationParameter("straight")).toBe("straight");
+    // "All" means send nothing, so the site's own default applies.
+    expect(faphouseOrientationParameter("any")).toBeUndefined();
+    expect(faphouseOrientationParameter(undefined)).toBeUndefined();
+  });
+
+  it("narrows the merged channel to providers that can honour the choice", async () => {
+    const mixed = await handleRequest(
+      post("/api/videos", { channel: "all", page: 1, pageSize: 12, gender: "none" }),
+      createEnv(),
+      createExecutionContext(),
+      multiProviderFetch(),
+    );
+    const mixedChannels = new Set(
+      ((await mixed.json()) as { items: Array<{ channel: string }> }).items.map(
+        (item) => item.channel,
+      ),
+    );
+    expect(mixedChannels.size).toBeGreaterThan(2);
+
+    // The federated upstreams and fpo provably ignore orientation, so a
+    // narrowed feed of the right content beats a wide feed of the wrong one.
+    const gay = await handleRequest(
+      post("/api/videos", { channel: "all", page: 1, pageSize: 12, gender: "gay" }),
+      createEnv(),
+      createExecutionContext(),
+      multiProviderFetch(),
+    );
+    const gayChannels = new Set(
+      ((await gay.json()) as { items: Array<{ channel: string }> }).items.map(
+        (item) => item.channel,
+      ),
+    );
+    for (const channel of gayChannels) {
+      expect(["eporner", "faphouse-ultra"]).toContain(channel);
+    }
+  });
+});

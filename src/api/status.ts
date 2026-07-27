@@ -45,6 +45,18 @@ function allChannel(providerCount: number): Channel {
           { id: "views", title: "Most Viewed" },
         ],
       },
+      {
+        id: "orientation",
+        title: "Catalogue",
+        systemImage: "person.2",
+        colorName: "purple",
+        multiSelect: false,
+        options: [
+          { id: "straight", title: "Straight" },
+          { id: "all", title: "All" },
+          { id: "gay", title: "Gay" },
+        ],
+      },
     ],
   };
 }

@@ -38,9 +38,21 @@ expands it into every public channel, queries them in parallel, and interleaves
 the results round-robin so no single provider dominates the feed. Items keep the
 channel that actually served them, so playback and branding are unaffected.
 
-Sort options are only advertised where the provider honours them. fpo.xxx has
-two real listing orders and FapHouse ignores its sort parameter entirely, so no
-sort control is offered for it rather than showing one that does nothing.
+Filters are only advertised where the provider honours them, verified against
+each site rather than assumed:
+
+- **Sort** — fpo.xxx has two real listing orders; FapHouse ignores its sort
+  parameter entirely, so no sort control is offered for it.
+- **Orientation** (straight/all/gay, and Hot Tub's global preference) — Eporner's
+  `gay` parameter and FapHouse's `?orientation=` each return genuinely different
+  catalogues. The Hot Tub-compatible upstreams behind xHamster, XVideos and
+  Pornhub return identical results with and without it, and fpo.xxx has no
+  orientation listings, so those channels do not offer the control. When an
+  orientation is chosen on `All channels`, the fan-out narrows to the providers
+  that can respect it — a smaller feed of the right content rather than a wide
+  feed of the wrong one.
+- **Duration** — a range slider, applied to merged results. Every item carries a
+  duration, so it behaves identically on every channel.
 
 Eporner races three public catalogue routes: its documented
 [Webmaster API v2](https://www.eporner.com/api/v2/), the official Hot Tub
