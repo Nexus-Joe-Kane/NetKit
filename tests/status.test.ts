@@ -15,13 +15,15 @@ describe("POST /api/status", () => {
     const body = ServerStatusSchema.parse(await response.json());
     // The bundles lead, then the six primary channels, then the federated
     // community catalogue.
-    expect(body.channels.slice(0, 12).map((channel) => channel.id)).toEqual([
+    expect(body.channels.slice(0, 14).map((channel) => channel.id)).toEqual([
       "all",
       "mainstream",
+      "tubes",
       "amateur",
       "shorts",
       "anime",
       "asian",
+      "fetish",
       "xhamster",
       "faphouse-ultra",
       "xvideos",

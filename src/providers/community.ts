@@ -507,6 +507,96 @@ const COMMUNITY_CHANNELS: readonly CommunityChannel[] = [
     assets: ["youporn.com", "ypncdn.com"],
     sorts: [{ id: "new", title: "Most Recent" }],
   },
+  {
+    id: "blowjobspro",
+    name: "Blowjobs.pro",
+    favicon: "https://www.google.com/s2/favicons?sz=64&domain=blowjobs.pro",
+    watch: ["blowjobs.pro"],
+    assets: ["blowjobs.pro"],
+    sorts: [
+      { id: "new", title: "Latest" },
+      { id: "popular", title: "Most Viewed" },
+      { id: "rated", title: "Top Rated" },
+    ],
+  },
+  {
+    id: "clapdat",
+    name: "ClapDat",
+    favicon: "https://www.google.com/s2/favicons?sz=64&domain=clapdat.com",
+    // Served through the upstream's own proxy, so that host must be pinned or
+    // every item is discarded by the URL allowlist.
+    watch: ["spacemoehre.de"],
+    assets: ["clapdat.com"],
+    sorts: [
+      { id: "trending", title: "Trending" },
+      { id: "new", title: "Recent" },
+    ],
+  },
+  {
+    id: "freepornvideosxxx",
+    name: "FreePornVideos XXX",
+    favicon: "https://www.google.com/s2/favicons?sz=64&domain=freepornvideos.xxx",
+    watch: ["freepornvideos.xxx"],
+    assets: ["freepornvideos.xxx"],
+    sorts: [
+      { id: "latest-updates", title: "Latest" },
+      { id: "most-popular", title: "Most Viewed" },
+      { id: "top-rated", title: "Top Rated" },
+    ],
+  },
+  {
+    id: "okporn",
+    name: "Ok.porn",
+    favicon: "https://www.google.com/s2/favicons?sz=64&domain=ok.porn",
+    watch: ["ok.porn"],
+    assets: ["ok.porn"],
+    sorts: [
+      { id: "new", title: "New" },
+      { id: "popular", title: "Popular" },
+      { id: "trending", title: "Trending" },
+    ],
+  },
+  {
+    id: "rule34gen",
+    name: "Rule34Gen",
+    favicon: "https://www.google.com/s2/favicons?sz=64&domain=rule34gen.com",
+    watch: ["rule34gen.com"],
+    assets: ["rule34gen.com"],
+    sorts: [
+      { id: "post_date", title: "Newest" },
+      { id: "video_viewed", title: "Most Viewed" },
+      { id: "rating", title: "Top Rated" },
+      { id: "duration", title: "Longest" },
+      { id: "pseudo_random", title: "Random" },
+    ],
+  },
+  {
+    id: "spankbang",
+    name: "SpankBang",
+    favicon: "https://www.google.com/s2/favicons?sz=64&domain=spankbang.com",
+    // Proxied by the upstream, same as ClapDat.
+    watch: ["spacemoehre.de"],
+    assets: ["sb-cd.com"],
+    sorts: [
+      { id: "trending", title: "Trending" },
+      { id: "upcoming", title: "Upcoming" },
+      { id: "new", title: "New" },
+      { id: "popular", title: "Popular" },
+      { id: "featured", title: "Featured" },
+    ],
+  },
+  {
+    id: "xxthots",
+    name: "XXTHOTS",
+    favicon: "https://www.google.com/s2/favicons?sz=64&domain=xxthots.com",
+    watch: ["xxthots.com"],
+    assets: ["xxthots.com"],
+    sorts: [
+      { id: "new", title: "New" },
+      { id: "popular", title: "Popular" },
+      { id: "top-rated", title: "Top Rated" },
+    ],
+  },
 ];
 
 export const communityProviders: readonly ProviderAdapter[] = COMMUNITY_CHANNELS.map(

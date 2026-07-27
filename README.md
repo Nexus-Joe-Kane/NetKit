@@ -25,17 +25,17 @@ route returns `403` from any other address.
 
 | Provider            | Public browse | Search | Creators | Playback hand-off | Account connection | Premium entitlement |
 | ------------------- | ------------: | -----: | -------: | ----------------: | -----------------: | ------------------: |
-| 6 bundles           |        Merged | Merged |       No |               Yes |                 No |                  No |
+| 8 bundles           |        Merged | Merged |       No |               Yes |                 No |                  No |
 | Eporner             |           Yes |    Yes |  Derived |               Yes |                 No |                  No |
 | xHamster            |           Yes |    Yes |  Derived |               Yes |                 No |                  No |
 | XVideos             |           Yes |    Yes |  Derived |               Yes |                 No |                  No |
 | Pornhub             |           Yes |    Yes |  Derived |               Yes |                 No |                  No |
 | fpo.xxx             |           Yes |    Yes |       No |               Yes |                 No |                  No |
 | FapHouse Ultra      |  Catalog only |    Yes |       No |                No |             Opt-in |                  No |
-| 40 further catalogs |           Yes |    Yes |  Derived |               Yes |                 No |                  No |
+| 47 further catalogs |           Yes |    Yes |  Derived |               Yes |                 No |                  No |
 
 The six named public channels above are the **featured** channels. Alongside them
-the source carries a further **40 community channels** — RedTube, YouPorn, XNXX,
+the source carries a further **47 community channels** — RedTube, YouPorn, XNXX,
 Tube8, TnAflix, PornTrex, Beeg, Erome, RedGifs and the rest — federated through
 the Hot Tub-compatible community source. Each ships only the sort orders its own
 upstream declares.
@@ -51,24 +51,50 @@ cannot parse their pages.
 
 `scripts/check-playability.mjs` runs the second check on a schedule. Hot Tub
 extracts playback from `Video.url` itself and its `formats[]` schema is yt-dlp's
-format dict field for field, so yt-dlp stands in for the app's extractor. Only a
-_missing_ extractor fails the run: a 403, a 410 or an anti-bot interstitial says
-where the check ran from, not whether the channel works. Pornhub fails exactly
-that way from a datacentre address while working normally on a phone.
+format dict field for field — a device diagnostic confirms the app reports
+`ytdlp_provider_registered: yes` — so yt-dlp stands in for the app's extractor.
+Only a _missing_ extractor fails the run: a 403, a 410 or an anti-bot
+interstitial says where the check ran from, not whether the channel works.
+Pornhub fails exactly that way from a datacentre address while working normally
+on a phone.
+
+### Why there are 53 channels and not 80
+
+The community upstream carries 80. All 80 were swept for listing, hostnames and
+extractability; the ones left out failed for reasons that would reach the
+operator as a broken app:
+
+- **11 have no extractor at all** — `animeidhentai`, `aps`, `archivebate`,
+  `fikfap`, `fullporner`, `fyptt`, `hentaitv`, `paradisehill`, `perverzija`,
+  `thaiporntv`, `xxxtik`.
+- **8 return nothing usable** — `missav`, `hanime`, `supjav`, `hotbunny`,
+  `kwiky`, `melonstube`, and `okxxx`/`xxdbx`, whose items carry no thumbnail at
+  all and would render as blank tiles.
+- **1 never finishes listing** — `jable`, still timing out at 90 seconds.
+- **`pornmz`** serves its watch pages from `project1content.com` and
+  `video.twimg.com` rather than its own domain, which cannot be pinned to a
+  meaningful allowlist.
+- **The rest are unverifiable from a datacentre** — `sextb`, `camsoda` and
+  `porndish` answer 403. An existing channel is kept in that case, because
+  removing it on that evidence would delete working ones; a _new_ channel is
+  not added on it. Addition needs positive evidence, removal needs positive
+  evidence, and "cannot tell from here" is neither.
 
 ### Bundles
 
 A bundle is a virtual channel that fans out to several real ones. `All channels`
-is one of six, and is the source default:
+is one of eight, and is the source default:
 
-| Bundle             | Members                                            | Contents                            |
-| ------------------ | -------------------------------------------------- | ----------------------------------- |
-| All channels       | the six featured channels                          | the default mixed feed              |
-| Mainstream tubes   | Pornhub, XVideos, xHamster, XNXX, RedTube, YouPorn | the largest general-audience tubes  |
-| Amateur & creators | Erome, RedGifs, Shooshtime, Tokyo Motion, Pornzog  | creator-uploaded and amateur        |
-| Shorts & vertical  | PH Shorties, Tik Porn, Viralxxxporn                | short-form vertical video           |
-| Animated & hentai  | Hentai Haven, Rule34Video                          | animation and rule-34               |
-| Asian & JAV        | Javtiful, VJAV, Hsex, Tokyo Motion                 | Japanese and wider Asian catalogues |
+| Bundle             | Members                                                    | Contents                            |
+| ------------------ | ---------------------------------------------------------- | ----------------------------------- |
+| All channels       | the six featured channels                                  | the default mixed feed              |
+| Mainstream tubes   | Pornhub, XVideos, xHamster, XNXX, RedTube, YouPorn         | the largest general-audience tubes  |
+| More big tubes     | SpankBang, Tube8, YouJizz, PornTrex, Pornhat, Perfectgirls | the next tier of large tubes        |
+| Amateur & creators | Erome, RedGifs, Shooshtime, Tokyo Motion, XXTHOTS          | creator-uploaded and amateur        |
+| Shorts & vertical  | PH Shorties, Tik Porn, Viralxxxporn, ClapDat               | short-form vertical video           |
+| Animated & hentai  | Hentai Haven, Rule34Video, Rule34Gen                       | animation and rule-34               |
+| Asian & JAV        | Javtiful, VJAV, Hsex, Tokyo Motion                         | Japanese and wider Asian catalogues |
+| Fetish & kink      | HeavyFetish, Hypnotube, FreeusePorn                        | fetish and specialist catalogues    |
 
 A bundle is not a provider: `/api/videos` expands it into its members, queries
 them in parallel, and interleaves the results round-robin so no single member
@@ -85,7 +111,7 @@ channel list would just be a second Mainstream under a name promising more than
 it delivered.
 
 Bundles are capped at **six members**, enforced by a test. A Worker has a bounded
-subrequest budget per request, and a bundle spanning all 46 channels would
+subrequest budget per request, and a bundle spanning all 53 channels would
 exhaust it and fail the whole request rather than return a bigger feed. Every
 channel remains individually selectable, and the app's own multi-select still
 works across any subset.

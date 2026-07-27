@@ -323,7 +323,7 @@ describe("the merged all channel", () => {
       fetcher,
     );
     expect(response.status).toBe(200);
-    expect(new Set(seen)).toEqual(new Set(["hentaihaven", "rule34video"]));
+    expect(new Set(seen)).toEqual(new Set(["hentaihaven", "rule34video", "rule34gen"]));
   });
 
   it("asks each member for the sort in that member's own dialect", async () => {
@@ -545,6 +545,6 @@ describe("orientation preference", () => {
     // Someone who picked "Animated & hentai" must not be handed a feed with no
     // animation in it, so a bundle whose members serve no orientation is left
     // exactly as chosen.
-    expect(new Set(seen)).toEqual(new Set(["hentaihaven", "rule34video"]));
+    expect(new Set(seen)).toEqual(new Set(["hentaihaven", "rule34video", "rule34gen"]));
   });
 });
