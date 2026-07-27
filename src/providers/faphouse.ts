@@ -1,4 +1,4 @@
-import { assertUsableCookie, probePlayback, probeSession } from "./faphouse-session";
+import { assertUsableCookie, probePlayback, probeSession, signIn } from "./faphouse-session";
 import { createHtmlCatalogProvider } from "./html-catalog";
 
 const baseProvider = createHtmlCatalogProvider({
@@ -54,6 +54,9 @@ export const faphouseProvider = {
   ...baseProvider,
   async connectSession(sessionCookie: string, fetcher: typeof fetch) {
     return probeSession(fetcher, assertUsableCookie(sessionCookie));
+  },
+  async connectCredentials(login: string, password: string, fetcher: typeof fetch) {
+    return signIn(fetcher, login, password);
   },
   async diagnosePlayback(sessionCookie: string, watchUrl: string, fetcher: typeof fetch) {
     const probe = await probePlayback(fetcher, assertUsableCookie(sessionCookie), watchUrl);

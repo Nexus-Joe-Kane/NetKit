@@ -365,7 +365,9 @@ export interface AccountPageOptions {
 
 /** Providers where the operator can supply their own signed-in session. */
 function connectableProviders() {
-  return listProviders().filter((provider) => Boolean(provider.connectSession));
+  return listProviders().filter(
+    (provider) => Boolean(provider.connectSession) || Boolean(provider.connectCredentials),
+  );
 }
 
 function connectSection(csrfToken: string, options: AccountPageOptions): string {
@@ -381,12 +383,24 @@ function connectSection(csrfToken: string, options: AccountPageOptions): string 
     .map(
       (provider) => `<div class="panel">
         <h3>Connect ${escapeHtml(provider.name)}</h3>
-        <p>${escapeHtml(provider.name)} publishes no OAuth or delegated-access API. Sign in on your own browser, copy the <code>Cookie</code> header from a request to the site, and paste it below. This Worker never receives your password and never submits the login form.</p>
+        <p>${escapeHtml(provider.name)} publishes no OAuth or delegated-access API. Use revocable, app-specific credentials generated in your account portal rather than your main password — they can be withdrawn on their own, and the session renews itself when it lapses.</p>
+        ${
+          provider.connectCredentials
+            ? `<form class="stack" method="post" action="/account/connect">
+          ${csrfInput(csrfToken)}${hiddenField("providerId", provider.id)}
+          <div class="field-row">
+            <label>Login<input name="login" maxlength="320" autocomplete="off" required placeholder="app username or email"></label>
+            <label>Password<input name="password" type="password" maxlength="1000" autocomplete="off" required></label>
+            <button type="submit">Connect</button>
+          </div>
+        </form>`
+            : ""
+        }
         <form class="stack" method="post" action="/account/connect">
           ${csrfInput(csrfToken)}${hiddenField("providerId", provider.id)}
           <div class="field-row">
-            <label>Session cookie<input name="sessionCookie" maxlength="8000" required placeholder="name=value; other=value"></label>
-            <button type="submit">Connect</button>
+            <label>Or paste a session cookie<input name="sessionCookie" maxlength="8000" required placeholder="name=value; other=value"></label>
+            <button class="quiet" type="submit">Connect with cookie</button>
           </div>
         </form>
         <form class="stack" method="post" action="/account/diagnose">

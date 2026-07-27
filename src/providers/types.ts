@@ -58,6 +58,23 @@ export interface ProviderAdapter {
   ): Promise<{ authenticated: boolean; detail: string }>;
 
   /**
+   * Exchanges revocable, app-specific credentials for a session. Preferred
+   * over `connectSession` where the provider offers a usable sign-in endpoint,
+   * because the session can then be renewed without the operator pasting a new
+   * cookie each time one expires.
+   */
+  connectCredentials?(
+    login: string,
+    password: string,
+    fetcher: typeof fetch,
+  ): Promise<{
+    authenticated: boolean;
+    detail: string;
+    sessionCookie?: string;
+    premium?: boolean;
+  }>;
+
+  /**
    * Reports what an authenticated session exposes on a watch page. Used to
    * establish how playback is delivered to an entitled account before a
    * format resolver is written against it.
