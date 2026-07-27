@@ -9,7 +9,12 @@ function securityHeaders(contentType = ""): Headers {
     "Cross-Origin-Opener-Policy": "same-origin",
     "Cross-Origin-Resource-Policy": "same-origin",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
-    "Referrer-Policy": "no-referrer",
+    // "same-origin", not "no-referrer": our own forms need a Referer as the
+    // last-resort same-site signal on browsers that send neither Origin nor
+    // Sec-Fetch-Site (Safari before 16.4). Cross-origin requests — including
+    // the provider CDNs that serve thumbnails on /library — still get no
+    // referrer at all, so nothing leaks off-site.
+    "Referrer-Policy": "same-origin",
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
   });
@@ -195,9 +200,52 @@ export function getClientIp(request: Request): string {
   ).slice(0, 80);
 }
 
+function originRejected(): HttpError {
+  return new HttpError(403, "Origin validation failed.", "invalid_origin");
+}
+
+/**
+ * Verifies a state-changing request came from this site.
+ *
+ * Three signals are consulted in turn because no single one is universally
+ * present. Safari omits `Origin` on same-origin form submissions, and every
+ * form on this source is a plain server-rendered POST — the Content Security
+ * Policy allows no scripts — so demanding `Origin` outright rejected every
+ * submission from an iPhone, which is the only device this source is used from.
+ *
+ * A request carrying none of the three is still refused, and this remains
+ * defence in depth rather than the primary control: the CSRF cookie is
+ * `SameSite=Strict`, so a cross-site POST never carries the token it would have
+ * to match in `requireCsrf`.
+ */
 export function requireSameOrigin(request: Request, expectedOrigin: string): void {
   const origin = request.headers.get("Origin");
-  if (!origin || origin !== expectedOrigin) {
-    throw new HttpError(403, "Origin validation failed.", "invalid_origin");
+  // "null" is what a sandboxed or privacy-stripped context sends; it is never
+  // this site, so it is a rejection rather than a missing header.
+  if (origin) {
+    if (origin !== expectedOrigin) throw originRejected();
+    return;
   }
+
+  // Sent by every browser that omits Origin on form posts, and not forgeable
+  // from page script.
+  const fetchSite = request.headers.get("Sec-Fetch-Site");
+  if (fetchSite) {
+    if (fetchSite !== "same-origin") throw originRejected();
+    return;
+  }
+
+  const referer = request.headers.get("Referer");
+  if (referer) {
+    let refererOrigin: string;
+    try {
+      refererOrigin = new URL(referer).origin;
+    } catch {
+      throw originRejected();
+    }
+    if (refererOrigin !== expectedOrigin) throw originRejected();
+    return;
+  }
+
+  throw originRejected();
 }
