@@ -72,7 +72,8 @@ const channel: Channel = {
   premium: false,
   status: "active",
   nsfw: true,
-  default: true,
+  // The merged "all" channel is the source default now.
+  default: false,
   sortOrder: 60,
   groupKey: "Public",
   cacheDuration: 300,
@@ -132,9 +133,19 @@ const channel: Channel = {
   ],
 };
 
-function mapOrientation(value: unknown): string {
-  if (value === "all") return "1";
-  if (value === "gay") return "2";
+/**
+ * Eporner's `gay` parameter: 0 straight, 1 both, 2 gay.
+ *
+ * `orientation` is this channel's own filter, chosen from the options this
+ * source advertises. `gender` is Hot Tub's global preference and arrives on
+ * every request whether or not a channel filter is set — it was previously
+ * ignored, so the app-wide preference did nothing here. The channel filter
+ * wins when the user has set one.
+ */
+function mapOrientation(value: unknown, gender: unknown): string {
+  const choice = value ?? gender;
+  if (choice === "all" || choice === "both") return "1";
+  if (choice === "gay" || choice === "male") return "2";
   return "0";
 }
 
@@ -208,7 +219,7 @@ async function getOfficialVideos(
   url.searchParams.set("page", String(request.page));
   url.searchParams.set("thumbsize", "big");
   url.searchParams.set("order", sortMap[request.sort] ?? "most-popular");
-  url.searchParams.set("gay", mapOrientation(request.orientation));
+  url.searchParams.set("gay", mapOrientation(request.orientation, request.gender));
   url.searchParams.set("lq", mapQuality(request.quality));
   url.searchParams.set("format", "json");
 

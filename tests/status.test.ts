@@ -12,6 +12,7 @@ describe("POST /api/status", () => {
     expect(response.status).toBe(200);
     const body = ServerStatusSchema.parse(await response.json());
     expect(body.channels.map((channel) => channel.id)).toEqual([
+      "all",
       "xhamster",
       "faphouse-ultra",
       "xvideos",
@@ -20,7 +21,8 @@ describe("POST /api/status", () => {
       "eporner",
     ]);
     expect(body.channels.find((channel) => channel.id === "eporner")?.status).toBe("active");
-    expect(body.channels.filter((channel) => channel.status === "active")).toHaveLength(5);
+    // Five real providers plus the merged channel.
+    expect(body.channels.filter((channel) => channel.status === "active")).toHaveLength(6);
     expect(body.channels.find((channel) => channel.id === "faphouse-ultra")?.status).toBe(
       "degraded",
     );
@@ -31,5 +33,41 @@ describe("POST /api/status", () => {
 
     const grouped = new Set(body.channelGroups?.flatMap((group) => group.channelIds));
     expect(grouped).toEqual(new Set(body.channels.map((channel) => channel.id)));
+  });
+});
+
+describe("advertised filters", () => {
+  it("offers the merged channel as the single default", async () => {
+    const response = await handleRequest(
+      post("/api/status", {}),
+      createEnv(),
+      createExecutionContext(),
+    );
+    const status = ServerStatusSchema.parse(await response.json());
+
+    const defaults = status.channels.filter((channel) => channel.default);
+    expect(defaults.map((channel) => channel.id)).toEqual(["all"]);
+    expect(status.channelGroups?.[0]?.channelIds?.[0]).toBe("all");
+  });
+
+  it("only advertises sorts a channel can actually honour", async () => {
+    const response = await handleRequest(
+      post("/api/status", {}),
+      createEnv(),
+      createExecutionContext(),
+    );
+    const status = ServerStatusSchema.parse(await response.json());
+    const sortsFor = (id: string) =>
+      status.channels
+        .find((channel) => channel.id === id)
+        ?.options?.find((option) => option.id === "sort")
+        ?.options.map((choice) => choice.id);
+
+    // FapHouse returns identical results for every sort value, so offering a
+    // sort control there would be a placebo.
+    expect(sortsFor("faphouse-ultra")).toBeUndefined();
+    // fpo has exactly two real listing paths; the others 404.
+    expect(sortsFor("fpo")).toEqual(["new", "popular"]);
+    expect(sortsFor("xhamster")?.length).toBeGreaterThan(1);
   });
 });

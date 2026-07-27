@@ -25,12 +25,22 @@ route returns `403` from any other address.
 
 | Provider       | Public browse | Search | Creators | Playback hand-off | Account connection | Premium entitlement |
 | -------------- | ------------: | -----: | -------: | ----------------: | -----------------: | ------------------: |
+| All channels   |        Merged | Merged |       No |               Yes |                 No |                  No |
 | Eporner        |           Yes |    Yes |  Derived |               Yes |                 No |                  No |
 | xHamster       |           Yes |    Yes |  Derived |               Yes |                 No |                  No |
 | XVideos        |           Yes |    Yes |  Derived |               Yes |                 No |                  No |
 | Pornhub        |           Yes |    Yes |  Derived |               Yes |                 No |                  No |
 | fpo.xxx        |           Yes |    Yes |       No |               Yes |                 No |                  No |
 | FapHouse Ultra |  Catalog only |    Yes |       No |                No |                 No |                  No |
+
+`All channels` is the source default. It is not a provider: `/api/videos`
+expands it into every public channel, queries them in parallel, and interleaves
+the results round-robin so no single provider dominates the feed. Items keep the
+channel that actually served them, so playback and branding are unaffected.
+
+Sort options are only advertised where the provider honours them. fpo.xxx has
+two real listing orders and FapHouse ignores its sort parameter entirely, so no
+sort control is offered for it rather than showing one that does nothing.
 
 Eporner races three public catalogue routes: its documented
 [Webmaster API v2](https://www.eporner.com/api/v2/), the official Hot Tub
@@ -39,10 +49,17 @@ the two Hot Tub-compatible sources. fpo.xxx and FapHouse use ordinary public
 server-rendered catalogue pages. A seven-day request-specific last-known-good
 cache is used only when every live route fails.
 
-FapHouse public metadata is visible, but its items are deliberately marked
-offline because no provider-supported delegated subscription API was found.
-The service does not use browser stealth, CAPTCHA bypasses, copied cookies,
-DRM circumvention, paywall bypasses, or password collection.
+FapHouse public metadata is visible, but its items are marked offline because
+no provider-supported delegated subscription API exists. The operator may opt in
+to connecting their own FapHouse session at `/account`: they sign in on their
+own browser and paste the resulting cookie, which is stored encrypted and used
+server-side only. That does not yet enable protected playback — see
+[Account connections](docs/account-connections.md) for why, and for the risks of
+using a copied session.
+
+The service does not use browser stealth, CAPTCHA bypasses, DRM circumvention,
+paywall bypasses, or password collection, and never submits a provider's login
+form.
 
 ## What is included
 
@@ -80,6 +97,8 @@ still controlled by the provider and the user's region.
 | `POST`     | `/api/uploaders`                       | Approved VPN IP                               | Creator profiles for adapters with stable creator metadata   |
 | `GET`      | `/library`                             | Approved VPN IP                               | Local library page: playlists, favourites, creators, history |
 | `GET`      | `/account`                             | Approved VPN IP                               | Connection metadata; never renders secrets                   |
+| `POST`     | `/account/connect`                     | Approved VPN IP + origin + CSRF               | Validate and store an encrypted provider session             |
+| `POST`     | `/account/diagnose`                    | Approved VPN IP + origin + CSRF               | Report what an entitled session exposes for playback         |
 | `POST`     | `/account/disconnect`                  | Approved VPN IP + origin + CSRF               | Remove a stored connection                                   |
 | `GET/POST` | `/api/local/history`                   | Approved VPN IP; writes require origin + CSRF | Local history                                                |
 | `POST`     | `/api/local/history/remove`            | Approved VPN IP + origin + CSRF               | Remove one history record                                    |
