@@ -1,6 +1,7 @@
 import type { Video } from "../hottub/schemas";
 import {
   assertUsableCookie,
+  measureStreamSeconds,
   probePlayback,
   probeSession,
   resolvePlaybackFormats,
@@ -9,11 +10,12 @@ import {
 import type { ProviderContext } from "./types";
 
 /**
- * Each resolved item costs one authenticated watch-page fetch. A Worker
- * request has a hard subrequest budget, so this bounds how many are attempted
- * rather than letting a large page exhaust it and fail outright.
+ * Each resolved item costs one authenticated watch-page fetch plus up to three
+ * short playlist reads to tell the title from its trailer. A Worker request
+ * has a hard subrequest budget, so this bounds how many are attempted rather
+ * than letting a large page exhaust it and fail outright.
  */
-const MAX_RESOLVED_PER_PAGE = 12;
+const MAX_RESOLVED_PER_PAGE = 8;
 import { createHtmlCatalogProvider } from "./html-catalog";
 import { faphouseOrientationParameter, resolveOrientation } from "../utils/orientation";
 
@@ -110,7 +112,12 @@ export const faphouseProvider = {
       items.map(async (item, index) => {
         if (index >= MAX_RESOLVED_PER_PAGE) return item;
         try {
-          const formats = await resolvePlaybackFormats(context.fetch, cookie, item.url);
+          const formats = await resolvePlaybackFormats(
+            context.fetch,
+            cookie,
+            item.url,
+            item.duration,
+          );
           if (formats.length === 0) return item;
           // Only claim availability once there is something to play.
           return { ...item, formats, availability: undefined };
@@ -124,6 +131,18 @@ export const faphouseProvider = {
   },
   async diagnosePlayback(sessionCookie: string, watchUrl: string, fetcher: typeof fetch) {
     const probe = await probePlayback(fetcher, assertUsableCookie(sessionCookie), watchUrl);
+    // Measured, because FapHouse serves trailers over HLS from the same CDN as
+    // the title; length is the only thing that tells them apart.
+    const lengths = await Promise.all(
+      probe.rawStreams.slice(0, 3).map((url) => measureStreamSeconds(fetcher, url)),
+    );
+    const lengthNote = lengths
+      .map((seconds, index) =>
+        seconds === undefined
+          ? `#${index + 1} unmeasured`
+          : `#${index + 1} ${Math.round(seconds)}s`,
+      )
+      .join(", ");
     const parts = [
       `HTTP ${probe.status}`,
       probe.foundStreamCandidate
@@ -137,6 +156,7 @@ export const faphouseProvider = {
       probe.playableWithoutSession === undefined
         ? ""
         : `anonymous CDN fetch: ${probe.playableWithoutSession ? "accepted" : "refused"}`,
+      lengthNote ? `candidate lengths: ${lengthNote}` : "",
       probe.apiPaths.length ? `API paths seen: ${probe.apiPaths.slice(0, 8).join(" ")}` : "",
       ...probe.notes,
     ];
