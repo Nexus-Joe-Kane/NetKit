@@ -256,12 +256,104 @@ export async function signIn(
  * playlist cannot be read; the caller then falls back rather than discarding a
  * candidate it simply could not measure.
  */
+/** Enough for a faststart `moov`; measured against this CDN's own files. */
+const MP4_HEADER_BYTES = 32 * 1024;
+
+/**
+ * Reads the duration out of an MP4's `mvhd` box.
+ *
+ * FapHouse serves mostly MP4, so the playlist reader below covers almost
+ * nothing there. An MP4 states its own duration in its header, and these files
+ * are faststart — `moov` sits at the front — so a 32 KiB range request is
+ * enough. Verified against this CDN: both of its preview files report 8.125s
+ * from the first 32 KiB.
+ *
+ * `undefined` when the header is not present in that first chunk; the caller
+ * then falls back rather than discarding a candidate it could not read.
+ */
+export async function measureMp4Seconds(
+  fetcher: typeof fetch,
+  url: string,
+): Promise<number | undefined> {
+  let bytes: Uint8Array;
+  try {
+    const response = await fetcher(url, {
+      headers: {
+        Range: `bytes=0-${MP4_HEADER_BYTES - 1}`,
+        "User-Agent": PLAYBACK_USER_AGENT,
+        Referer: "https://faphouse.com/",
+      },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) return undefined;
+    bytes = new Uint8Array(await response.arrayBuffer());
+  } catch {
+    return undefined;
+  }
+  return readMvhdSeconds(bytes);
+}
+
+/** Walks the box tree to `moov` > `mvhd` and converts to seconds. */
+export function readMvhdSeconds(bytes: Uint8Array): number | undefined {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+
+  const walk = (start: number, end: number, depth: number): number | undefined => {
+    let offset = start;
+    // Four levels is plenty for ftyp/moov/mvhd; the bound stops a malformed
+    // file from looping.
+    while (offset + 8 <= end && depth < 4) {
+      let size = view.getUint32(offset);
+      let header = 8;
+      if (size === 1) {
+        if (offset + 16 > end) return undefined;
+        size = Number(view.getBigUint64(offset + 8));
+        header = 16;
+      }
+      if (size < header) return undefined;
+      const type = String.fromCharCode(
+        bytes[offset + 4]!,
+        bytes[offset + 5]!,
+        bytes[offset + 6]!,
+        bytes[offset + 7]!,
+      );
+      if (type === "mvhd") {
+        const version = bytes[offset + header];
+        const base = offset + header;
+        if (version === 0) {
+          if (base + 20 > end) return undefined;
+          const timescale = view.getUint32(base + 12);
+          const duration = view.getUint32(base + 16);
+          return timescale > 0 ? duration / timescale : undefined;
+        }
+        if (base + 32 > end) return undefined;
+        const timescale = view.getUint32(base + 20);
+        const duration = Number(view.getBigUint64(base + 24));
+        return timescale > 0 ? duration / timescale : undefined;
+      }
+      if (type === "moov") {
+        const found = walk(offset + header, Math.min(offset + size, end), depth + 1);
+        if (found !== undefined) return found;
+      }
+      offset += size;
+    }
+    return undefined;
+  };
+
+  try {
+    return walk(0, bytes.byteLength, 0);
+  } catch {
+    // A truncated header can index past the buffer; that is simply unmeasured.
+    return undefined;
+  }
+}
+
 export async function measureStreamSeconds(
   fetcher: typeof fetch,
   url: string,
   depth = 0,
 ): Promise<number | undefined> {
-  if (!/\.m3u8(?:$|\?)/i.test(url) || depth > 1) return undefined;
+  if (!/\.m3u8(?:$|\?)/i.test(url)) return measureMp4Seconds(fetcher, url);
+  if (depth > 1) return undefined;
   let text: string;
   try {
     const response = await fetcher(url, {
