@@ -1,5 +1,7 @@
 import {
+  measureMp4Seconds,
   measureStreamSeconds,
+  readMvhdSeconds,
   probePlayback,
   redactSignedUrl,
   resolvePlaybackFormats,
@@ -162,7 +164,9 @@ describe("telling a title from its trailer", () => {
     expect(seconds).toBe(120);
   });
 
-  it("returns undefined for something that is not a playlist", async () => {
+  it("returns undefined when an MP4 header cannot be read", async () => {
+    // Not a playlist, so this falls through to the MP4 reader, which gets a
+    // 404 here and reports nothing rather than guessing.
     expect(await measureStreamSeconds(fetcher({}), "https://cdn.example/a.mp4")).toBeUndefined();
   });
 
@@ -215,5 +219,89 @@ describe("telling a title from its trailer", () => {
     );
     // Nothing to compare against means nothing can be judged a trailer.
     expect(formats.length).toBe(2);
+  });
+});
+
+describe("reading an MP4's own duration", () => {
+  /** Builds a faststart MP4 header: ftyp, then moov containing mvhd. */
+  function mp4Header(seconds: number, { version = 0, timescale = 1000 } = {}): Uint8Array {
+    const mvhdBody = version === 0 ? 100 : 112;
+    const mvhd = new Uint8Array(8 + mvhdBody);
+    const mvhdView = new DataView(mvhd.buffer);
+    mvhdView.setUint32(0, mvhd.byteLength);
+    mvhd.set([0x6d, 0x76, 0x68, 0x64], 4); // "mvhd"
+    mvhd[8] = version;
+    if (version === 0) {
+      mvhdView.setUint32(8 + 12, timescale);
+      mvhdView.setUint32(8 + 16, Math.round(seconds * timescale));
+    } else {
+      mvhdView.setUint32(8 + 20, timescale);
+      mvhdView.setBigUint64(8 + 24, BigInt(Math.round(seconds * timescale)));
+    }
+
+    const moov = new Uint8Array(8 + mvhd.byteLength);
+    const moovView = new DataView(moov.buffer);
+    moovView.setUint32(0, moov.byteLength);
+    moov.set([0x6d, 0x6f, 0x6f, 0x76], 4); // "moov"
+    moov.set(mvhd, 8);
+
+    const ftyp = new Uint8Array(16);
+    new DataView(ftyp.buffer).setUint32(0, 16);
+    ftyp.set([0x66, 0x74, 0x79, 0x70], 4); // "ftyp"
+
+    const out = new Uint8Array(ftyp.byteLength + moov.byteLength);
+    out.set(ftyp, 0);
+    out.set(moov, ftyp.byteLength);
+    return out;
+  }
+
+  it("reads a 32-bit mvhd", () => {
+    expect(readMvhdSeconds(mp4Header(660))).toBeCloseTo(660, 3);
+  });
+
+  it("reads a 64-bit mvhd", () => {
+    expect(readMvhdSeconds(mp4Header(39, { version: 1 }))).toBeCloseTo(39, 3);
+  });
+
+  it("returns undefined for bytes that are not an MP4", () => {
+    expect(readMvhdSeconds(new TextEncoder().encode("<html>not a video</html>"))).toBeUndefined();
+  });
+
+  it("returns undefined for a truncated header rather than throwing", () => {
+    expect(readMvhdSeconds(mp4Header(660).slice(0, 20))).toBeUndefined();
+  });
+
+  it("asks for only the first 32 KiB", async () => {
+    const call = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(new Headers(init?.headers).get("Range")).toBe("bytes=0-32767");
+      return new Response(mp4Header(660).buffer as ArrayBuffer, { status: 206 });
+    }) as unknown as typeof fetch;
+    expect(await measureMp4Seconds(call, "https://cdn.example/full.mp4")).toBeCloseTo(660, 3);
+  });
+
+  it("drops an MP4 trailer in favour of the full-length MP4", async () => {
+    // FapHouse is mostly MP4, so this is the case that actually matters.
+    const TRAILER = "https://video-nss.flixcdn.com/AAAA==,1785207603/tr/1080p.mp4";
+    const FULL = "https://video-nss.flixcdn.com/BBBB==,1785207603/v/720p.mp4";
+    const page = `<html><body><a href="/api/auth/signout">out</a>
+      <script>var a="${TRAILER}"; var b="${FULL}";</script></body></html>`;
+    const call = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url.startsWith("https://faphouse.com/")) {
+        return new Response(page, { headers: { "Content-Type": "text/html" } });
+      }
+      // The trailer is the higher resolution, which is exactly why sorting by
+      // height picked it before.
+      const header = mp4Header(url === TRAILER ? 39 : 660);
+      return new Response(header.buffer as ArrayBuffer, { status: 206 });
+    }) as unknown as typeof fetch;
+
+    const formats = await resolvePlaybackFormats(
+      call,
+      "fhaccess=x",
+      "https://faphouse.com/videos/example",
+      660,
+    );
+    expect(formats.map((format) => format.url)).toEqual([FULL]);
   });
 });

@@ -131,8 +131,9 @@ export const faphouseProvider = {
   },
   async diagnosePlayback(sessionCookie: string, watchUrl: string, fetcher: typeof fetch) {
     const probe = await probePlayback(fetcher, assertUsableCookie(sessionCookie), watchUrl);
-    // Measured, because FapHouse serves trailers over HLS from the same CDN as
-    // the title; length is the only thing that tells them apart.
+    // Measured, because FapHouse serves trailers from the same CDN as the
+    // title in the same container; length is the only thing that separates
+    // them. Mostly MP4 in practice, so the reader handles both.
     const lengths = await Promise.all(
       probe.rawStreams.slice(0, 3).map((url) => measureStreamSeconds(fetcher, url)),
     );
