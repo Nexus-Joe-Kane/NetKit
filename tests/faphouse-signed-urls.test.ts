@@ -1,4 +1,10 @@
-import { probePlayback, redactSignedUrl, signedUrlExpiry } from "../src/providers/faphouse-session";
+import {
+  measureStreamSeconds,
+  probePlayback,
+  redactSignedUrl,
+  resolvePlaybackFormats,
+  signedUrlExpiry,
+} from "../src/providers/faphouse-session";
 
 // Shape taken from a real entitled watch page. The signature and expiry sit in
 // a path segment, not a query string.
@@ -119,5 +125,95 @@ describe("probePlayback", () => {
         "https://video-nss.flixcdn.com/<signed>/vid/123/1080p.mp4",
       );
     }
+  });
+});
+
+describe("telling a title from its trailer", () => {
+  const FULL = "https://video-nss.flixcdn.com/AAAAAAAAAAAAAAAA==,1785207603/full/index.m3u8";
+  const TRAILER = "https://video-nss.flixcdn.com/BBBBBBBBBBBBBBBB==,1785207603/tr/index.m3u8";
+
+  function playlist(seconds: number[]) {
+    return `#EXTM3U\n#EXT-X-VERSION:3\n${seconds
+      .map((value) => `#EXTINF:${value},\nseg.ts`)
+      .join("\n")}\n#EXT-X-ENDLIST`;
+  }
+
+  function fetcher(bodies: Record<string, string>) {
+    return vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input instanceof Request ? input.url : input);
+      const body = bodies[url];
+      if (body === undefined) return new Response("", { status: 404 });
+      return new Response(body, { headers: { "Content-Type": "application/vnd.apple.mpegurl" } });
+    }) as unknown as typeof fetch;
+  }
+
+  it("sums the segment durations of a playlist", async () => {
+    const seconds = await measureStreamSeconds(fetcher({ [FULL]: playlist([10, 10, 9.5]) }), FULL);
+    expect(seconds).toBeCloseTo(29.5, 1);
+  });
+
+  it("follows a master playlist to its first variant", async () => {
+    const master = `#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000\nvariant.m3u8`;
+    const variant = new URL("variant.m3u8", FULL).toString();
+    const seconds = await measureStreamSeconds(
+      fetcher({ [FULL]: master, [variant]: playlist([60, 60]) }),
+      FULL,
+    );
+    expect(seconds).toBe(120);
+  });
+
+  it("returns undefined for something that is not a playlist", async () => {
+    expect(await measureStreamSeconds(fetcher({}), "https://cdn.example/a.mp4")).toBeUndefined();
+  });
+
+  it("drops a trailer when a full-length stream is present", async () => {
+    // FapHouse serves both over HLS from the same host — its page advertises an
+    // "hlsTrailers" experiment — so only the length distinguishes them. An
+    // 11-minute title played for 39 seconds before this.
+    const page = `<html><body><a href="/api/auth/signout">out</a>
+      <script>var a="${TRAILER}"; var b="${FULL}";</script></body></html>`;
+    const call = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url.startsWith("https://faphouse.com/")) {
+        return new Response(page, { headers: { "Content-Type": "text/html" } });
+      }
+      if (url === TRAILER) {
+        return new Response(playlist([39]), {
+          headers: { "Content-Type": "application/x-mpegURL" },
+        });
+      }
+      return new Response(playlist(Array.from({ length: 66 }, () => 10)), {
+        headers: { "Content-Type": "application/x-mpegURL" },
+      });
+    }) as unknown as typeof fetch;
+
+    const formats = await resolvePlaybackFormats(
+      call,
+      "fhaccess=x",
+      "https://faphouse.com/videos/example",
+      660,
+    );
+    expect(formats.map((format) => format.url)).toEqual([FULL]);
+  });
+
+  it("keeps every candidate when the expected duration is unknown", async () => {
+    const page = `<html><body><a href="/api/auth/signout">out</a>
+      <script>var a="${TRAILER}"; var b="${FULL}";</script></body></html>`;
+    const call = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url.startsWith("https://faphouse.com/")) {
+        return new Response(page, { headers: { "Content-Type": "text/html" } });
+      }
+      return new Response(playlist([39]), { headers: { "Content-Type": "application/x-mpegURL" } });
+    }) as unknown as typeof fetch;
+
+    const formats = await resolvePlaybackFormats(
+      call,
+      "fhaccess=x",
+      "https://faphouse.com/videos/example",
+      0,
+    );
+    // Nothing to compare against means nothing can be judged a trailer.
+    expect(formats.length).toBe(2);
   });
 });

@@ -243,6 +243,92 @@ export async function signIn(
   };
 }
 
+/**
+ * Reads how long a stream actually runs.
+ *
+ * FapHouse serves trailers over HLS from the same CDN as the full video — its
+ * own page advertises an `hlsTrailers` experiment — so neither the hostname nor
+ * the file extension distinguishes them, and picking by resolution happily
+ * returned a 39-second trailer for an 11-minute title. A playlist states its
+ * own length, so the only reliable discriminator is to read it.
+ *
+ * Returns `undefined` for anything that is not an HLS playlist, or when the
+ * playlist cannot be read; the caller then falls back rather than discarding a
+ * candidate it simply could not measure.
+ */
+export async function measureStreamSeconds(
+  fetcher: typeof fetch,
+  url: string,
+  depth = 0,
+): Promise<number | undefined> {
+  if (!/\.m3u8(?:$|\?)/i.test(url) || depth > 1) return undefined;
+  let text: string;
+  try {
+    const response = await fetcher(url, {
+      headers: { "User-Agent": PLAYBACK_USER_AGENT, Referer: "https://faphouse.com/" },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) return undefined;
+    text = await response.text();
+  } catch {
+    return undefined;
+  }
+
+  const durations = [...text.matchAll(/#EXTINF:\s*([\d.]+)/g)].map((match) => Number(match[1]));
+  if (durations.length > 0) {
+    const total = durations.reduce((sum, value) => sum + (Number.isFinite(value) ? value : 0), 0);
+    return total > 0 ? total : undefined;
+  }
+
+  // A master playlist lists variants rather than segments; follow the first.
+  const variant = text
+    .split(/\r?\n/)
+    .find((line) => line.trim().length > 0 && !line.startsWith("#"));
+  if (!variant) return undefined;
+  return measureStreamSeconds(fetcher, new URL(variant.trim(), url).toString(), depth + 1);
+}
+
+/**
+ * A stream shorter than this fraction of the catalogue duration is a trailer,
+ * not the title. Deliberately loose: HLS segment totals drift a little from
+ * the advertised runtime, and rejecting a real stream is worse than keeping a
+ * slightly mismeasured one.
+ */
+const MIN_LENGTH_RATIO = 0.6;
+
+/** How many candidates are measured before giving up and taking them as-is. */
+const MAX_MEASURED_CANDIDATES = 3;
+
+/**
+ * Keeps only the candidates that run close to the advertised length.
+ *
+ * Without the catalogue duration to compare against there is nothing to judge,
+ * so every candidate is kept. Unmeasurable candidates are kept too — dropping
+ * a stream this cannot read would trade a wrong video for no video.
+ */
+async function selectFullLengthStreams(
+  fetcher: typeof fetch,
+  streams: readonly string[],
+  expectedSeconds: number | undefined,
+): Promise<string[]> {
+  if (!expectedSeconds || expectedSeconds <= 0 || streams.length <= 1) return [...streams];
+
+  const kept: string[] = [];
+  const unmeasured: string[] = [];
+  for (const url of streams.slice(0, MAX_MEASURED_CANDIDATES)) {
+    const seconds = await measureStreamSeconds(fetcher, url);
+    if (seconds === undefined) {
+      unmeasured.push(url);
+      continue;
+    }
+    if (seconds >= expectedSeconds * MIN_LENGTH_RATIO) kept.push(url);
+  }
+  if (kept.length > 0) return kept;
+  // Everything measurable was a trailer; fall back to whatever could not be
+  // measured rather than returning nothing playable at all.
+  return unmeasured.length > 0 ? unmeasured : [...streams];
+}
+
 /** Ordered biggest-first, so the client's default pick is the best quality. */
 const HEIGHT_PATTERN = /(?:^|[^0-9])(2160|1440|1080|720|480|360|240)p?(?:[^0-9]|$)/i;
 
@@ -271,11 +357,13 @@ export async function resolvePlaybackFormats(
   fetcher: typeof fetch,
   cookie: string,
   watchUrl: string,
+  expectedSeconds?: number,
 ): Promise<VideoFormat[]> {
   const probe = await probePlayback(fetcher, cookie, watchUrl, { redact: false });
+  const candidates = await selectFullLengthStreams(fetcher, probe.rawStreams, expectedSeconds);
   const seen = new Set<string>();
   const formats: VideoFormat[] = [];
-  for (const url of probe.rawStreams) {
+  for (const url of candidates) {
     if (seen.has(url)) continue;
     seen.add(url);
     const height = heightOf(url);
