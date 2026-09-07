@@ -1476,3 +1476,279 @@ table.data td.num {
 .switch input:checked ~ .switch__label {
   color: var(--sw-ok);
 }
+
+/* ------------------------------------------------------------------ *
+ * Timeline — incident and fault updates
+ * ------------------------------------------------------------------ */
+
+.timeline {
+  position: relative;
+  padding-left: 4px;
+}
+
+.timeline__item {
+  position: relative;
+  display: flex;
+  gap: 12px;
+  padding-bottom: 14px;
+}
+
+.timeline__item:last-child {
+  padding-bottom: 0;
+}
+
+/* The connecting rail, drawn between dots rather than behind them. */
+.timeline__item:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 14px;
+  bottom: 0;
+  width: 1px;
+  background: var(--sw-cell-rule);
+}
+
+.timeline__dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--sw-badge-1);
+  box-shadow: 0 0 0 2px var(--sw-white);
+  position: relative;
+  z-index: 1;
+}
+
+/* ------------------------------------------------------------------ *
+ * Pool / allowance bar
+ * ------------------------------------------------------------------ */
+
+.pool-bar {
+  display: block;
+  height: 10px;
+  background: var(--sw-hairline);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.pool-bar--slim {
+  height: 5px;
+  max-width: 130px;
+}
+
+.pool-bar__fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--sw-series-5);
+  transition: width 0.3s ease;
+}
+
+.pool-bar__fill--warn { background: var(--sw-series-6); }
+
+/* Over the allowance is the state that costs money, so it takes crimson. */
+.pool-bar__fill--over { background: var(--sw-crimson); }
+
+/* ------------------------------------------------------------------ *
+ * Tool cards
+ * ------------------------------------------------------------------ */
+
+.tool-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(266px, 1fr));
+  gap: var(--sw-gap);
+}
+
+.tool {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  text-align: left;
+  padding: 15px 16px 13px;
+  background: var(--sw-white);
+  border: 1px solid var(--sw-cell-rule);
+  border-top-width: 3px;
+  border-radius: var(--sw-radius);
+  box-shadow: var(--sw-shadow-card);
+  cursor: pointer;
+  transition: transform 0.14s ease, box-shadow 0.14s ease;
+}
+
+.tool--accent-1 { border-top-color: var(--sw-badge-1); }
+.tool--accent-2 { border-top-color: var(--sw-badge-2); }
+.tool--accent-3 { border-top-color: var(--sw-badge-3); }
+.tool--accent-4 { border-top-color: var(--sw-badge-4); }
+
+.tool:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--sw-shadow-raised);
+}
+
+.tool__name {
+  font-family: var(--sw-font-heading);
+  font-size: 14.5px;
+  font-weight: var(--sw-weight-semibold);
+  color: var(--sw-ink);
+  letter-spacing: -0.018em;
+  line-height: 1.25;
+}
+
+.tool__description {
+  font-size: 12.5px;
+  color: var(--sw-body);
+  line-height: 1.5;
+}
+
+.tool__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  font-size: var(--sw-label-size);
+  font-weight: var(--sw-weight-semibold);
+  letter-spacing: var(--sw-label-tracking);
+  text-transform: uppercase;
+  color: var(--sw-series-1);
+}
+
+.tool:hover .tool__cta {
+  color: var(--sw-badge-2);
+}
+
+/* ------------------------------------------------------------------ *
+ * Bar chart — footfall, drops over time, usage
+ * ------------------------------------------------------------------ */
+
+.bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 92px;
+  padding: 0 1px;
+  border-bottom: 1px solid var(--sw-cell-rule);
+}
+
+.bars__bar {
+  flex: 1;
+  min-width: 2px;
+  background: var(--sw-series-1);
+  border-radius: 2px 2px 0 0;
+  transition: background 0.12s ease;
+}
+
+.bars__bar:hover { background: var(--sw-badge-2); }
+
+.bars__bar--warn { background: var(--sw-series-6); }
+.bars__bar--bad { background: var(--sw-crimson); }
+.bars__bar--zero { background: var(--sw-hairline); }
+
+/* ------------------------------------------------------------------ *
+ * Test cards
+ * ------------------------------------------------------------------ */
+
+.test-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(248px, 1fr));
+  gap: 10px;
+}
+
+.test-card {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 12px 13px;
+  background: var(--sw-panel);
+  border: 1px solid var(--sw-hairline);
+  border-radius: 7px;
+}
+
+.test-card__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.test-card__name {
+  font-family: var(--sw-font-heading);
+  font-size: 13.5px;
+  font-weight: var(--sw-weight-semibold);
+  color: var(--sw-ink);
+  letter-spacing: -0.014em;
+}
+
+.test-card__description {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--sw-body);
+  flex: 1;
+}
+
+/* ------------------------------------------------------------------ *
+ * Primary navigation
+ * ------------------------------------------------------------------ */
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding-left: 14px;
+  margin-left: 2px;
+  border-left: 1px solid var(--sw-cell-rule);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.nav::-webkit-scrollbar {
+  display: none;
+}
+
+.nav__item {
+  position: relative;
+  border: 0;
+  background: none;
+  padding: 7px 11px;
+  border-radius: 5px;
+  font-family: var(--sw-font-heading);
+  font-size: var(--sw-size-small);
+  font-weight: var(--sw-weight-medium);
+  color: var(--sw-body);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.nav__item:hover {
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--sw-ink);
+}
+
+.nav__item[aria-current='page'] {
+  background: var(--sw-slate);
+  color: var(--sw-white);
+  font-weight: var(--sw-weight-semibold);
+}
+
+@media (max-width: 1100px) {
+  .nav__item { padding: 7px 8px; }
+}
+
+@media (max-width: 820px) {
+  /* On a narrow screen the nav takes the whole second row. */
+  .masthead__inner { flex-wrap: wrap; }
+  .nav {
+    order: 3;
+    width: 100%;
+    padding-left: 0;
+    margin-left: 0;
+    border-left: 0;
+    border-top: 1px solid var(--sw-hairline);
+    padding-top: 8px;
+  }
+}
+
+@media print {
+  .nav { display: none; }
+}

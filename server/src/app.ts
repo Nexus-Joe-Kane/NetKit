@@ -8,6 +8,7 @@ import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { config } from './config';
 import { apiRouter, errorHandler } from './routes/api';
+import { operationsRouter } from './routes/operations';
 import { authRouter, requireAuth } from './auth/routes';
 import { adminRouter } from './admin/routes';
 
@@ -76,6 +77,7 @@ export function createApp(): Express {
   });
 
   app.use('/api/admin', adminRouter());
+  app.use('/api', requireAuth, apiLimiter, operationsRouter());
   app.use('/api', requireAuth, apiLimiter, apiRouter());
 
   // ---- Static SPA ----------------------------------------------------

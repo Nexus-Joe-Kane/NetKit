@@ -22,6 +22,12 @@ every line already in place.
 | **Openreach engineering detail** | Exchange and TLC, MDF site, PCP cabinet, copper loop length and attenuation, spare pairs, distribution point, FTTP build state, CBT, ONT serial and spare ports, FTTP-on-Demand excess construction charges, and All-IP stop-sell posture. |
 | **Mobile signal** | EE, Vodafone, O2 and Three, indoor *and* outdoor, for voice, 4G and 5G, with bands, nearest mast distance and the MVNOs riding each network. |
 | **Lines** | CLI, access line ID, service ID, ONT serial, RADIUS state and session, IP allocations, sync and SNR, DLM profile, CPE, contract dates, open faults and appointments. Ceased lines included, so an archived service still turns up. |
+| **Line diagnostics** | Run a line test and read the last one — copper electrical, xDSL, TAM stack walk, known-network, or a fibre service test, offered by what the technology actually supports. Plus 30-day drop history, RADIUS authentication attempts, DLM profile options and usage against cap. |
+| **Network status** | Major service outages and planned engineering work, with per-service correlation — so "is it just us?" is answered before a fault is raised. |
+| **Faults** | The open book, closed history, full update timeline, and raising a fault with the tests-carried-out detail providers require to avoid a chargeable no-fault-found visit. |
+| **Orders** | In-flight orders, the WIP report, search by Zen or customer reference, and cancellation behind a type-to-confirm guard. |
+| **SIMs** | The mobile estate — shared pool with overage, per-SIM allowance, bars, and attach state. Zen's cellular endpoints are Jola-backed, so this covers business SIMs without a separate Jola key. |
+| **Tools** | Number porting checker, "is this phone on the network" (EE via BT), IMEI and handset lookup, Ethernet/leased-line quotes, footfall and catchment, call records, reverse DNS. |
 | **Admin portal** | Live status probe of all 17 integrations, per-integration on/off switches, user management, and an append-only audit log. |
 
 Sign-in is email and password, with optional email two-factor authentication
@@ -133,6 +139,18 @@ npm test          # 29 tests: identifier classification, address formatting,
                   # Zen response mapping, password hashing and policy
 npm run typecheck # strict TypeScript across all three packages
 ```
+
+---
+
+## Navigation
+
+Six primary sections, plus the admin portal for administrators:
+
+**Lookup** · **Network status** · **Faults** · **Orders** · **SIMs** · **Tools**
+
+Anything about one site lives under Lookup. Anything that is not about a
+single site — porting a number, checking a handset, the SIM estate — lives
+under Tools or its own section.
 
 ---
 

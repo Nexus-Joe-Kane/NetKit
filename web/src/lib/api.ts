@@ -3,11 +3,37 @@ import type {
   AddressSuggestion,
   ApiError,
   ApiResult,
+  AppointmentSlot,
+  AvailableTests,
+  CallRecord,
+  EthernetQuoteSet,
+  FaultRecord,
+  FootfallInsight,
+  ImeiLookup,
+  Incident,
   LineRecord,
+  LineTestResult,
+  LineTestType,
+  NetworkConnectivityCheck,
+  NumberPortCheck,
+  OrderQuote,
+  OrderRecord,
+  ProfileOptions,
+  RaiseFaultRequest,
+  RdnsRecord,
   ResolvedIdentifier,
   SearchResponse,
+  SimEstate,
   SiteReport,
+  StabilityReport,
+  UsageReport,
 } from '@sw/shared';
+
+/** Every operational response says whether it came from a live API. */
+export interface Sourced {
+  mode: 'live' | 'mock';
+  providerError?: string;
+}
 
 /**
  * API client.
@@ -124,6 +150,99 @@ export const api = {
   lineBy: (q: string) => request<{ query: ResolvedIdentifier; lines: LineRecord[]; message?: string }>(
     `/api/lines?q=${encodeURIComponent(q)}`,
   ),
+
+  /* ---- Network status --------------------------------------------- */
+
+  networkStatus: (past = false) =>
+    request<Sourced & { outages: Incident[]; plannedWork: Incident[]; checkedAt: string }>(
+      `/api/network/status${past ? '?past=true' : ''}`,
+    ),
+
+  outagesForService: (zenReference: string) =>
+    request<Sourced & { outages: Incident[] }>(`/api/network/status/${encodeURIComponent(zenReference)}`),
+
+  /* ---- Faults ------------------------------------------------------ */
+
+  faults: (state: 'open' | 'closed' = 'open', zenReference?: string) =>
+    request<Sourced & { faults: FaultRecord[]; state: string }>(
+      `/api/faults?state=${state}${zenReference ? `&zenReference=${encodeURIComponent(zenReference)}` : ''}`,
+    ),
+
+  raiseFault: (input: RaiseFaultRequest) =>
+    post<Sourced & { fault: FaultRecord }>('/api/faults', input),
+
+  /* ---- Diagnostics -------------------------------------------------- */
+
+  availableTests: (zenReference: string, technology?: string) =>
+    request<Sourced & AvailableTests>(
+      `/api/diagnostics/${encodeURIComponent(zenReference)}/tests${technology ? `?technology=${encodeURIComponent(technology)}` : ''}`,
+    ),
+
+  latestTest: (zenReference: string, type: LineTestType, technology?: string) =>
+    request<Sourced & { result: LineTestResult }>(
+      `/api/diagnostics/${encodeURIComponent(zenReference)}/tests/${type}${technology ? `?technology=${encodeURIComponent(technology)}` : ''}`,
+    ),
+
+  runTest: (zenReference: string, type: LineTestType, technology?: string) =>
+    post<Sourced & { result: LineTestResult }>(`/api/diagnostics/${encodeURIComponent(zenReference)}/tests/${type}`, {
+      ...(technology ? { technology } : {}),
+    }),
+
+  profileOptions: (zenReference: string) =>
+    request<Sourced & ProfileOptions>(`/api/diagnostics/${encodeURIComponent(zenReference)}/profile`),
+
+  requestProfileChange: (zenReference: string, profileCode: string) =>
+    post<Sourced & { result: LineTestResult }>(`/api/diagnostics/${encodeURIComponent(zenReference)}/profile`, {
+      profileCode,
+    }),
+
+  stability: (zenReference: string, days = 30) =>
+    request<Sourced & StabilityReport>(`/api/diagnostics/${encodeURIComponent(zenReference)}/stability?days=${days}`),
+
+  usage: (zenReference: string, period: 'day' | 'month' | 'current_month' = 'current_month') =>
+    request<Sourced & UsageReport>(`/api/diagnostics/${encodeURIComponent(zenReference)}/usage?period=${period}`),
+
+  /* ---- Orders ------------------------------------------------------ */
+
+  orders: (view: 'status' | 'wip' | 'search' = 'status', q?: string) =>
+    request<Sourced & { orders: OrderRecord[]; view: string }>(
+      `/api/orders?view=${view}${q ? `&q=${encodeURIComponent(q)}` : ''}`,
+    ),
+
+  cancelOrder: (zenReference: string, reason: string) =>
+    post<Sourced & { ok: boolean; message?: string }>(`/api/orders/${encodeURIComponent(zenReference)}/cancel`, { reason }),
+
+  orderPricing: (productCode: string, productName?: string) =>
+    request<Sourced & OrderQuote>(
+      `/api/orders/pricing?productCode=${encodeURIComponent(productCode)}${productName ? `&productName=${encodeURIComponent(productName)}` : ''}`,
+    ),
+
+  appointments: (params: { availabilityReference: string; productCode: string; goldAddressKey: string; districtCode: string }) =>
+    request<Sourced & { slots: AppointmentSlot[] }>(`/api/orders/appointments?${new URLSearchParams(params).toString()}`),
+
+  /* ---- SIMs -------------------------------------------------------- */
+
+  sims: () => request<Sourced & SimEstate>('/api/sims'),
+
+  /* ---- Tools ------------------------------------------------------- */
+
+  numberPort: (q: string) => request<Sourced & NumberPortCheck>(`/api/tools/number-port?q=${encodeURIComponent(q)}`),
+  connectivity: (q: string) => request<Sourced & NetworkConnectivityCheck>(`/api/tools/connectivity?q=${encodeURIComponent(q)}`),
+  imei: (q: string) => request<Sourced & ImeiLookup>(`/api/tools/imei?q=${encodeURIComponent(q)}`),
+  footfall: (q: string) =>
+    request<Sourced & FootfallInsight & { outOfArea?: boolean }>(`/api/tools/footfall?q=${encodeURIComponent(q)}`),
+  ethernet: (params: { uprn?: string; postcode?: string }) =>
+    request<Sourced & EthernetQuoteSet>(
+      `/api/tools/ethernet?${new URLSearchParams(params as Record<string, string>).toString()}`,
+    ),
+  callRecords: (from?: string, to?: string) =>
+    request<Sourced & { records: CallRecord[]; from: string; to: string }>(
+      `/api/tools/cdrs${from ? `?from=${encodeURIComponent(from)}${to ? `&to=${encodeURIComponent(to)}` : ''}` : ''}`,
+    ),
+  rdns: (zenReference?: string) =>
+    request<Sourced & { records: RdnsRecord[] }>(
+      `/api/tools/rdns${zenReference ? `?zenReference=${encodeURIComponent(zenReference)}` : ''}`,
+    ),
 
   /* ---- Admin ------------------------------------------------------ */
 

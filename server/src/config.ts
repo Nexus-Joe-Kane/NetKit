@@ -105,6 +105,8 @@ export interface JolaConfig {
   baseUrl: string;
   apiKey: string;
   healthPath: string;
+  /** Endpoint listing the SIM estate — differs by reseller. */
+  simsPath: string;
 }
 
 function loadBt(): BtConfig {
@@ -146,6 +148,12 @@ export interface AppConfig {
   zen: ZenConfig;
   bt: BtConfig;
   jola: JolaConfig;
+  /**
+   * Placing real orders is off unless explicitly enabled. Ordering spends
+   * money and books engineer appointments, so it needs a deliberate switch
+   * rather than inheriting the credentials that read data.
+   */
+  allowOrdering: boolean;
   osPlaces: { apiKey: string; baseUrl: string; configured: boolean };
   postcodesIo: { baseUrl: string; enabled: boolean };
   signal: { baseUrl: string; apiKey: string; configured: boolean };
@@ -181,10 +189,12 @@ export function config(): AppConfig {
     rateLimit: { windowMs: num('RATE_LIMIT_WINDOW_MS', 60_000), max: num('RATE_LIMIT_MAX', 120) },
     zen: loadZen(),
     bt: loadBt(),
+    allowOrdering: bool('ZEN_ALLOW_ORDERING', false),
     jola: {
       baseUrl: str('JOLA_BASE_URL'),
       apiKey: str('JOLA_API_KEY'),
       healthPath: str('JOLA_HEALTH_PATH', '/api/sims'),
+      simsPath: str('JOLA_SIMS_PATH', '/api/sims'),
     },
     osPlaces: {
       apiKey: osKey,

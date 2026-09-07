@@ -8,6 +8,11 @@ import { BroadbandPanel, OpenreachPanel } from './components/BroadbandPanel';
 import { SignalPanel } from './components/SignalPanel';
 import { LinesPanel } from './components/LinesPanel';
 import { AdminPortal } from './components/AdminPortal';
+import { NetworkStatusPage } from './pages/NetworkStatus';
+import { FaultsPage } from './pages/Faults';
+import { OrdersPage } from './pages/Orders';
+import { SimsPage } from './pages/Sims';
+import { ToolsPage } from './pages/Tools';
 import { ForcePasswordChange, Login } from './components/Login';
 import { Alert, Card, Chip, Empty, Label, Spinner } from './components/ui';
 import { Tabs, TabPanel, type TabDef } from './components/Tabs';
@@ -21,8 +26,18 @@ import { Modal } from './components/overlay';
  * report it produces, so URL state is limited to the deep link for a UPRN.
  */
 
-type View = 'lookup' | 'admin';
+type View = 'lookup' | 'network' | 'faults' | 'orders' | 'sims' | 'tools' | 'admin';
 type ReportTab = 'broadband' | 'openreach' | 'signal' | 'lines';
+
+/** The primary navigation. `admin` is reached by its own button. */
+const NAV: Array<{ id: Exclude<View, 'admin'>; label: string }> = [
+  { id: 'lookup', label: 'Lookup' },
+  { id: 'network', label: 'Network status' },
+  { id: 'faults', label: 'Faults' },
+  { id: 'orders', label: 'Orders' },
+  { id: 'sims', label: 'SIMs' },
+  { id: 'tools', label: 'Tools' },
+];
 
 export function App(): ReactElement {
   const [session, setSession] = useState<SessionState | null>(null);
@@ -158,14 +173,26 @@ function Portal({ user, onSignOut }: { user: PublicUser; onSignOut: () => void }
           <button
             type="button"
             className="masthead__logo"
-            onClick={() => {
-              setView('lookup');
-            }}
+            onClick={() => setView('lookup')}
             title="NetKit home"
           >
             <img src="/brand/supportwizard-lockup.png" alt="Support Wizard" />
             <span className="sw-label masthead__service">NetKit</span>
           </button>
+
+          <nav className="nav" aria-label="Main sections">
+            {NAV.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className="nav__item"
+                aria-current={view === item.id ? 'page' : undefined}
+                onClick={() => setView(item.id)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </nav>
 
           <span className="masthead__spacer" />
 
@@ -192,9 +219,14 @@ function Portal({ user, onSignOut }: { user: PublicUser; onSignOut: () => void }
       </header>
 
       <main className="shell__body">
-        {view === 'admin' ? (
-          <AdminPortal me={user} />
-        ) : (
+        {view === 'admin' && <AdminPortal me={user} />}
+        {view === 'network' && <NetworkStatusPage />}
+        {view === 'faults' && <FaultsPage />}
+        {view === 'orders' && <OrdersPage />}
+        {view === 'sims' && <SimsPage />}
+        {view === 'tools' && <ToolsPage />}
+
+        {view === 'lookup' && (
           <>
             <SearchBar onSubmit={runSearch} onPickAddress={pickAddress} busy={busy} initialValue={initialQuery} />
 
