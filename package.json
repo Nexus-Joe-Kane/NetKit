@@ -1,41 +1,27 @@
 {
-  "name": "unified-hottub-source",
+  "name": "supportwizard-netkit",
   "version": "1.0.0",
   "private": true,
-  "type": "module",
-  "description": "A security-first, self-hosted Hot Tub source for Cloudflare Workers.",
+  "description": "SupportWizard NetKit \u2014 UK signal, broadband availability, UPRN and line intelligence from a single search box.",
+  "workspaces": [
+    "shared",
+    "server",
+    "web"
+  ],
   "engines": {
-    "node": ">=22"
+    "node": ">=20"
   },
   "scripts": {
-    "build": "wrangler deploy --dry-run --outdir dist",
-    "db:migrate:local": "wrangler d1 migrations apply hot-tub --local",
-    "db:migrate:remote": "wrangler d1 migrations apply hot-tub --remote",
-    "deploy": "wrangler deploy",
-    "dev": "wrangler dev",
-    "format": "prettier --write .",
-    "icons": "node scripts/generate-icons.mjs && prettier --write src/icons.ts",
-    "format:check": "prettier --check .",
-    "lint": "eslint .",
-    "test": "vitest run",
-    "test:integration": "RUN_INTEGRATION_TESTS=1 vitest run tests/integration",
-    "test:watch": "vitest",
-    "typecheck": "tsc --noEmit",
-    "validate": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build"
-  },
-  "dependencies": {
-    "node-html-parser": "^9.0.0",
-    "zod": "4.4.3"
+    "dev": "npm run dev --workspace=server & npm run dev --workspace=web",
+    "dev:server": "npm run dev --workspace=server",
+    "dev:web": "npm run dev --workspace=web",
+    "build": "npm run build --workspace=shared && npm run build --workspace=server && npm run build --workspace=web",
+    "start": "npm run start --workspace=server",
+    "typecheck": "tsc -b shared server && tsc --noEmit -p web",
+    "test": "npm run test --workspace=shared && npm run test --workspace=server",
+    "lint": "npm run typecheck"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "5.20260724.1",
-    "@eslint/js": "10.0.1",
-    "@types/node": "24.13.3",
-    "eslint": "10.8.0",
-    "prettier": "3.9.6",
-    "typescript": "6.0.3",
-    "typescript-eslint": "8.65.0",
-    "vitest": "4.1.10",
-    "wrangler": "4.114.0"
+    "typescript": "^5.9.3"
   }
 }

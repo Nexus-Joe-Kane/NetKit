@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Check the Passenger entry point starts
+        # Guards the Plesk deployment path: app.js must boot, serve the SPA
+        # and answer /healthz with nothing but a session secret configured.
+        env:
+          NODE_ENV: production
+          PORT: 3123
+          SESSION_SECRET: ci-only-secret-not-used-anywhere
+          DATA_DIR: ${{ runner.temp }}/netkit-data
+          DATA_MODE: mock
+        run: |
+          node app.js & APP=$!
+          for i in $(seq 1 40); do
+            curl -sf -o /dev/null "http://localhost:3123/healthz" && break
+            sleep 0.5
+          done
+          curl -sf "http://localhost:3123/healthz" | tee /dev/stderr | grep -q '"ok":true'
+          curl -sf -o /dev/null "http://localhost:3123/"
+          # Unauthenticated API access must be refused.
+          test "$(curl -s -o /dev/null -w '%{http_code}' 'http://localhost:3123/api/search?q=M1+1AE')" = "401"
+          kill $APP
