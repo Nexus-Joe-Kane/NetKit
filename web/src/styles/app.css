@@ -159,8 +159,9 @@
 
 .card__head h2,
 .card__head h3 {
-  font-size: 15px;
+  font-size: var(--sw-size-title);
   margin: 0;
+  letter-spacing: -0.02em;
 }
 
 .card__head-meta {
@@ -473,51 +474,345 @@
 
 /* ------------------------------------------------------------------ *
  * Tabs
+ *
+ * Two levels, visually distinct so nesting is never ambiguous:
+ *   .tabs--primary  a segmented control, for the main sections of a screen
+ *   .tabs--sub      an underline rail, for sections within a panel
  * ------------------------------------------------------------------ */
 
 .tabs {
   display: flex;
-  gap: 2px;
-  margin-bottom: 18px;
-  background: rgba(255, 255, 255, 0.6);
-  border: 1px solid var(--sw-cell-rule);
-  border-radius: var(--sw-radius);
-  padding: 4px;
+  align-items: stretch;
   overflow-x: auto;
+  scrollbar-width: none;
 }
 
-.tab {
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+/* ---- Primary: segmented control ------------------------------------ */
+
+.tabs--primary {
+  gap: 2px;
+  margin-bottom: 16px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid var(--sw-cell-rule);
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.tabs--primary .tab {
   flex: 1;
   min-width: max-content;
   border: 0;
   background: none;
-  border-radius: var(--sw-radius-sm);
-  padding: 9px 16px;
-  font-size: 13px;
-  font-weight: 600;
+  border-radius: 5px;
+  padding: 8px 16px;
+  font-family: var(--sw-font-heading);
+  font-size: var(--sw-size-data);
+  font-weight: var(--sw-weight-medium);
+  letter-spacing: -0.008em;
   color: var(--sw-body);
   cursor: pointer;
   white-space: nowrap;
-  transition: background 0.14s ease, color 0.14s ease;
+  transition: background 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
 }
 
-.tab:hover {
-  background: rgba(255, 255, 255, 0.9);
+.tabs--primary .tab:hover:not([aria-selected='true']) {
+  background: rgba(255, 255, 255, 0.85);
   color: var(--sw-ink);
 }
 
-.tab[aria-selected='true'] {
+.tabs--primary .tab[aria-selected='true'] {
   background: var(--sw-white);
   color: var(--sw-ink);
-  box-shadow: var(--sw-shadow-card);
+  font-weight: var(--sw-weight-semibold);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.07), 0 0 0 1px rgba(15, 23, 42, 0.05);
+}
+
+/* ---- Sub: underline rail ------------------------------------------- */
+
+.tabs--sub {
+  gap: 0;
+  border-bottom: 1px solid var(--sw-hairline);
+  background: var(--sw-white);
+  padding: 0 16px;
+}
+
+.tabs--sub .tab {
+  border: 0;
+  background: none;
+  padding: 11px 14px 9px;
+  font-family: var(--sw-font-heading);
+  font-size: var(--sw-size-small);
+  font-weight: var(--sw-weight-medium);
+  color: var(--sw-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  position: relative;
+  transition: color 0.12s ease;
+}
+
+.tabs--sub .tab::after {
+  content: '';
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: -1px;
+  height: 2px;
+  background: transparent;
+  border-radius: 2px 2px 0 0;
+  transition: background 0.12s ease;
+}
+
+.tabs--sub .tab:hover {
+  color: var(--sw-ink);
+}
+
+.tabs--sub .tab[aria-selected='true'] {
+  color: var(--sw-ink);
+  font-weight: var(--sw-weight-semibold);
+}
+
+.tabs--sub .tab[aria-selected='true']::after {
+  background: var(--sw-slate);
+}
+
+/* A sub-tab carrying a problem gets the crimson accent instead. */
+.tabs--sub .tab[data-tone='crit'][aria-selected='true']::after {
+  background: var(--sw-crimson);
+}
+
+.tabs--sub .tab[data-tone='crit'] {
+  color: var(--sw-crit-ink);
 }
 
 .tab__count {
   display: inline-block;
   margin-left: 6px;
-  font-size: 11px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--sw-panel);
+  border: 1px solid var(--sw-hairline);
+  font-size: 10.5px;
+  font-weight: var(--sw-weight-semibold);
+  font-variant-numeric: tabular-nums;
   color: var(--sw-muted);
-  font-weight: 500;
+  vertical-align: 1px;
+}
+
+.tab[aria-selected='true'] .tab__count {
+  background: var(--sw-card-strip);
+  border-color: var(--sw-cell-rule);
+  color: var(--sw-slate);
+}
+
+.tabpanel {
+  animation: sw-panel-in 0.16s ease;
+}
+
+@keyframes sw-panel-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ------------------------------------------------------------------ *
+ * Modal
+ * ------------------------------------------------------------------ */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(13, 27, 62, 0.42);
+  backdrop-filter: blur(3px);
+  animation: sw-fade-in 0.14s ease;
+  overflow-y: auto;
+}
+
+@keyframes sw-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.modal {
+  width: 100%;
+  max-width: 540px;
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+  background: var(--sw-white);
+  border-radius: 12px;
+  box-shadow: 0 24px 70px -18px rgba(13, 27, 62, 0.55), 0 2px 6px rgba(13, 27, 62, 0.12);
+  overflow: hidden;
+  animation: sw-modal-in 0.18s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+.modal--wide { max-width: 860px; }
+.modal--narrow { max-width: 420px; }
+
+@keyframes sw-modal-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+
+/* The masthead gradient identifies a dialog as ours at a glance. */
+.modal__strip {
+  height: 4px;
+  background: var(--sw-masthead);
+  flex: none;
+}
+
+.modal__head {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px 20px 14px;
+  border-bottom: 1px solid var(--sw-hairline);
+}
+
+.modal__head h2 {
+  font-size: 16px;
+  letter-spacing: -0.02em;
+}
+
+.modal__head-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.modal__sub {
+  margin-top: 3px;
+  font-size: var(--sw-size-small);
+  color: var(--sw-muted);
+  line-height: 1.5;
+}
+
+.modal__close {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--sw-cell-rule);
+  border-radius: 6px;
+  background: var(--sw-white);
+  color: var(--sw-muted);
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.modal__close:hover {
+  border-color: var(--sw-crimson);
+  color: var(--sw-crimson);
+}
+
+.modal__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 20px;
+  font-size: var(--sw-size-body);
+  line-height: 1.6;
+}
+
+.modal__body--flush { padding: 0; }
+
+.modal__body p:first-child { margin-top: 0; }
+.modal__body p:last-child { margin-bottom: 0; }
+
+.modal__foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 13px 20px;
+  border-top: 1px solid var(--sw-hairline);
+  background: var(--sw-panel);
+}
+
+.modal__foot .grow { order: -1; }
+
+/* A destructive dialog gets the crimson rule, as the guide uses it. */
+.modal--danger .modal__strip {
+  background: var(--sw-crimson);
+}
+
+/* ------------------------------------------------------------------ *
+ * Disclosure — the expandable box
+ * ------------------------------------------------------------------ */
+
+.disclosure {
+  border: 1px solid var(--sw-hairline);
+  border-radius: 7px;
+  overflow: hidden;
+  background: var(--sw-white);
+}
+
+.disclosure + .disclosure { margin-top: 8px; }
+
+.disclosure__trigger {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  background: var(--sw-panel);
+  padding: 10px 13px;
+  text-align: left;
+  cursor: pointer;
+  font-family: var(--sw-font-heading);
+  font-size: var(--sw-size-data);
+  font-weight: var(--sw-weight-medium);
+  color: var(--sw-ink);
+  transition: background 0.12s ease;
+}
+
+.disclosure__trigger:hover { background: #eef0f3; }
+
+.disclosure[data-open='true'] .disclosure__trigger {
+  border-bottom: 1px solid var(--sw-hairline);
+}
+
+.disclosure__chevron {
+  flex: none;
+  color: var(--sw-muted);
+  transition: transform 0.16s ease;
+}
+
+.disclosure[data-open='true'] .disclosure__chevron {
+  transform: rotate(90deg);
+}
+
+.disclosure__body {
+  padding: 13px;
+  animation: sw-panel-in 0.16s ease;
+}
+
+.disclosure__body--flush { padding: 0; }
+
+/* A row in a table that opens something, styled so it reads as clickable. */
+tr.clickable {
+  cursor: pointer;
+}
+
+tr.clickable:hover {
+  background: var(--sw-info-bg) !important;
+}
+
+tr.clickable td:first-child {
+  box-shadow: inset 2px 0 0 transparent;
+  transition: box-shadow 0.12s ease;
+}
+
+tr.clickable:hover td:first-child {
+  box-shadow: inset 2px 0 0 var(--sw-badge-1);
 }
 
 /* ------------------------------------------------------------------ *
@@ -527,7 +822,9 @@
 .kv {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  background: var(--sw-white);
+  /* The panel tone shows only where a row does not divide evenly, so the
+     leftover space reads as frame rather than a missing cell. */
+  background: var(--sw-panel);
   border: 1px solid var(--sw-hairline);
   border-radius: var(--sw-radius-sm);
   overflow: hidden;
@@ -539,6 +836,7 @@
  * grey filler blocks where the missing cells would be.
  */
 .kv__cell {
+  background: var(--sw-white);
   padding: 11px 13px;
   min-width: 0;
   border-right: 1px solid var(--sw-hairline);
@@ -547,7 +845,8 @@
 
 .kv__value {
   margin-top: 2px;
-  font-size: 13.5px;
+  font-size: var(--sw-size-data);
+  font-weight: var(--sw-weight-medium);
   color: var(--sw-ink);
   word-break: break-word;
 }
@@ -558,8 +857,9 @@
 }
 
 .kv__value--absent {
-  color: var(--sw-muted);
-  font-style: italic;
+  color: #b6bdc6;
+  font-weight: var(--sw-weight-body);
+  cursor: help;
 }
 
 .table-wrap {
@@ -569,7 +869,8 @@
 table.data {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--sw-size-data);
+  font-variant-numeric: tabular-nums;
 }
 
 table.data th {
@@ -586,7 +887,7 @@ table.data th {
 }
 
 table.data td {
-  padding: 10px 14px;
+  padding: 9px 14px;
   border-bottom: 1px solid var(--sw-hairline);
   vertical-align: top;
   color: var(--sw-body);
@@ -670,12 +971,22 @@ table.data td.num {
 
 .headline__big {
   font-family: var(--sw-font-heading);
-  font-size: 25px;
-  font-weight: 600;
+  font-size: var(--sw-size-display);
+  font-weight: var(--sw-weight-semibold);
   color: var(--sw-ink);
-  line-height: 1.15;
-  margin-top: 4px;
-  letter-spacing: -0.02em;
+  line-height: 1.1;
+  margin-top: 5px;
+  /* Display sizes in a geometric face need firm negative tracking. */
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
+}
+
+.headline__unit {
+  font-size: 14px;
+  font-weight: var(--sw-weight-medium);
+  color: var(--sw-muted);
+  letter-spacing: -0.01em;
+  margin-left: 2px;
 }
 
 .headline__sub {
@@ -847,11 +1158,13 @@ table.data td.num {
   gap: 7px;
   border: 1px solid transparent;
   border-radius: var(--sw-radius-sm);
-  padding: 9px 16px;
-  font-size: 13px;
-  font-weight: 600;
+  padding: 8px 15px;
+  font-family: var(--sw-font-heading);
+  font-size: var(--sw-size-data);
+  font-weight: var(--sw-weight-medium);
+  letter-spacing: -0.006em;
   cursor: pointer;
-  transition: all 0.14s ease;
+  transition: all 0.13s ease;
   white-space: nowrap;
 }
 
@@ -867,6 +1180,10 @@ table.data td.num {
 
 .btn--danger { background: var(--sw-white); color: var(--sw-crit-ink); border-color: #f5c9d1; }
 .btn--danger:hover:not(:disabled) { background: var(--sw-crit-bg); }
+
+/* Solid crimson, only ever on the confirm action of a destructive dialog. */
+.btn--danger-solid { background: var(--sw-crimson); color: var(--sw-white); }
+.btn--danger-solid:hover:not(:disabled) { background: #c40d2b; }
 
 .btn--small { padding: 5px 11px; font-size: 12px; }
 
@@ -962,15 +1279,14 @@ table.data td.num {
 /* ---- Skeletons ----------------------------------------------------- */
 
 .skeleton {
-  background: linear-gradient(90deg, var(--sw-panel) 25%, #eef0f3 50%, var(--sw-panel) 75%);
-  background-size: 200% 100%;
-  animation: sw-shimmer 1.3s linear infinite;
+  background: var(--sw-panel);
   border-radius: var(--sw-radius-sm);
+  animation: sw-settle 1.6s ease-in-out infinite;
 }
 
-@keyframes sw-shimmer {
-  from { background-position: 200% 0; }
-  to { background-position: -200% 0; }
+@keyframes sw-settle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
 }
 
 .spinner {
@@ -1029,6 +1345,134 @@ table.data td.num {
 
 @media print {
   body { background: var(--sw-white); }
-  .masthead, .search, .tabs, .footer__band { display: none; }
+  .masthead, .search, .modal-backdrop, .footer__band { display: none; }
   .card, .identity { box-shadow: none; break-inside: avoid; }
+
+  /*
+   * Now that sections are tabbed, printing captures whichever one is open.
+   * The tab strip is kept — flattened — so the printout says which section
+   * it is, rather than being an unlabelled page of figures. Inactive tabs
+   * are dropped since their panels are not rendered.
+   */
+  .tabs {
+    border: 0;
+    background: none;
+    padding: 0;
+    margin-bottom: 10px;
+  }
+
+  .tabs .tab { display: none; }
+
+  .tabs .tab[aria-selected='true'] {
+    display: block;
+    box-shadow: none;
+    background: none;
+    padding: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--sw-ink);
+  }
+
+  .tabs .tab[aria-selected='true']::after { display: none; }
+  .tab__count { display: none; }
+
+  /* Expandable boxes print open — a collapsed box on paper is just missing. */
+  .disclosure__body { display: block !important; }
+  .disclosure__chevron { display: none; }
+
+  .btn, .copy, .switch { display: none !important; }
+  .tabpanel { animation: none; }
+}
+
+/* ------------------------------------------------------------------ *
+ * Raw record view
+ * ------------------------------------------------------------------ */
+
+.raw {
+  margin: 0;
+  padding: 14px 16px;
+  background: var(--sw-slate);
+  color: #d6e2f5;
+  border-radius: 7px;
+  font-family: var(--sw-font-mono);
+  font-size: 11.5px;
+  line-height: 1.65;
+  overflow-x: auto;
+  white-space: pre;
+  tab-size: 2;
+}
+
+/* ------------------------------------------------------------------ *
+ * Toggle switch
+ *
+ * A column of "Switch off" text buttons reads as nine identical commands;
+ * a switch reads as state. Built on a real checkbox so it is keyboard
+ * operable and announced correctly.
+ * ------------------------------------------------------------------ */
+
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.switch__track {
+  position: relative;
+  flex: none;
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--sw-cell-rule);
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  transition: background 0.16s ease;
+}
+
+.switch__thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--sw-white);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.28);
+  transition: transform 0.16s cubic-bezier(0.3, 0.8, 0.3, 1);
+}
+
+.switch input:checked + .switch__track {
+  background: var(--sw-ok);
+}
+
+.switch input:checked + .switch__track .switch__thumb {
+  transform: translateX(16px);
+}
+
+.switch input:focus-visible + .switch__track {
+  outline: 2px solid var(--sw-badge-1);
+  outline-offset: 2px;
+}
+
+.switch input:disabled + .switch__track {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.switch__label {
+  font-size: var(--sw-size-small);
+  font-weight: var(--sw-weight-medium);
+  color: var(--sw-muted);
+  min-width: 24px;
+}
+
+.switch input:checked ~ .switch__label {
+  color: var(--sw-ok);
 }

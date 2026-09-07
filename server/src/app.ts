@@ -31,9 +31,10 @@ export function createApp(): Express {
       contentSecurityPolicy: {
         directives: {
           defaultSrc: ["'self'"],
-          // The SPA ships its own styles; Google Fonts serves Poppins/Inter.
-          styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
-          fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
+          // Everything — styles and the Poppins webfonts — is served from
+          // this origin, so no external host needs allowing at all.
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          fontSrc: ["'self'", 'data:'],
           imgSrc: ["'self'", 'data:'],
           scriptSrc: ["'self'"],
           connectSrc: ["'self'"],

@@ -10,6 +10,8 @@ import { LinesPanel } from './components/LinesPanel';
 import { AdminPortal } from './components/AdminPortal';
 import { ForcePasswordChange, Login } from './components/Login';
 import { Alert, Card, Chip, Empty, Label, Spinner } from './components/ui';
+import { Tabs, TabPanel, type TabDef } from './components/Tabs';
+import { Modal } from './components/overlay';
 
 /**
  * Application shell.
@@ -71,6 +73,14 @@ function Portal({ user, onSignOut }: { user: PublicUser; onSignOut: () => void }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [initialQuery, setInitialQuery] = useState('');
+  /**
+   * The address picker opens as a dialog the moment a postcode resolves to
+   * several premises — that is the one decision the user has to make, so it
+   * gets the foreground. The same list stays on the page behind it, so
+   * dismissing the dialog does not lose the results.
+   */
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerFilter, setPickerFilter] = useState('');
 
   /** Deep link: `#/site/<uprn>` loads a premises straight away. */
   useEffect(() => {
@@ -88,6 +98,8 @@ function Portal({ user, onSignOut }: { user: PublicUser; onSignOut: () => void }
       const response = await api.search(query);
       setResult(response);
       setReport(response.report ?? null);
+      setPickerFilter('');
+      setPickerOpen((response.suggestions?.length ?? 0) > 1 && !response.report);
       // Searching a CLI or line ID means you want the line; anything else
       // starts on availability.
       setTab(response.lines?.length ? 'lines' : 'broadband');
@@ -114,6 +126,7 @@ function Portal({ user, onSignOut }: { user: PublicUser; onSignOut: () => void }
     setError(null);
     try {
       const site = await api.site(uprn);
+      setPickerOpen(false);
       setReport(site);
       setResult({ query: site.query, suggestions: [], report: site });
       setTab('broadband');
@@ -198,8 +211,14 @@ function Portal({ user, onSignOut }: { user: PublicUser; onSignOut: () => void }
               <Card
                 title="Choose the exact address"
                 eyebrow={`${result.suggestions.length} premises found`}
+                index="01"
                 accent={1}
                 flush
+                meta={
+                  <button className="btn btn--primary btn--small" onClick={() => setPickerOpen(true)}>
+                    Pick an address
+                  </button>
+                }
               >
                 <div className="table-wrap">
                   <table className="data">
@@ -231,6 +250,17 @@ function Portal({ user, onSignOut }: { user: PublicUser; onSignOut: () => void }
             ) : null}
 
             {report && <SiteReportView report={report} onOpenSibling={loadSite} busy={busy} tab={tab} setTab={setTab} />}
+
+            <AddressPickerDialog
+              open={pickerOpen}
+              onClose={() => setPickerOpen(false)}
+              suggestions={result?.suggestions ?? []}
+              heading={result?.query.kind === 'postcode' ? result.query.normalised : (result?.query.raw ?? '')}
+              filter={pickerFilter}
+              onFilterChange={setPickerFilter}
+              onPick={pickAddress}
+              busy={busy}
+            />
 
             {!report && !result && !busy && !error && (
               <Card title="Everything about a site, from one box" accent={1}>
@@ -278,8 +308,39 @@ function SiteReportView({
   tab: ReportTab;
   setTab: (tab: ReportTab) => void;
 }): ReactElement {
+  const [siblingsOpen, setSiblingsOpen] = useState(false);
+  const [siblingFilter, setSiblingFilter] = useState('');
+
   const degraded = Object.entries(report.status).filter(([, s]) => !s.ok);
   const usingDemoData = Object.values(report.status).some((s) => s.mode === 'mock');
+
+  const orderable = report.broadband?.offers.filter((o) => o.status === 'available').length;
+  const criticalFlags = report.broadband?.openreach?.flags.filter((f) => f.level === 'critical').length ?? 0;
+  const openFaults = report.lines.reduce((n, l) => n + (l.faults?.length ?? 0), 0);
+
+  const tabs: Array<TabDef<ReportTab>> = [
+    { id: 'broadband', label: 'Broadband', ...(orderable ? { count: orderable } : {}) },
+    {
+      id: 'openreach',
+      label: 'Openreach',
+      ...(report.broadband?.openreach?.flags.length ? { count: report.broadband.openreach.flags.length } : {}),
+      ...(criticalFlags ? { tone: 'crit' as const } : {}),
+    },
+    { id: 'signal', label: 'Mobile signal', ...(report.signal?.operators.length ? { count: report.signal.operators.length } : {}) },
+    {
+      id: 'lines',
+      label: 'Lines',
+      ...(report.lines.length ? { count: report.lines.length } : {}),
+      ...(openFaults ? { tone: 'crit' as const } : {}),
+    },
+  ];
+
+  const siblings = report.siblings ?? [];
+  const filteredSiblings = siblingFilter.trim()
+    ? siblings.filter((s) =>
+        `${s.label} ${s.uprn ?? ''}`.toLowerCase().includes(siblingFilter.trim().toLowerCase()),
+      )
+    : siblings;
 
   return (
     <>
@@ -293,6 +354,11 @@ function SiteReportView({
                 Demo data
               </Chip>
             )}
+            {siblings.length > 0 && (
+              <button className="btn btn--ghost btn--small" onClick={() => setSiblingsOpen(true)}>
+                {siblings.length} more at this postcode
+              </button>
+            )}
             <button className="btn btn--ghost btn--small" onClick={() => window.print()}>
               Print
             </button>
@@ -302,105 +368,52 @@ function SiteReportView({
 
       {degraded.length > 0 && (
         <Alert tone="warn">
-          {degraded.map(([name, s]) => `${name}: ${s.error ?? 'unavailable'}`).join(' · ')}
+          <span>{degraded.map(([name, s]) => `${name}: ${s.error ?? 'unavailable'}`).join(' · ')}</span>
         </Alert>
       )}
 
-      <div className="tabs" role="tablist" aria-label="Site sections">
-        {(
-          [
-            ['broadband', 'Broadband', report.broadband?.offers.filter((o) => o.status === 'available').length],
-            ['openreach', 'Openreach', report.broadband?.openreach?.flags.length],
-            ['signal', 'Mobile signal', report.signal?.operators.length],
-            ['lines', 'Lines', report.lines.length],
-          ] as Array<[ReportTab, string, number | undefined]>
-        ).map(([key, label, count]) => (
-          <button
-            key={key}
-            type="button"
-            role="tab"
-            className="tab"
-            aria-selected={tab === key}
-            onClick={() => setTab(key)}
-          >
-            {label}
-            {count ? <span className="tab__count">{count}</span> : null}
-          </button>
-        ))}
-      </div>
+      <Tabs tabs={tabs} active={tab} onChange={setTab} variant="primary" label="Site sections" />
 
-      {busy && <div style={{ marginBottom: 12 }}><Spinner label="Refreshing…" /></div>}
+      {busy && (
+        <div style={{ marginBottom: 12 }}>
+          <Spinner label="Refreshing…" />
+        </div>
+      )}
 
-      {tab === 'broadband' &&
-        (report.broadband ? (
-          <BroadbandPanel data={report.broadband} />
-        ) : (
-          <Card title="Broadband availability" accent={1}>
-            <Empty title="No availability data">
-              {report.status.broadband.error ?? 'No availability provider is connected for this premises.'}
-            </Empty>
-          </Card>
-        ))}
+      <TabPanel>
+        {tab === 'broadband' &&
+          (report.broadband ? (
+            <BroadbandPanel data={report.broadband} />
+          ) : (
+            <Card title="Broadband availability" eyebrow="Wholesale and retail" index="01" accent={1}>
+              <Empty title="No availability data">
+                {report.status.broadband.error ?? 'No availability provider is connected for this premises.'}
+              </Empty>
+            </Card>
+          ))}
 
-      {tab === 'openreach' &&
-        (report.broadband ? (
-          <OpenreachPanel data={report.broadband} />
-        ) : (
-          <Card title="Openreach detail" accent={2}>
-            <Empty title="No Openreach data">{report.status.broadband.error ?? 'Not available.'}</Empty>
-          </Card>
-        ))}
+        {tab === 'openreach' &&
+          (report.broadband ? (
+            <OpenreachPanel data={report.broadband} />
+          ) : (
+            <Card title="Openreach detail" eyebrow="Access network" index="02" accent={2}>
+              <Empty title="No Openreach data">{report.status.broadband.error ?? 'Not available.'}</Empty>
+            </Card>
+          ))}
 
-      {tab === 'signal' &&
-        (report.signal ? (
-          <SignalPanel data={report.signal} />
-        ) : (
-          <Card title="Mobile signal" accent={4}>
-            <Empty title="No coverage data">
-              {report.status.signal.error ?? 'No mobile coverage provider is connected.'}
-            </Empty>
-          </Card>
-        ))}
+        {tab === 'signal' &&
+          (report.signal ? (
+            <SignalPanel data={report.signal} />
+          ) : (
+            <Card title="Mobile coverage" eyebrow="At this premises" index="03" accent={4}>
+              <Empty title="No coverage data">
+                {report.status.signal.error ?? 'No mobile coverage provider is connected.'}
+              </Empty>
+            </Card>
+          ))}
 
-      {tab === 'lines' && <LinesPanel lines={report.lines} />}
-
-      {report.siblings?.length ? (
-        <Card
-          title="Other premises at this postcode"
-          eyebrow={`${report.siblings.length} more`}
-          accent={3}
-          flush
-        >
-          <div className="table-wrap">
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Address</th>
-                  <th>UPRN</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {report.siblings.map((s) => (
-                  <tr key={s.id}>
-                    <td>{s.label}</td>
-                    <td className="sw-mono">{s.uprn ?? '—'}</td>
-                    <td style={{ textAlign: 'right' }}>
-                      <button
-                        className="btn btn--ghost btn--small"
-                        onClick={() => s.uprn && onOpenSibling(s.uprn)}
-                        disabled={!s.uprn || busy}
-                      >
-                        Open
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      ) : null}
+        {tab === 'lines' && <LinesPanel lines={report.lines} />}
+      </TabPanel>
 
       <div style={{ marginTop: 18 }}>
         <Label>
@@ -408,6 +421,195 @@ function SiteReportView({
           {report.query.kind}
         </Label>
       </div>
+
+      {/* ---- Other premises at this postcode ---------------------------- */}
+      <Modal
+        open={siblingsOpen}
+        onClose={() => setSiblingsOpen(false)}
+        eyebrow={report.address.postcode}
+        title="Other premises at this postcode"
+        subtitle={`${siblings.length} other addresses share this postcode. Pick one to jump straight to it.`}
+        width="wide"
+        flush
+        footer={
+          <>
+            <span className="grow" />
+            <button type="button" className="btn btn--ghost" onClick={() => setSiblingsOpen(false)}>
+              Close
+            </button>
+          </>
+        }
+      >
+        <div style={{ padding: '14px 20px 0' }}>
+          <label className="field" style={{ marginBottom: 12 }}>
+            <Label>Filter</Label>
+            <input
+              className="field__input"
+              value={siblingFilter}
+              onChange={(event) => setSiblingFilter(event.target.value)}
+              placeholder="Flat number, street or UPRN…"
+              autoFocus
+            />
+          </label>
+        </div>
+        <div className="table-wrap" style={{ maxHeight: 420 }}>
+          <table className="data">
+            <thead>
+              <tr>
+                <th>Address</th>
+                <th>UPRN</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {filteredSiblings.map((s) => (
+                <tr
+                  key={s.id}
+                  className="clickable"
+                  onClick={() => {
+                    if (!s.uprn) return;
+                    setSiblingsOpen(false);
+                    onOpenSibling(s.uprn);
+                  }}
+                >
+                  <td>{s.label}</td>
+                  <td className="sw-mono">{s.uprn ?? '—'}</td>
+                  <td style={{ textAlign: 'right' }}>
+                    <button
+                      className="btn btn--ghost btn--small"
+                      disabled={!s.uprn || busy}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (!s.uprn) return;
+                        setSiblingsOpen(false);
+                        onOpenSibling(s.uprn);
+                      }}
+                    >
+                      Open
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {filteredSiblings.length === 0 && (
+                <tr>
+                  <td colSpan={3} className="muted" style={{ padding: 20, textAlign: 'center' }}>
+                    Nothing matches “{siblingFilter}”.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Modal>
     </>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Address picker
+ * ------------------------------------------------------------------ */
+
+function AddressPickerDialog({
+  open,
+  onClose,
+  suggestions,
+  heading,
+  filter,
+  onFilterChange,
+  onPick,
+  busy,
+}: {
+  open: boolean;
+  onClose: () => void;
+  suggestions: AddressSuggestion[];
+  heading: string;
+  filter: string;
+  onFilterChange: (value: string) => void;
+  onPick: (suggestion: AddressSuggestion) => void;
+  busy: boolean;
+}): ReactElement | null {
+  if (!open) return null;
+
+  const needle = filter.trim().toLowerCase();
+  const rows = needle
+    ? suggestions.filter((s) => `${s.label} ${s.uprn ?? ''}`.toLowerCase().includes(needle))
+    : suggestions;
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      eyebrow={heading}
+      title="Choose the exact address"
+      subtitle={`${suggestions.length} premises share this postcode. Pick one to see availability, coverage and lines.`}
+      width="wide"
+      flush
+      footer={
+        <>
+          <span className="grow muted" style={{ fontSize: 11.5 }}>
+            Showing {rows.length} of {suggestions.length}
+          </span>
+          <button type="button" className="btn btn--ghost" onClick={onClose}>
+            Cancel
+          </button>
+        </>
+      }
+    >
+      <div style={{ padding: '14px 20px 0' }}>
+        <label className="field" style={{ marginBottom: 12 }}>
+          <Label>Narrow it down</Label>
+          <input
+            className="field__input"
+            value={filter}
+            onChange={(event) => onFilterChange(event.target.value)}
+            placeholder="House number, flat, street or UPRN…"
+            autoFocus
+            spellCheck={false}
+          />
+        </label>
+      </div>
+      <div className="table-wrap" style={{ maxHeight: 440 }}>
+        <table className="data">
+          <thead>
+            <tr>
+              <th>Address</th>
+              <th>Post town</th>
+              <th>UPRN</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((s) => (
+              <tr key={s.id} className="clickable" onClick={() => onPick(s)}>
+                <td>
+                  <strong style={{ color: 'var(--sw-ink)' }}>{s.label}</strong>
+                </td>
+                <td>{s.postTown}</td>
+                <td className="sw-mono">{s.uprn ?? '—'}</td>
+                <td style={{ textAlign: 'right' }}>
+                  <button
+                    className="btn btn--ghost btn--small"
+                    disabled={busy}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onPick(s);
+                    }}
+                  >
+                    Open
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={4} className="muted" style={{ padding: 22, textAlign: 'center' }}>
+                  Nothing matches “{filter}”.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </Modal>
   );
 }

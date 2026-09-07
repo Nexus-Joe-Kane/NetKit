@@ -74,8 +74,11 @@ export function Cell({
   return (
     <div className="kv__cell">
       <Label>{label}</Label>
-      <div className={`kv__value${mono ? ' kv__value--mono' : ''}${present ? '' : ' kv__value--absent'}`}>
-        {present ? text : 'Not reported'}
+      <div
+        className={`kv__value${mono ? ' kv__value--mono' : ''}${present ? '' : ' kv__value--absent'}`}
+        {...(present ? {} : { title: 'Not reported by the provider' })}
+      >
+        {present ? text : '—'}
         {present && copy && <CopyButton value={text} />}
       </div>
     </div>
@@ -85,15 +88,21 @@ export function Cell({
 export function Card({
   title,
   eyebrow,
+  index,
   accent,
   meta,
+  tabs,
   flush = false,
   children,
 }: {
   title: string;
   eyebrow?: string;
+  /** Section number, mirroring how the brand guide numbers its sections. */
+  index?: string;
   accent?: 1 | 2 | 3 | 4;
   meta?: ReactNode;
+  /** A `Tabs` rail, rendered flush beneath the header. */
+  tabs?: ReactNode;
   flush?: boolean;
   children: ReactNode;
 }): ReactElement {
@@ -102,14 +111,52 @@ export function Card({
       <header className="card__head">
         <div>
           {eyebrow && (
-            <span className="sw-label section-eyebrow">{eyebrow}</span>
+            <span className="sw-label section-eyebrow" {...(index ? { 'data-index': index } : {})}>
+              {eyebrow}
+            </span>
           )}
           <h2>{title}</h2>
         </div>
         {meta && <div className="card__head-meta">{meta}</div>}
       </header>
+      {tabs}
       <div className={`card__body${flush ? ' card__body--flush' : ''}`}>{children}</div>
     </section>
+  );
+}
+
+/**
+ * A toggle switch. Shows state rather than an instruction, which matters in
+ * a table where the same control repeats down a column.
+ */
+export function Switch({
+  checked,
+  onChange,
+  disabled = false,
+  label,
+  busy = false,
+}: {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  disabled?: boolean;
+  /** Accessible name — the visible text is just On/Off. */
+  label: string;
+  busy?: boolean;
+}): ReactElement {
+  return (
+    <label className="switch" onClick={(event) => event.stopPropagation()}>
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled || busy}
+        aria-label={label}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span className="switch__track" aria-hidden="true">
+        <span className="switch__thumb" />
+      </span>
+      <span className="switch__label">{busy ? '…' : checked ? 'On' : 'Off'}</span>
+    </label>
   );
 }
 

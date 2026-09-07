@@ -1,6 +1,8 @@
 import type { ReactElement } from 'react';
-import { gradeScore, type MobileCoverage, type SignalGrade, type SignalReport } from '@sw/shared';
-import { Card, Chip, Label, formatDate } from './ui';
+import { useState } from 'react';
+import { gradeScore, type MobileCoverage, type MobileOperator, type SignalGrade, type SignalReport } from '@sw/shared';
+import { Card, Cell, Chip, Label, formatDate } from './ui';
+import { Tabs, TabPanel, type TabDef } from './Tabs';
 
 /**
  * Mobile signal, one card per network.
@@ -122,34 +124,135 @@ function OperatorCard({ coverage }: { coverage: MobileCoverage }): ReactElement 
   );
 }
 
+type SignalTab = 'all' | MobileOperator;
+
 export function SignalPanel({ data }: { data: SignalReport }): ReactElement {
+  const [tab, setTab] = useState<SignalTab>('all');
   const ranked = [...data.operators].sort((a, b) => gradeScore(b.voice.indoor) - gradeScore(a.voice.indoor));
 
+  const tabs: Array<TabDef<SignalTab>> = [
+    { id: 'all', label: 'All networks', count: ranked.length },
+    ...ranked.map((c) => ({
+      id: c.operator as SignalTab,
+      label: c.operator,
+      // A network with no usable indoor voice is worth flagging on the tab.
+      ...(gradeScore(c.voice.indoor) <= gradeScore('poor') ? { tone: 'crit' as const } : {}),
+    })),
+  ];
+
+  const selected = tab === 'all' ? null : ranked.find((c) => c.operator === tab);
+
   return (
-    <div className="stack">
-      <Card
-        title="Mobile coverage by network"
-        eyebrow={`Checked ${formatDate(data.checkedAt) ?? 'just now'}`}
-        accent={4}
-        meta={
-          data.headline?.bestIndoorVoice ? (
-            <Chip tone="ok" dot>
-              Best indoors: {data.headline.bestIndoorVoice}
-            </Chip>
-          ) : undefined
-        }
-      >
-        <div className="signal-grid">
-          {ranked.map((coverage) => (
-            <OperatorCard key={coverage.operator} coverage={coverage} />
-          ))}
+    <Card
+      title="Mobile coverage"
+      eyebrow="At this premises"
+      index="03"
+      accent={4}
+      meta={
+        data.headline?.bestIndoorVoice ? (
+          <Chip tone="ok" dot>
+            Best indoors: {data.headline.bestIndoorVoice}
+          </Chip>
+        ) : undefined
+      }
+      tabs={<Tabs tabs={tabs} active={tab} onChange={setTab} variant="sub" label="Mobile networks" />}
+    >
+      <TabPanel>
+        {selected ? (
+          <OperatorDetail coverage={selected} />
+        ) : (
+          <>
+            <div className="signal-grid">
+              {ranked.map((coverage) => (
+                <OperatorCard key={coverage.operator} coverage={coverage} />
+              ))}
+            </div>
+            <p className="muted" style={{ marginTop: 14, marginBottom: 0, fontSize: 12, lineHeight: 1.55 }}>
+              Indoor grades are modelled from outdoor coverage with a building penetration allowance, so they are a
+              guide rather than a measurement. A site that reads strong outdoors but weak indoors is usually solved
+              with Wi-Fi calling before a repeater.
+            </p>
+          </>
+        )}
+      </TabPanel>
+    </Card>
+  );
+}
+
+/** The single-network view: everything the provider told us, laid out flat. */
+function OperatorDetail({ coverage }: { coverage: MobileCoverage }): ReactElement {
+  const grade = (g: SignalGrade) => (g === 'unknown' ? undefined : g);
+
+  return (
+    <div className="stack stack--tight">
+      <div className="kv">
+        <Cell label="Voice indoors" value={grade(coverage.voice.indoor)} />
+        <Cell label="Voice outdoors" value={grade(coverage.voice.outdoor)} />
+        <Cell label="Voice in vehicle" value={grade(coverage.voice.inVehicle ?? 'unknown')} />
+        <Cell label="4G indoors" value={grade(coverage.data4g.indoor)} />
+        <Cell label="4G outdoors" value={grade(coverage.data4g.outdoor)} />
+        <Cell label="5G indoors" value={grade(coverage.data5g?.indoor ?? 'unknown')} />
+        <Cell label="5G outdoors" value={grade(coverage.data5g?.outdoor ?? 'unknown')} />
+        <Cell label="VoLTE" value={coverage.volte} />
+        <Cell label="Wi-Fi calling" value={coverage.wifiCalling} />
+        <Cell
+          label="Nearest mast"
+          value={
+            coverage.nearestSite?.distanceMetres != null
+              ? `${coverage.nearestSite.distanceMetres.toLocaleString('en-GB')} m`
+              : undefined
+          }
+          mono
+        />
+        <Cell label="Mast bearing" value={coverage.nearestSite?.bearingDegrees != null ? `${coverage.nearestSite.bearingDegrees}°` : undefined} mono />
+        <Cell label="Mast technologies" value={coverage.nearestSite?.technologies?.join(', ')} />
+      </div>
+
+      {coverage.bands?.length ? (
+        <div>
+          <Label>Frequency bands present</Label>
+          <div className="row" style={{ gap: 5, marginTop: 6 }}>
+            {coverage.bands.map((band) => (
+              <Chip key={band} tone="idle">
+                {band}
+              </Chip>
+            ))}
+          </div>
         </div>
-        <p className="muted" style={{ marginTop: 14, marginBottom: 0, fontSize: 12, lineHeight: 1.55 }}>
-          Indoor grades are modelled from outdoor coverage with a building penetration allowance, so they are a guide
-          rather than a measurement. A site that reads strong outdoors but weak indoors is usually solved with Wi-Fi
-          calling before a repeater.
-        </p>
-      </Card>
+      ) : null}
+
+      {coverage.mvnos?.length ? (
+        <div>
+          <Label>Retail brands on this network</Label>
+          <div className="row" style={{ gap: 5, marginTop: 6 }}>
+            {coverage.mvnos.map((mvno) => (
+              <Chip key={mvno} tone="info">
+                {mvno}
+              </Chip>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {coverage.plannedUpgrade && (
+        <div className="flag flag--info">
+          <span className="flag__marker" aria-hidden="true" />
+          <span>
+            <strong>Upgrade planned</strong>
+            <span className="flag__detail">
+              {coverage.plannedUpgrade.technology}
+              {coverage.plannedUpgrade.date ? ` from ${formatDate(coverage.plannedUpgrade.date)}` : ''}
+            </span>
+          </span>
+        </div>
+      )}
+
+      {coverage.notes.map((note, i) => (
+        <div key={i} className="flag flag--warn">
+          <span className="flag__marker" aria-hidden="true" />
+          <span className="flag__detail">{note}</span>
+        </div>
+      ))}
     </div>
   );
 }

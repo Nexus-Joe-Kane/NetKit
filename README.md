@@ -136,13 +136,64 @@ npm run typecheck # strict TypeScript across all three packages
 
 ---
 
+## Interaction model
+
+Everything is **tabbed rather than stacked**, so a site report fits one screen
+and nothing needs scrolling past to reach:
+
+- **Top level** — a segmented control: Broadband, Openreach, Mobile signal, Lines.
+- **Within a panel** — an underline rail: Openreach splits into Flags,
+  Exchange, Cabinet, Fibre, Copper and Stop sell; a line splits into Identity,
+  Sync, Session, IP, Equipment, Contract and Faults; signal splits into all
+  networks then one tab per operator.
+- **Several lines at a premises** become tabs across the top, labelled by CLI.
+
+Tab counts show at a glance where the substance is, and a tab whose section
+holds a problem — a critical Openreach flag, an open fault — takes the crimson
+underline.
+
+Keyboard behaviour follows the WAI-ARIA tabs pattern: arrow keys move between
+tabs, Home and End jump to the ends, and only the active tab sits in the tab
+order. `/` focuses the search box from anywhere.
+
+**Dialogs** carry anything that deserves the foreground:
+
+| | |
+| --- | --- |
+| Address picker | Opens by itself when a postcode resolves to several premises — the one decision the user has to make — with a filter for narrowing by flat, street or UPRN |
+| Detail | Any table row opens into the full record: a product's speeds and provider notes, an integration's probe result, an audit entry, a user |
+| Confirmation | Every destructive action states its consequence first. Removing a user additionally requires typing their email address |
+| Result | Anything worth keeping — a generated temporary password, a delivery-test failure — appears in a dialog rather than a toast that can be missed |
+| Raw record | The normalised JSON behind a line, for when a field looks wrong |
+
+Dialogs trap focus, close on Escape or a backdrop click, lock the page behind
+them and hand focus back where it came from. Expandable boxes are used for
+secondary detail, and print open.
+
+---
+
 ## Branding
 
-Every colour, font and radius lives in `web/src/styles/brand.css`, taken
-verbatim from **SW-BRAND-2026 v1.0**. NetKit uses the guide's
-*internal / engineer* system: full-page brand gradient, white rounded cards,
-navy footer band, crimson strictly as an accent. Changing the brand means
-editing that one file.
+Every colour, font and radius lives in `web/src/styles/brand.css`, taken from
+**SW-BRAND-2026 v1.0**. NetKit uses the guide's *internal / engineer* system:
+full-page brand gradient, white rounded cards, navy footer band, crimson
+strictly as an accent. Changing the brand means editing that one file.
+
+Poppins is **self-hosted** from `web/public/fonts` (latin and latin-ext
+subsets, 80 kB) rather than loaded from Google Fonts. An internal tool should
+not fall back to a substitute face because a CDN is blocked or slow, and it
+lets the Content-Security-Policy forbid external origins outright.
+
+Two deliberate departures from the guide, both worth a look:
+
+1. **Poppins is used for body copy as well as headings.** The guide pairs
+   Poppins headings with Inter body. One family throughout is a house choice
+   for this tool; the type scale is retuned for Poppins' wider geometric
+   letterforms rather than inherited from Inter.
+2. **The confirm button on a destructive dialog is solid crimson.** The guide
+   reserves crimson for rules, markers and single emphasis. A destructive
+   button is a small area and standard practice, but say the word and it
+   becomes slate with a crimson rule instead.
 
 ---
 

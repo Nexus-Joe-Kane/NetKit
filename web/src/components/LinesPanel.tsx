@@ -1,13 +1,15 @@
-import type { ReactElement } from 'react';
+import { useState, type ReactElement } from 'react';
 import type { LineRecord, LineStatus } from '@sw/shared';
 import { Card, Cell, Chip, CopyButton, Label, formatBytes, formatDateTime, formatDate, formatDuration, type ChipTone } from './ui';
+import { Tabs, TabPanel, type TabDef } from './Tabs';
+import { Modal } from './overlay';
 
 /**
  * Lines at a premises.
  *
- * A line is the thing support is usually actually asked about, so everything
- * that identifies it — CLI, access line ID, service ID, ONT serial — is
- * shown together and individually copyable.
+ * Several lines become tabs across the top; the detail of one line becomes
+ * tabs within it. Nothing is more than two clicks from the search box, and
+ * nothing needs scrolling past to reach.
  */
 
 const TONE_BY_STATUS: Record<LineStatus, ChipTone> = {
@@ -35,78 +37,118 @@ function kbpsLabel(kbps?: number): string | undefined {
   return kbps >= 1000 ? `${(kbps / 1000).toFixed(kbps % 1000 === 0 ? 0 : 1)} Mbps` : `${kbps} kbps`;
 }
 
-function LineCard({ line }: { line: LineRecord }): ReactElement {
-  const sync = line.sync;
-  const radius = line.radius;
+const lineTitle = (line: LineRecord): string =>
+  line.cli ?? line.serviceId ?? line.lineAccessId ?? line.orderRef ?? 'Line';
+
+/* ------------------------------------------------------------------ *
+ * One line
+ * ------------------------------------------------------------------ */
+
+type LineTab = 'identity' | 'sync' | 'session' | 'ip' | 'equipment' | 'contract' | 'faults';
+
+function LineDetail({ line }: { line: LineRecord }): ReactElement {
+  const [tab, setTab] = useState<LineTab>('identity');
+  const [raw, setRaw] = useState(false);
+
+  const faultCount = (line.faults?.length ?? 0) + (line.appointments?.length ?? 0);
+
+  const tabs: Array<TabDef<LineTab>> = [
+    { id: 'identity', label: 'Identity' },
+    { id: 'sync', label: 'Sync', disabled: !line.sync },
+    { id: 'session', label: 'Session', disabled: !line.radius },
+    { id: 'ip', label: 'IP', count: line.ipAddresses?.length, disabled: !line.ipAddresses?.length },
+    { id: 'equipment', label: 'Equipment', disabled: !line.ont && !line.cpe },
+    { id: 'contract', label: 'Contract', disabled: !line.contract },
+    {
+      id: 'faults',
+      label: 'Faults & visits',
+      count: faultCount,
+      ...(line.faults?.length ? { tone: 'crit' as const } : {}),
+    },
+  ];
 
   return (
-    <Card
-      title={line.cli ?? line.serviceId ?? line.lineAccessId ?? 'Line'}
-      eyebrow={`${line.provider} · ${line.technology}`}
-      accent={line.status === 'active' ? 1 : line.status === 'ceased' ? 3 : 2}
-      meta={
-        <>
-          {radius?.online != null && (
-            <Chip tone={radius.online ? 'ok' : 'crit'} dot>
-              {radius.online ? 'Online' : 'Offline'}
+    <>
+      <Card
+        title={lineTitle(line)}
+        eyebrow={`${line.provider} · ${line.technology}`}
+        index="04"
+        accent={line.status === 'active' ? 1 : line.status === 'ceased' ? 3 : 2}
+        meta={
+          <>
+            {line.radius?.online != null && (
+              <Chip tone={line.radius.online ? 'ok' : 'crit'} dot>
+                {line.radius.online ? 'Online' : 'Offline'}
+              </Chip>
+            )}
+            <Chip tone={TONE_BY_STATUS[line.status]} dot>
+              {STATUS_LABEL[line.status]}
             </Chip>
+            <button type="button" className="btn btn--ghost btn--small" onClick={() => setRaw(true)}>
+              Raw record
+            </button>
+          </>
+        }
+        tabs={<Tabs tabs={tabs} active={tab} onChange={setTab} variant="sub" label={`${lineTitle(line)} sections`} />}
+      >
+        <TabPanel>
+          {tab === 'identity' && (
+            <div className="stack stack--tight">
+              <div className="kv">
+                <Cell label="CLI" value={line.cli} mono copy />
+                <Cell label="Access line ID" value={line.lineAccessId} mono copy />
+                <Cell label="Service ID" value={line.serviceId} mono copy />
+                <Cell label="Order / Zen ref" value={line.orderRef} mono copy />
+                <Cell label="Product" value={line.productName} />
+                <Cell label="Technology" value={line.technology} />
+                <Cell label="Bearer" value={line.bearerSpeed} />
+                <Cell label="Found via" value={line.discoveredVia === 'mock' ? 'Demo data' : line.discoveredVia} />
+              </div>
+              {line.notes.length > 0 && (
+                <div>
+                  <Label>Notes</Label>
+                  <ul style={{ margin: '5px 0 0', paddingLeft: 17, fontSize: 13, lineHeight: 1.6 }}>
+                    {line.notes.map((note, i) => (
+                      <li key={i}>{note}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
           )}
-          <Chip tone={TONE_BY_STATUS[line.status]} dot>
-            {STATUS_LABEL[line.status]}
-          </Chip>
-        </>
-      }
-    >
-      <div className="stack stack--tight">
-        <div className="kv">
-          <Cell label="CLI" value={line.cli} mono copy />
-          <Cell label="Access line ID" value={line.lineAccessId} mono copy />
-          <Cell label="Service ID" value={line.serviceId} mono copy />
-          <Cell label="Order / Zen ref" value={line.orderRef} mono copy />
-          <Cell label="Product" value={line.productName} />
-          <Cell label="Technology" value={line.technology} />
-          <Cell label="Bearer" value={line.bearerSpeed} />
-          <Cell label="Found via" value={line.discoveredVia === 'mock' ? 'Demo data' : line.discoveredVia} />
-        </div>
 
-        {(sync?.downstreamSyncKbps != null || sync?.snrMarginDb != null) && (
-          <div>
-            <Label>Sync and line quality</Label>
-            <div className="kv" style={{ marginTop: 5 }}>
-              <Cell label="Downstream sync" value={kbpsLabel(sync?.downstreamSyncKbps)} mono />
-              <Cell label="Upstream sync" value={kbpsLabel(sync?.upstreamSyncKbps)} mono />
-              <Cell label="Max stable down" value={kbpsLabel(sync?.maxStableDownKbps)} mono />
-              <Cell label="Max stable up" value={kbpsLabel(sync?.maxStableUpKbps)} mono />
-              <Cell label="SNR margin" value={sync?.snrMarginDb != null ? `${sync.snrMarginDb} dB` : undefined} mono />
-              <Cell label="Attenuation" value={sync?.attenuationDb != null ? `${sync.attenuationDb} dB` : undefined} mono />
-              <Cell label="DLM profile" value={sync?.profileName} />
-              <Cell label="Interleaving" value={sync?.interleaving} />
-              <Cell label="Retrains (24h)" value={sync?.retrains24h} mono />
-              <Cell label="Last resync" value={formatDateTime(sync?.lastResync)} />
-              <Cell label="Uptime" value={formatDuration(sync?.uptimeSeconds)} />
+          {tab === 'sync' && line.sync && (
+            <div className="kv">
+              <Cell label="Downstream sync" value={kbpsLabel(line.sync.downstreamSyncKbps)} mono />
+              <Cell label="Upstream sync" value={kbpsLabel(line.sync.upstreamSyncKbps)} mono />
+              <Cell label="Max stable down" value={kbpsLabel(line.sync.maxStableDownKbps)} mono />
+              <Cell label="Max stable up" value={kbpsLabel(line.sync.maxStableUpKbps)} mono />
+              <Cell label="SNR margin" value={line.sync.snrMarginDb != null ? `${line.sync.snrMarginDb} dB` : undefined} mono />
+              <Cell label="Attenuation" value={line.sync.attenuationDb != null ? `${line.sync.attenuationDb} dB` : undefined} mono />
+              <Cell label="DLM profile" value={line.sync.profileName} />
+              <Cell label="Interleaving" value={line.sync.interleaving} />
+              <Cell label="Retrains (24h)" value={line.sync.retrains24h} mono />
+              <Cell label="Last resync" value={formatDateTime(line.sync.lastResync)} />
+              <Cell label="Uptime" value={formatDuration(line.sync.uptimeSeconds)} />
             </div>
-          </div>
-        )}
+          )}
 
-        {radius && (
-          <div>
-            <Label>Authentication and session</Label>
-            <div className="kv" style={{ marginTop: 5 }}>
-              <Cell label="RADIUS username" value={radius.username} mono copy />
-              <Cell label="Last authentication" value={formatDateTime(radius.lastAuthAt)} />
-              <Cell label="Online since" value={formatDateTime(radius.onlineSince)} />
-              <Cell label="NAS / gateway" value={radius.nasIpAddress} mono />
-              <Cell label="Session ID" value={radius.sessionId} mono />
-              <Cell label="Data in" value={formatBytes(radius.bytesIn)} mono />
-              <Cell label="Data out" value={formatBytes(radius.bytesOut)} mono />
+          {tab === 'session' && line.radius && (
+            <div className="kv">
+              <Cell label="RADIUS username" value={line.radius.username} mono copy />
+              <Cell label="Realm" value={line.radius.realm} />
+              <Cell label="Online" value={line.radius.online} />
+              <Cell label="Last authentication" value={formatDateTime(line.radius.lastAuthAt)} />
+              <Cell label="Online since" value={formatDateTime(line.radius.onlineSince)} />
+              <Cell label="NAS / gateway" value={line.radius.nasIpAddress} mono />
+              <Cell label="Session ID" value={line.radius.sessionId} mono />
+              <Cell label="Data in" value={formatBytes(line.radius.bytesIn)} mono />
+              <Cell label="Data out" value={formatBytes(line.radius.bytesOut)} mono />
             </div>
-          </div>
-        )}
+          )}
 
-        {line.ipAddresses?.length ? (
-          <div>
-            <Label>IP addressing</Label>
-            <div className="table-wrap" style={{ marginTop: 5 }}>
+          {tab === 'ip' && line.ipAddresses?.length ? (
+            <div className="table-wrap">
               <table className="data">
                 <thead>
                   <tr>
@@ -135,13 +177,10 @@ function LineCard({ line }: { line: LineRecord }): ReactElement {
                 </tbody>
               </table>
             </div>
-          </div>
-        ) : null}
+          ) : null}
 
-        {(line.ont || line.cpe) && (
-          <div>
-            <Label>Equipment</Label>
-            <div className="kv" style={{ marginTop: 5 }}>
+          {tab === 'equipment' && (
+            <div className="kv">
               <Cell label="ONT serial" value={line.ont?.serial} mono copy />
               <Cell label="ONT model" value={line.ont?.model} />
               <Cell
@@ -153,87 +192,111 @@ function LineCard({ line }: { line: LineRecord }): ReactElement {
               <Cell label="MAC address" value={line.cpe?.macAddress} mono copy />
               <Cell label="Firmware" value={line.cpe?.firmware} mono />
             </div>
-          </div>
-        )}
+          )}
 
-        {line.contract && (
-          <div>
-            <Label>Contract</Label>
-            <div className="kv" style={{ marginTop: 5 }}>
+          {tab === 'contract' && line.contract && (
+            <div className="kv">
               <Cell label="Start" value={formatDate(line.contract.startDate)} />
               <Cell label="End" value={formatDate(line.contract.endDate)} />
-              <Cell label="Minimum term" value={line.contract.minimumTermMonths ? `${line.contract.minimumTermMonths} months` : undefined} />
+              <Cell
+                label="Minimum term"
+                value={line.contract.minimumTermMonths ? `${line.contract.minimumTermMonths} months` : undefined}
+              />
               <Cell label="In contract" value={line.contract.inContract} />
               <Cell
                 label="Early termination"
-                value={line.contract.earlyTerminationCharge != null ? `£${line.contract.earlyTerminationCharge.toLocaleString('en-GB')}` : undefined}
+                value={
+                  line.contract.earlyTerminationCharge != null
+                    ? `£${line.contract.earlyTerminationCharge.toLocaleString('en-GB')}`
+                    : undefined
+                }
               />
             </div>
-          </div>
-        )}
+          )}
 
-        {line.faults?.length ? (
-          <div>
-            <Label>Open faults</Label>
-            {line.faults.map((fault) => (
-              <div key={fault.reference} className="flag flag--critical" style={{ marginTop: 6 }}>
-                <span className="flag__marker" aria-hidden="true" />
-                <span>
-                  <strong>
-                    {fault.reference} — {fault.status}
-                  </strong>
-                  <span className="flag__detail">
-                    {fault.summary}
-                    <br />
-                    Raised {formatDateTime(fault.raisedAt)}
-                    {fault.slaTarget ? ` · ${fault.slaTarget}` : ''}
-                    {fault.lastUpdate ? ` · updated ${formatDateTime(fault.lastUpdate)}` : ''}
-                  </span>
-                </span>
+          {tab === 'faults' &&
+            (faultCount === 0 ? (
+              <div className="empty">
+                <h3>Nothing open</h3>
+                <p>No faults are raised against this line and no engineer visits are booked.</p>
+              </div>
+            ) : (
+              <div className="stack stack--tight">
+                {line.faults?.map((fault) => (
+                  <div key={fault.reference} className="flag flag--critical">
+                    <span className="flag__marker" aria-hidden="true" />
+                    <span>
+                      <strong>
+                        {fault.reference} — {fault.status}
+                      </strong>
+                      <span className="flag__detail">
+                        {fault.summary}
+                        <br />
+                        Raised {formatDateTime(fault.raisedAt)}
+                        {fault.slaTarget ? ` · ${fault.slaTarget}` : ''}
+                        {fault.lastUpdate ? ` · updated ${formatDateTime(fault.lastUpdate)}` : ''}
+                      </span>
+                    </span>
+                  </div>
+                ))}
+                {line.appointments?.map((appt) => (
+                  <div key={appt.reference} className="flag flag--info">
+                    <span className="flag__marker" aria-hidden="true" />
+                    <span>
+                      <strong>
+                        {appt.type} — {formatDate(appt.date)}
+                        {appt.slot ? `, ${appt.slot}` : ''}
+                      </strong>
+                      <span className="flag__detail">
+                        {appt.reference} · {appt.status}
+                      </span>
+                    </span>
+                  </div>
+                ))}
               </div>
             ))}
-          </div>
-        ) : null}
+        </TabPanel>
+      </Card>
 
-        {line.appointments?.length ? (
-          <div>
-            <Label>Appointments</Label>
-            {line.appointments.map((appt) => (
-              <div key={appt.reference} className="flag flag--info" style={{ marginTop: 6 }}>
-                <span className="flag__marker" aria-hidden="true" />
-                <span>
-                  <strong>
-                    {appt.type} — {formatDate(appt.date)}
-                    {appt.slot ? `, ${appt.slot}` : ''}
-                  </strong>
-                  <span className="flag__detail">
-                    {appt.reference} · {appt.status}
-                  </span>
-                </span>
-              </div>
-            ))}
-          </div>
-        ) : null}
-
-        {line.notes.length > 0 && (
-          <div>
-            <Label>Notes</Label>
-            <ul style={{ margin: '5px 0 0', paddingLeft: 17, fontSize: 13, lineHeight: 1.6 }}>
-              {line.notes.map((note, i) => (
-                <li key={i}>{note}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </div>
-    </Card>
+      <Modal
+        open={raw}
+        onClose={() => setRaw(false)}
+        eyebrow="Diagnostics"
+        title={`Raw record — ${lineTitle(line)}`}
+        subtitle="Exactly what the provider returned, after normalisation. Useful when a field looks wrong."
+        width="wide"
+        footer={
+          <>
+            <span className="grow" />
+            <button
+              type="button"
+              className="btn btn--ghost"
+              onClick={() => void navigator.clipboard?.writeText(JSON.stringify(line, null, 2))}
+            >
+              Copy JSON
+            </button>
+            <button type="button" className="btn btn--primary" onClick={() => setRaw(false)}>
+              Close
+            </button>
+          </>
+        }
+      >
+        <pre className="raw">{JSON.stringify(line, null, 2)}</pre>
+      </Modal>
+    </>
   );
 }
 
+/* ------------------------------------------------------------------ *
+ * All the lines at a premises
+ * ------------------------------------------------------------------ */
+
 export function LinesPanel({ lines }: { lines: LineRecord[] }): ReactElement {
+  const [active, setActive] = useState(0);
+
   if (!lines.length) {
     return (
-      <Card title="Lines at this premises" accent={1}>
+      <Card title="Lines at this premises" eyebrow="Services" index="04" accent={1}>
         <div className="empty">
           <h3>No lines found</h3>
           <p>
@@ -245,11 +308,25 @@ export function LinesPanel({ lines }: { lines: LineRecord[] }): ReactElement {
     );
   }
 
+  // A single line needs no chooser.
+  if (lines.length === 1) return <LineDetail line={lines[0]!} />;
+
+  const tabs: Array<TabDef<string>> = lines.map((line, i) => ({
+    id: String(i),
+    label: lineTitle(line),
+    ...(line.faults?.length ? { tone: 'crit' as const } : {}),
+  }));
+
   return (
     <div className="stack">
-      {lines.map((line) => (
-        <LineCard key={line.id} line={line} />
-      ))}
+      <Tabs
+        tabs={tabs}
+        active={String(active)}
+        onChange={(id) => setActive(Number(id))}
+        variant="primary"
+        label="Lines at this premises"
+      />
+      <LineDetail key={lines[active]!.id} line={lines[active]!} />
     </div>
   );
 }

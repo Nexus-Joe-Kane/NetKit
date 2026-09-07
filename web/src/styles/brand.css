@@ -72,10 +72,33 @@
   --sw-idle-bg: var(--sw-panel);
 
   /* ---- Type (§4) --------------------------------------------------- */
-  /* HTML documents: Poppins headings, Inter body, Segoe UI fallback. */
+  /*
+   * Poppins throughout, headings and body alike. The guide pairs Poppins
+   * headings with Inter body; running one family everywhere is a deliberate
+   * house choice for this tool, with Segoe UI as the fallback so an offline
+   * machine still matches the Office documents.
+   *
+   * Poppins is geometric and wide, so it needs a slightly smaller base size,
+   * negative tracking at display sizes and a little positive tracking in
+   * small caps to stay legible in dense tables.
+   */
   --sw-font-heading: 'Poppins', 'Segoe UI', system-ui, -apple-system, sans-serif;
-  --sw-font-body: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --sw-font-body: 'Poppins', 'Segoe UI', system-ui, -apple-system, sans-serif;
   --sw-font-mono: 'Consolas', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  /* Weights. Poppins 400 reads light against data, so body sits at 400 and
+     anything that must hold its own steps to 500. */
+  --sw-weight-body: 400;
+  --sw-weight-medium: 500;
+  --sw-weight-semibold: 600;
+
+  /* Type scale, tuned for Poppins rather than inherited from Inter. */
+  --sw-size-display: 26px;
+  --sw-size-title: 15px;
+  --sw-size-body: 13.5px;
+  --sw-size-data: 13px;
+  --sw-size-small: 12px;
+  --sw-size-tiny: 11px;
 
   /* Small-caps labels: semibold, letter-spaced 0.13em, always uppercase. */
   --sw-label-tracking: 0.13em;
@@ -125,8 +148,12 @@ body,
 body {
   margin: 0;
   font-family: var(--sw-font-body);
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--sw-size-body);
+  font-weight: var(--sw-weight-body);
+  line-height: 1.55;
+  /* Poppins' wide geometric letterforms need pulling in slightly at body
+     sizes, or paragraphs read loose and the tables lose their grid. */
+  letter-spacing: -0.005em;
   color: var(--sw-body);
   /* Internal page ground: diagonal gradient across the whole page. */
   background: linear-gradient(148deg, var(--sw-page-a) 0%, var(--sw-page-b) 100%) fixed;
@@ -141,11 +168,14 @@ h4,
 h5 {
   font-family: var(--sw-font-heading);
   color: var(--sw-ink);
-  font-weight: 600;
-  letter-spacing: -0.011em;
+  font-weight: var(--sw-weight-semibold);
+  /* Geometric faces need more negative tracking as they get larger. */
+  letter-spacing: -0.018em;
   margin: 0;
-  line-height: 1.25;
+  line-height: 1.22;
 }
+
+h1 { letter-spacing: -0.028em; }
 
 a {
   color: var(--sw-series-1);
@@ -176,12 +206,29 @@ button {
 
 /* ---- Utility: the small-caps label used on every field (§4) -------- */
 .sw-label {
+  display: inline-block;
   font-size: var(--sw-label-size);
   font-weight: var(--sw-label-weight);
   letter-spacing: var(--sw-label-tracking);
   text-transform: uppercase;
   color: var(--sw-muted);
   line-height: 1.4;
+  /* Poppins' uppercase sits high; nudge the optical baseline. */
+  font-feature-settings: 'case' 1;
+}
+
+/*
+ * Numbered section eyebrow, mirroring how the brand guide numbers its own
+ * sections. It is the cue that ties a screen to the document system.
+ */
+.sw-label[data-index]::before {
+  content: attr(data-index);
+  margin-right: 7px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--sw-card-strip);
+  color: var(--sw-slate);
+  font-variant-numeric: tabular-nums;
 }
 
 .sw-mono {
