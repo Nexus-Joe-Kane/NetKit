@@ -489,6 +489,12 @@ before quoting from it.
 
 ---
 
+## Outstanding work
+
+`HANDOVER.md` in this directory is the live list — everything outstanding,
+what is settled and will not change, and what is worth building next. The
+item below is the one that matters most.
+
 ## One thing still outstanding
 
 **Rotate the admin password.** It has never been in this repository — the
