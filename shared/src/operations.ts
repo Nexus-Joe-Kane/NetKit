@@ -674,6 +674,31 @@ export interface SimRecord {
   iccid: string;
   /** Zen service reference where the SIM is sold through Zen. */
   zenReference?: string;
+  /* ---- Whose SIM is this ------------------------------------------- *
+   * A SIM that is not attached to a customer is a number nobody can act
+   * on. Jola nest SIMs under a customer, so the answer is always known at
+   * fetch time -- it was simply being thrown away.
+   */
+  /** The provider's own customer id, for a per-customer call. */
+  clientId?: string;
+  /** The customer as the provider names them. */
+  clientName?: string;
+  /**
+   * The site or location, where the provider records one.
+   *
+   * Separate from `clientName` because a customer with eleven shops needs
+   * the shop, and a 5G backup SIM is only useful if somebody knows which
+   * building it is behind.
+   */
+  site?: string;
+  /**
+   * Free-text labels the provider holds against the SIM.
+   *
+   * Kept apart from `bars` on purpose. These used to be poured into the
+   * bars column when a SIM had no real bars, which put "Van 3" in a list of
+   * restrictions.
+   */
+  tags?: string[];
   msisdn?: string;
   imsi?: string;
   state: SimState;
@@ -698,6 +723,17 @@ export interface SimRecord {
   usagePeriodEnd?: string;
   /** Bars applied, e.g. data, voice, roaming. */
   bars?: string[];
+  /** The tariff or bundle name, where the provider gives one. */
+  tariff?: string;
+  /**
+   * Monthly recurring cost, in pence.
+   *
+   * Pence rather than pounds so nothing is lost rounding, and only ever
+   * present when the provider actually publishes it — a cost column filled
+   * with zeroes is worse than one that says the provider does not give us
+   * cost.
+   */
+  monthlyCostPence?: number;
   /** Current attach state, where the provider reports it. */
   attached?: boolean;
   lastSeenAt?: string;

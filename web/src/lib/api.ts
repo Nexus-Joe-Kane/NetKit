@@ -34,6 +34,7 @@ import type {
   ResolvedIdentifier,
   SearchResponse,
   SimEstate,
+  SimRecord,
   SiteReport,
   StabilityReport,
   UsageReport,
@@ -395,6 +396,15 @@ export const api = {
   /* ---- SIMs -------------------------------------------------------- */
 
   sims: () => request<Sourced & SimEstate>('/api/sims'),
+  /**
+   * One SIM, in full.
+   *
+   * Called when a SIM is opened, never per row: voice minutes, SMS counts and
+   * the usage period are one provider request each, and fetching them for a
+   * whole estate would hammer the API to fill columns nobody is reading.
+   */
+  simDetail: (identifier: string) =>
+    request<Sourced & { sim: SimRecord }>(`/api/sims/${encodeURIComponent(identifier)}`),
 
   /* ---- Tools ------------------------------------------------------- */
 

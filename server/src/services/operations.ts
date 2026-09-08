@@ -42,7 +42,7 @@ import * as assurance from '../providers/zen/assurance';
 import * as selfService from '../providers/zen/selfservice';
 import * as bt from '../providers/bt/adapters';
 import * as jola from '../providers/jola/adapters';
-import { notConfigured, upstream } from '../lib/errors';
+import { notConfigured, notFound, upstream } from '../lib/errors';
 import {
   companiesHouseConfigured,
   withPremisesDetail,
@@ -489,6 +489,27 @@ export async function simEstate(): Promise<Sourced<SimEstate>> {
   };
 
   return { data, mode: 'live' };
+}
+
+/**
+ * One SIM, in full.
+ *
+ * Separate from the estate on purpose. The estate listing carries the handful
+ * of fields a table needs; voice minutes, SMS counts and the usage period are
+ * one request per SIM, and doing that for a whole estate would hammer the
+ * provider to fill columns nobody is reading. So it happens when somebody
+ * actually opens a SIM, and only then.
+ */
+export function simDetail(identifier: string): Promise<Sourced<SimRecord>> {
+  return resolve({
+    key: 'jola-mobile-manager',
+    configured: jolaReady(),
+    live: async () => {
+      const sim = await jola.findJolaSim(identifier);
+      if (!sim) throw notFound(`No SIM matches "${identifier}".`);
+      return sim;
+    },
+  });
 }
 
 export function networkConnectivity(phoneNumber: string): Promise<Sourced<NetworkConnectivityCheck>> {

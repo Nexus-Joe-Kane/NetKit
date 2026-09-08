@@ -132,7 +132,17 @@ export function mapJolaCustomer(raw: unknown): JolaCustomer | null {
   };
 }
 
-export function mapJolaSim(raw: unknown): SimRecord | null {
+/**
+ * Words that mean a restriction rather than a label.
+ *
+ * `SimTag` is free text. Jola's portal is used for both -- some resellers put
+ * a barring state in it, most put the van or the shop -- so a tag becomes a
+ * bar only if it reads like one. Everything else stays a tag, which is where
+ * the site name usually is.
+ */
+const BAR_WORDS = /\b(bar|barred|barring|block|blocked|suspend|suspended|restrict|restricted|capped|disabled)\b/i;
+
+export function mapJolaSim(raw: unknown, customer?: JolaCustomer): SimRecord | null {
   const iccid = pickString(raw, 'iccid', 'ICCID', 'Iccid', 'iccId', 'simSerial');
   if (!iccid) return null;
 
@@ -142,17 +152,39 @@ export function mapJolaSim(raw: unknown): SimRecord | null {
   const allowanceMb = pickNumber(raw, 'DataAllowanceMb', 'dataAllowanceMb', 'tariffAllowanceMb', 'DataAllowance', 'tariffAllowance');
   const usedMb = pickNumber(raw, 'DataMb', 'dataMb', 'DataUsedMb', 'dataUsedMb', 'usageDataMb', 'DataUsed', 'dataUsed');
 
-  // `SimTag` is Jola's label field. Tags are shown as bars only when they
-  // read like one -- a free-text tag is not a barring state, and treating
-  // every tag as a bar would put "Van 3" in the bars column.
-  const tagRaw = pickArray(raw, 'SimTag', 'tags', 'Tags');
+  const tagRaw = pickArray(raw, 'SimTag', 'tags', 'Tags', 'Labels');
   const tags = tagRaw
-    .map((t) => (typeof t === 'string' ? t : pickString(t, 'name', 'value')))
+    .map((t) => (typeof t === 'string' ? t : pickString(t, 'name', 'value', 'tag')))
     .filter((t): t is string => Boolean(t));
+  // Some accounts put one label in a string rather than an array. Consulted
+  // only when the array form gave nothing: `pickString` on an array hands
+  // back its joined form, so reading both produced a phantom label of
+  // "Data barred,Head office" — which then matched the bar words and became
+  // a bar of its own.
+  if (tags.length === 0) {
+    const singleTag = pickString(raw, 'SimTag', 'tag', 'Tag', 'label', 'Label');
+    if (singleTag) tags.push(singleTag);
+  }
 
-  const bars = pickArray(raw, 'bars', 'barrings')
+  const declaredBars = pickArray(raw, 'bars', 'barrings', 'Bars', 'Barrings')
     .map((b) => (typeof b === 'string' ? b : pickString(b, 'name', 'type', 'bar')))
     .filter((b): b is string => Boolean(b));
+
+  // Tags that read like a restriction join the bars; the rest stay labels.
+  const bars = [...declaredBars, ...tags.filter((t) => BAR_WORDS.test(t))];
+  const labels = tags.filter((t) => !BAR_WORDS.test(t));
+
+  /*
+   * The site.
+   *
+   * An explicit field if the account has one; otherwise the first label,
+   * because that is where a site name lands in practice -- "Willow —
+   * Brockley Rise" typed into SimTag. A postcode-looking label is taken as
+   * the postcode instead, since that is a better answer to "where".
+   */
+  const explicitSite = pickString(raw, 'site', 'Site', 'siteName', 'SiteName', 'location', 'Location', 'group', 'Group');
+  const postcodeLike = labels.find((l) => /^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/i.test(l.trim()));
+  const site = explicitSite ?? labels.find((l) => l !== postcodeLike);
 
   return {
     iccid,
@@ -164,13 +196,39 @@ export function mapJolaSim(raw: unknown): SimRecord | null {
       : {}),
     ...(bytesFromMb(allowanceMb) != null ? { allowanceBytes: bytesFromMb(allowanceMb) } : {}),
     ...(bytesFromMb(usedMb) != null ? { usedBytes: bytesFromMb(usedMb) } : {}),
-    ...(bars.length ? { bars } : tags.length ? { bars: tags } : {}),
+    ...(bars.length ? { bars } : {}),
+    ...(labels.length ? { tags: labels } : {}),
+    // Whose SIM it is. Known from the customer this list was fetched under,
+    // so it is never a guess.
+    ...(customer ? { clientId: customer.id } : {}),
+    ...(customer?.name ? { clientName: customer.name } : {}),
+    ...(site ? { site } : {}),
     ...(pickBool(raw, 'attached', 'isAttached', 'online') != null
       ? { attached: pickBool(raw, 'attached', 'isAttached', 'online') }
       : {}),
     ...(pickString(raw, 'lastSeen', 'lastSeenAt', 'lastActivity')
       ? { lastSeenAt: pickString(raw, 'lastSeen', 'lastSeenAt', 'lastActivity') }
       : {}),
+    ...(pickString(raw, 'postcode', 'Postcode', 'postCode', 'sitePostcode')
+      ? { postcode: pickString(raw, 'postcode', 'Postcode', 'postCode', 'sitePostcode') }
+      : postcodeLike
+        ? { postcode: postcodeLike.trim().toUpperCase() }
+        : {}),
+    ...(pickString(raw, 'tariff', 'Tariff', 'tariffName', 'TariffName', 'bundle', 'Bundle', 'plan', 'Plan')
+      ? { tariff: pickString(raw, 'tariff', 'Tariff', 'tariffName', 'TariffName', 'bundle', 'Bundle', 'plan', 'Plan') }
+      : {}),
+    // Cost, only where Jola publish it. A pounds figure is converted rather
+    // than rounded, and an absent one stays absent — a cost column of zeroes
+    // is worse than one that admits the provider gives us nothing.
+    ...(pickNumber(raw, 'monthlyCostPence', 'MonthlyCostPence') != null
+      ? { monthlyCostPence: Math.round(pickNumber(raw, 'monthlyCostPence', 'MonthlyCostPence')!) }
+      : pickNumber(raw, 'monthlyCost', 'MonthlyCost', 'recurringCost', 'RecurringCost', 'price', 'Price') != null
+        ? {
+            monthlyCostPence: Math.round(
+              pickNumber(raw, 'monthlyCost', 'MonthlyCost', 'recurringCost', 'RecurringCost', 'price', 'Price')! * 100,
+            ),
+          }
+        : {}),
     ...(pickString(raw, 'apn', 'APN') ? { apn: pickString(raw, 'apn', 'APN') } : {}),
     ...(pickString(raw, 'ipAddress', 'ip', 'IpAddress') ? { ipAddress: pickString(raw, 'ipAddress', 'ip', 'IpAddress') } : {}),
     provider: 'Jola SIM Portal',
@@ -197,7 +255,7 @@ export async function fetchJolaEstate(): Promise<SimEstate> {
   const perCustomer = await Promise.all(
     customers.map(async (customer) => {
       const rows = await collect(`/api/v1/customers/${encodeURIComponent(customer.id)}/sims`, 'sims');
-      return rows.map(mapJolaSim).filter((s): s is SimRecord => s !== null);
+      return rows.map((row) => mapJolaSim(row, customer)).filter((s): s is SimRecord => s !== null);
     }),
   );
 

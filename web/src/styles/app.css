@@ -589,6 +589,15 @@
   color: var(--sw-crit-ink);
 }
 
+/* Amber for something worth looking at, so red keeps meaning "now". */
+.tabs--sub .tab[data-tone='warn'][aria-selected='true']::after {
+  background: var(--sw-warn);
+}
+
+.tabs--sub .tab[data-tone='warn'] {
+  color: var(--sw-warn-ink);
+}
+
 .tab__count {
   display: inline-block;
   margin-left: 6px;
@@ -2072,6 +2081,25 @@ table.data td.num {
   .print-report[data-density='tight'] td { padding: 1.5pt 3pt 1.5pt 0; }
   .print-report[data-density='tight'] .print-report__head dl { padding: 4pt 6pt; }
   .print-report[data-density='tight'] .print-report__foot { margin-top: 10pt; }
+  /* A reading the provider itself called a problem, on paper. Colour is set
+     with print-color-adjust on, so it survives a browser that strips
+     backgrounds — and it is not the only signal, because a mono printer
+     would lose it. */
+  .print-report .print-warn {
+    color: #8a5a00;
+    font-weight: 600;
+  }
+
+  .print-report .print-over {
+    color: #a3122a;
+    font-weight: 700;
+  }
+
+  .print-report .print-over::after {
+    content: ' (over)';
+    font-weight: 600;
+  }
+
 
   @page {
     size: A4;

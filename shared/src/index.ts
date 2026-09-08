@@ -16,3 +16,4 @@ export * from "./watches";
 export * from './companyRisk';
 export * from './areaCoverage';
 export * from './houseContact';
+export * from './simReportOptions';

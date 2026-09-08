@@ -13,8 +13,14 @@ export interface TabDef<T extends string> {
   label: string;
   /** Shown as a small pill after the label. Zero and undefined are hidden. */
   count?: number;
-  /** Colours the active underline — used to flag a section with a problem. */
-  tone?: 'crit';
+  /**
+   * Colours the active underline — used to flag a section with a problem.
+   *
+   * `warn` earns its place next to `crit`: a barred SIM needs looking at and
+   * one over its allowance costs money, and flagging both the same red makes
+   * neither mean anything.
+   */
+  tone?: 'crit' | 'warn';
   disabled?: boolean;
 }
 
