@@ -382,10 +382,44 @@ export interface MobileCoverage {
   notes: string[];
 }
 
+/**
+ * A cell site near the premises.
+ *
+ * Crowdsourced from OpenCelliD, and that provenance matters: these are
+ * positions inferred from handset reports rather than an operator's own
+ * asset register, so a site is roughly where this says and occasionally is
+ * not there at all. Useful for the question a coverage percentage cannot
+ * answer -- why does this customer have no signal when the area is fine --
+ * and not something to quote as fact.
+ */
+export interface MastSite {
+  /** The network, where the MCC/MNC pair is one we recognise. */
+  operator?: MobileOperator;
+  /** Raw mobile network code, kept so an unmapped operator is still visible. */
+  networkCode?: string;
+  /** `GSM`, `UMTS`, `LTE`, `NR`, as OpenCelliD label them. */
+  radio?: string;
+  latitude: number;
+  longitude: number;
+  distanceMetres: number;
+  /** How many handset reports position this site. Low counts are shakier. */
+  samples?: number;
+  /** OpenCelliD's own estimate of positional error, metres. */
+  rangeMetres?: number;
+  /** Cell identifiers, for anyone cross-checking with an operator. */
+  cellId?: string;
+  areaCode?: string;
+}
+
 export interface SignalReport {
   uprn?: string;
   address: AddressRecord;
   operators: MobileCoverage[];
+  /**
+   * Nearest cell sites, closest first. Absent when no coordinates were
+   * available for the premises or the provider is not configured.
+   */
+  masts?: MastSite[];
   /** Best indoor voice + data across all four networks, for the summary. */
   headline?: { bestIndoorVoice?: MobileOperator; bestIndoorData?: MobileOperator };
   checkedAt: string;

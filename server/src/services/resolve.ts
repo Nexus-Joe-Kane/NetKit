@@ -21,6 +21,7 @@ import { TtlCache } from '../lib/cache';
 import { badRequest, notFound, uprnNotFound } from '../lib/errors';
 import { firstResult, providers } from '../providers/registry';
 import { predictedSpeedsFor } from '../providers/coverage/ofcomBroadband';
+import { mastsNear } from '../providers/signal/openCellId';
 
 /**
  * The resolver.
@@ -424,13 +425,25 @@ function headlineFrom(offers: BroadbandOffer[]): BroadbandAvailability['headline
 
 async function signalFor(address: AddressRecord): Promise<{ value: SignalReport | null; status: SectionStatus }> {
   const started = Date.now();
-  const result = await firstResult(
-    providers().signal,
-    (p) => p.forAddress(address),
-    (v) => v.operators.length > 0,
-  );
+
+  // Coverage and cell sites are independent upstreams. Masts are never
+  // allowed to fail the section: they are context for a coverage figure, not
+  // the figure itself, and a premises with no recorded sites nearby is a
+  // legitimate answer rather than an error.
+  const [result, masts] = await Promise.all([
+    firstResult(
+      providers().signal,
+      (p) => p.forAddress(address),
+      (v) => v.operators.length > 0,
+    ),
+    mastsNear(address).catch(() => null),
+  ]);
+
   if (result.value === null) return { value: null, status: failed(result.errors) };
-  return { value: result.value, status: ok(result.mode, Date.now() - started) };
+  return {
+    value: { ...result.value, ...(masts && masts.length ? { masts } : {}) },
+    status: ok(result.mode, Date.now() - started),
+  };
 }
 
 /**

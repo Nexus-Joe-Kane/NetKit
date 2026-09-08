@@ -31,6 +31,7 @@ export interface ServiceStatus {
     | 'thinkbroadband'
     | 'Giacom'
     | 'Resend'
+    | 'OpenCelliD'
     | 'Internal';
   /** What this integration gives the portal. */
   capability: string;
@@ -415,6 +416,45 @@ function probes(): Probe[] {
       },
     },
 
+    // ---- OpenCelliD ------------------------------------------------------
+    {
+      key: 'opencellid',
+      name: 'OpenCelliD cell sites',
+      vendor: 'OpenCelliD',
+      capability:
+        'Nearest cell sites per operator — the context an area-level coverage figure cannot give. Crowdsourced positions, not an operator asset register',
+      docsUrl: 'https://opencellid.org/',
+      configured: () => cfg.openCellId.configured,
+      run: async () => {
+        // A small box over central Manchester: somewhere that certainly has
+        // recorded sites, so an empty answer means the query is wrong rather
+        // than the area being quiet.
+        const url = new URL(`${cfg.openCellId.baseUrl.replace(/\/$/, '')}${cfg.openCellId.searchPath}`);
+        url.searchParams.set('key', cfg.openCellId.apiKey);
+        url.searchParams.set('BBOX', '53.470,-2.255,53.490,-2.230');
+        url.searchParams.set('format', 'json');
+        url.searchParams.set('limit', '5');
+
+        const res = await fetchJson<{ cells?: unknown[]; result?: unknown[] }>(url.toString(), {
+          label: 'OpenCelliD',
+          timeoutMs: 8000,
+          retries: 0,
+          notFoundAsNull: true,
+        });
+
+        const rows = res?.cells ?? res?.result ?? [];
+        return rows.length
+          ? {
+              state: 'ok' as const,
+              detail: `Reachable and authenticated (${rows.length} sites at the probe location).`,
+            }
+          : {
+              state: 'degraded' as const,
+              detail:
+                'Reachable but no sites came back for a location that should have them — check OPENCELLID_SEARCH_PATH against their current documentation.',
+            };
+      },
+    },
   ];
 }
 

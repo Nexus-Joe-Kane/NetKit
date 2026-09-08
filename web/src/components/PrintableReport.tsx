@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react';
 import type { PrintSection, SiteReport } from '@sw/shared';
-import { printDensity } from '@sw/shared';
+import { formatDistance, printDensity } from '@sw/shared';
 import { formatMbps } from './ui';
 
 /**
@@ -182,6 +182,29 @@ export function PrintableReport({
           <p className="print-report__note">
             Ofcom predicted coverage, not a measurement. Local obstructions are not modelled.
           </p>
+
+          {report.signal.masts && report.signal.masts.length > 0 && (
+            <>
+              <h3>Nearest cell sites</h3>
+              <dl className="print-report__facts">
+                {[...new Map(
+                  report.signal.masts.map((m) => [m.operator ?? `Network ${m.networkCode ?? '?'}`, m] as const),
+                ).entries()].map(([operator, mast]) => (
+                  <div key={operator}>
+                    <dt>{operator}</dt>
+                    <dd>
+                      {formatDistance(mast.distanceMetres)}
+                      {mast.radio ? ` · ${mast.radio}` : ''}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+              <p className="print-report__note">
+                Crowdsourced from OpenCelliD — positions inferred from handset reports, not an operator asset
+                register. Indicative only.
+              </p>
+            </>
+          )}
         </section>
       )}
 

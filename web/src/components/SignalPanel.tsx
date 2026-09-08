@@ -3,6 +3,8 @@ import { useState } from 'react';
 import { gradeScore, type MobileCoverage, type MobileOperator, type SignalGrade, type SignalReport } from '@sw/shared';
 import { Card, Cell, Chip, Label, formatDate } from './ui';
 import { Tabs, TabPanel, type TabDef } from './Tabs';
+import { formatDistance } from '@sw/shared';
+import type { MastSite } from '@sw/shared';
 
 /**
  * Mobile signal, one card per network.
@@ -172,6 +174,8 @@ export function SignalPanel({ data }: { data: SignalReport }): ReactElement {
               guide rather than a measurement. A site that reads strong outdoors but weak indoors is usually solved
               with Wi-Fi calling before a repeater.
             </p>
+
+            {data.masts && data.masts.length > 0 && <NearestMasts masts={data.masts} />}
           </>
         )}
       </TabPanel>
@@ -253,6 +257,89 @@ function OperatorDetail({ coverage }: { coverage: MobileCoverage }): ReactElemen
           <span className="flag__detail">{note}</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * Nearest cell sites.
+ *
+ * This is the answer to the complaint an area-level coverage figure cannot
+ * settle: coverage here is "good" and the customer has no bars. Their
+ * network's nearest site being four kilometres away, when another operator
+ * has one at four hundred metres, is a recommendation rather than an
+ * argument.
+ *
+ * The provenance is stated in full rather than footnoted. These positions
+ * are inferred from handset reports, so a site is roughly where this says
+ * and occasionally is not there at all — quoting one to a customer as fact
+ * would be wrong.
+ */
+function NearestMasts({ masts }: { masts: MastSite[] }): ReactElement {
+  // Grouped by network, because the comparison between operators is the
+  // point rather than a flat list of the twelve closest.
+  const byOperator = new Map<string, MastSite[]>();
+  for (const mast of masts) {
+    const key = mast.operator ?? `Network ${mast.networkCode ?? 'unknown'}`;
+    byOperator.set(key, [...(byOperator.get(key) ?? []), mast]);
+  }
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <Label>Nearest cell sites</Label>
+      <div className="table-wrap" style={{ marginTop: 5 }}>
+        <table className="data">
+          <thead>
+            <tr>
+              <th>Network</th>
+              <th>Nearest</th>
+              <th>Also within range</th>
+              <th>Technology</th>
+              <th>Confidence</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[...byOperator.entries()].map(([operator, sites]) => {
+              const nearest = sites[0]!;
+              // Few handset reports means the position is a guess; a lot
+              // means several people's phones agree on it.
+              const samples = nearest.samples ?? 0;
+              const confidence = samples >= 50 ? 'ok' : samples >= 10 ? 'warn' : 'idle';
+              return (
+                <tr key={operator}>
+                  <td>
+                    <strong style={{ color: 'var(--sw-ink)' }}>{operator}</strong>
+                  </td>
+                  <td className="sw-mono" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+                    {formatDistance(nearest.distanceMetres)}
+                  </td>
+                  <td className="sw-mono" style={{ fontSize: 12 }}>
+                    {sites.length > 1
+                      ? sites
+                          .slice(1)
+                          .map((s) => formatDistance(s.distanceMetres))
+                          .join(', ')
+                      : '—'}
+                  </td>
+                  <td style={{ fontSize: 12 }}>
+                    {[...new Set(sites.map((s) => s.radio).filter(Boolean))].join(', ') || '—'}
+                  </td>
+                  <td>
+                    <Chip tone={confidence} title={`${samples} handset reports position this site`}>
+                      {samples >= 50 ? 'well reported' : samples >= 10 ? 'few reports' : 'sparse'}
+                    </Chip>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="muted" style={{ marginTop: 8, marginBottom: 0, fontSize: 11.5, lineHeight: 1.55 }}>
+        Positions are crowdsourced from OpenCelliD — inferred from handset reports, not an operator asset register.
+        Treat them as evidence for a conversation, not a fact to quote: a site is roughly where this says, and
+        occasionally is not there any more.
+      </p>
     </div>
   );
 }
