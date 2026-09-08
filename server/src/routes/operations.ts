@@ -662,6 +662,23 @@ export function operationsRouter(): Router {
     }),
   );
 
+  /**
+   * One SIM, with the figures the estate listing does not carry.
+   *
+   * Fetched when somebody opens a SIM rather than for every row, so the
+   * provider is not asked for voice and SMS totals across a whole estate to
+   * fill columns nobody is looking at.
+   */
+  router.get(
+    '/sims/:identifier',
+    handler(async (req) => {
+      const identifier = String(req.params.identifier ?? '').trim();
+      if (!identifier) throw badRequest('Provide an ICCID or a number.');
+      const result = await ops.simDetail(identifier);
+      return { sim: result.data, mode: result.mode };
+    }),
+  );
+
   /* ---- Tools ------------------------------------------------------- */
 
   router.get(

@@ -459,3 +459,18 @@ table.data tr.row--critical > td:first-child {
   max-height: 320px;
   overflow-y: auto;
 }
+
+/* The percentage beside the bytes, so both read at a glance. */
+.usage-pct {
+  margin-left: 8px;
+  font-weight: 600;
+  color: var(--sw-body);
+}
+
+.usage-pct--warn {
+  color: var(--sw-warn-ink);
+}
+
+.usage-pct--over {
+  color: var(--sw-crit-ink);
+}
