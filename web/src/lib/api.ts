@@ -38,6 +38,7 @@ import type {
   StabilityReport,
   UsageReport,
   CompanyDetail,
+  BulkResult,
 } from '@sw/shared';
 
 /** One premises or identifier this user looked up recently. */
@@ -310,6 +311,8 @@ export const api = {
   companies: (postcode: string) =>
     request<Sourced & CompanyContext>(`/api/tools/companies?postcode=${encodeURIComponent(postcode)}`),
   /** The full register record for one company. Fetched only when opened. */
+  /** Many premises at once. Costs one unit of the daily budget per row. */
+  bulkLookup: (text: string) => post<BulkResult>('/api/tools/bulk', { text }),
   companyDetail: (companyNumber: string) =>
     request<Sourced & CompanyDetail>(`/api/tools/companies/${encodeURIComponent(companyNumber)}`),
 

@@ -9,3 +9,4 @@ export * from "./addressMatch";
 export * from "./rate";
 export * from "./companies";
 export * from "./sla";
+export * from "./bulk";

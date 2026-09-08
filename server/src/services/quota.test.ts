@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { consumeQuota, quotaState, refundQuota, quotaSummary, resetQuota } from './quota';
+import { consumeQuota, quotaState, refundQuota, quotaSummary, resetQuota, quotaLimit, quotaUsed } from './quota';
 
 /**
  * The quota module reads `DATA_DIR` through the config singleton, which
@@ -79,3 +79,25 @@ test('the summary lists what was spent, biggest first', () => {
 });
 
 test.after(() => rmSync(dir, { recursive: true, force: true }));
+
+test('a check followed immediately by a spend cannot exceed the limit', () => {
+  // The invariant the bulk runner depends on. Its first version checked the
+  // budget, awaited the work, then spent -- so three concurrent workers all
+  // read the same remaining count and a run of six overspent a budget of
+  // four. The fix is that nothing may come between the check and the spend,
+  // and this pins the arithmetic that makes it safe.
+  const user = 'quota-race-probe';
+  const limit = quotaLimit('availability');
+  assert.ok(limit > 0, 'this test needs a finite limit');
+
+  let spent = 0;
+  for (let i = 0; i < limit + 10; i += 1) {
+    if (!quotaState('availability', user).allowed) continue;
+    consumeQuota('availability', user);
+    spent += 1;
+  }
+
+  assert.equal(spent, limit, 'exactly the limit should be spendable');
+  assert.equal(quotaUsed('availability', user), limit);
+  assert.equal(quotaState('availability', user).allowed, false);
+});

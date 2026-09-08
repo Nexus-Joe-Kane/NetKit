@@ -1,11 +1,12 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
-import { confirmMatches, formatPostcode, identify, normaliseCli, type ApiResult, type LineTestType } from '@sw/shared';
+import { confirmMatches, formatPostcode, identify, normaliseCli, type ApiResult, type LineTestType, parseBulkInput } from '@sw/shared';
 import { badRequest, forbidden, notFound, rateLimited } from '../lib/errors';
 import { consumeQuota, refundQuota } from '../services/quota';
 import { addressByUprn, addressesByPostcode } from '../services/resolve';
 import * as ops from '../services/operations';
 import { audit } from '../auth/store';
+import { runBulkLookup } from '../services/bulk';
 
 /**
  * Operational routes: network status, faults, diagnostics, orders, SIMs and
@@ -629,6 +630,39 @@ export function operationsRouter(): Router {
       if (!number) throw badRequest('Provide a company number.');
       const result = await ops.companyDetail(number);
       return { ...result.data, mode: result.mode };
+    }),
+  );
+
+  /* ---- Bulk lookup -------------------------------------------------- */
+
+  router.post(
+    '/tools/bulk',
+    handler(async (req) => {
+      const body = z
+        .object({ text: z.string().max(20_000).optional(), entries: z.array(z.string()).optional() })
+        .parse(req.body ?? {});
+
+      // Either a pasted block or an already-split list, so the endpoint is
+      // usable from a script as well as from the textarea.
+      const entries = body.entries?.length
+        ? parseBulkInput(body.entries.join('\n'))
+        : parseBulkInput(body.text ?? '');
+
+      const result = await runBulkLookup(entries, req.user?.id ?? 'anonymous');
+
+      audit({
+        action: 'bulk.lookup',
+        actorId: req.user?.id,
+        actorEmail: req.user?.email,
+        detail: {
+          requested: result.requested,
+          completed: result.completed,
+          skippedForBudget: result.skippedForBudget,
+        },
+        ip: req.ip,
+      });
+
+      return result;
     }),
   );
 
