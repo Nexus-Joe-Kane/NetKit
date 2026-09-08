@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement, type ReactNode } from 'react';
+import { useTabRoute } from '../lib/route';
 import {
   ApiClientError,
   api,
@@ -55,8 +56,12 @@ const STATE_LABEL: Record<ServiceState, string> = {
 
 type Tab = 'status' | 'ordering' | 'recovery' | 'users' | 'audit';
 
+const TABS = ['status', 'ordering', 'recovery', 'users', 'audit'] as const;
+
 export function AdminPortal({ me }: { me: PublicUser }): ReactElement {
-  const [tab, setTab] = useState<Tab>('status');
+  // The open tab lives in the URL, so a refresh or a pasted link comes back
+  // to the same one.
+  const [tab, setTab] = useTabRoute<Tab>('admin', TABS, 'status');
 
   const tabs: Array<TabDef<Tab>> = [
     { id: 'status', label: 'Service status' },

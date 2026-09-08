@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactElement } from 'react';
 import type { Incident, IncidentImpact, IncidentState, ProviderNotification } from '@sw/shared';
+import { useTabRoute } from '../lib/route';
 import { ApiClientError, api } from '../lib/api';
 import { Alert, Card, Cell, Chip, Label, Spinner, formatDate, formatDateTime, type ChipTone } from '../components/ui';
 import { Tabs, TabPanel, type TabDef } from '../components/Tabs';
@@ -51,6 +52,8 @@ const STATE_TONE: Record<IncidentState, ChipTone> = {
 
 type Tab = 'outages' | 'planned' | 'notices' | 'history';
 
+const TABS = ['outages', 'planned', 'notices', 'history'] as const;
+
 const NOTICE_TONE: Record<ProviderNotification['severity'], ChipTone> = {
   critical: 'crit',
   warn: 'warn',
@@ -59,7 +62,9 @@ const NOTICE_TONE: Record<ProviderNotification['severity'], ChipTone> = {
 };
 
 export function NetworkStatusPage(): ReactElement {
-  const [tab, setTab] = useState<Tab>('outages');
+  // The open tab lives in the URL, so a refresh or a pasted link comes back
+  // to the same one.
+  const [tab, setTab] = useTabRoute<Tab>('network', TABS, 'outages');
   const [current, setCurrent] = useState<{ outages: Incident[]; plannedWork: Incident[] } | null>(null);
   const [past, setPast] = useState<{ outages: Incident[]; plannedWork: Incident[] } | null>(null);
   const [mode, setMode] = useState<'live'>('live');

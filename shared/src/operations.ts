@@ -715,9 +715,30 @@ export interface SimPool {
   overageBytes?: number;
 }
 
+/** One vendor's contribution to the estate, and whether it answered. */
+export interface SimProviderResult {
+  /** Vendor label, e.g. `Jola Mobile Manager`. */
+  name: string;
+  /** How many SIMs this vendor returned. */
+  count: number;
+  /** Set when the vendor did not answer. The estate still shows the rest. */
+  error?: string;
+  /** False when the vendor has no credentials configured at all. */
+  configured: boolean;
+}
+
 export interface SimEstate {
   sims: SimRecord[];
   pool?: SimPool;
+  /**
+   * Per-vendor outcome.
+   *
+   * Jola and Zen are separate accounts, not one behind the other, so one
+   * being down must not read as an empty estate. This is what lets the page
+   * say "Jola: 236 SIMs, Zen: 401 Unauthorized" rather than showing nothing
+   * and blaming whichever was tried first.
+   */
+  providers?: SimProviderResult[];
   checkedAt: string;
   sources: string[];
 }
