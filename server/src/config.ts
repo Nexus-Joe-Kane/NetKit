@@ -313,7 +313,6 @@ export interface AppConfig {
   };
   osPlaces: { apiKey: string; baseUrl: string; configured: boolean };
   postcodesIo: { baseUrl: string; enabled: boolean };
-  signal: { baseUrl: string; apiKey: string; configured: boolean };
   version: string;
 }
 
@@ -367,8 +366,6 @@ function resolveDataDir(): string {
 export function config(): AppConfig {
   if (cached) return cached;
   const osKey = str('OS_PLACES_API_KEY');
-  const signalKey = str('SIGNAL_API_KEY');
-  const signalBase = str('SIGNAL_API_BASE_URL');
   cached = {
     env: (str('NODE_ENV', 'development') as AppConfig['env']),
     port: num('PORT', 3000),
@@ -440,7 +437,6 @@ export function config(): AppConfig {
       baseUrl: str('POSTCODES_IO_BASE_URL', 'https://api.postcodes.io'),
       enabled: bool('POSTCODES_IO_ENABLED', true),
     },
-    signal: { baseUrl: signalBase, apiKey: signalKey, configured: Boolean(signalBase) },
     version: str('APP_VERSION', '1.0.0'),
   };
   return cached;
