@@ -15,6 +15,7 @@ import { clearOpenCellIdCache } from '../providers/signal/openCellId';
 import { clearThinkbroadbandCache } from '../providers/altnet/thinkbroadband';
 import { resetGiacomTokens } from '../providers/giacom/client';
 import { clearGiacomCaches } from '../providers/giacom/adapters';
+import { sweepWatches } from '../services/watchSweep';
 
 /**
  * The recovery supervisor.
@@ -396,6 +397,17 @@ export async function sweep(): Promise<SweepResult> {
 
     lastSweepAt = result.at;
     sweepCount += 1;
+
+    // Watched premises ride the same interval rather than a timer of their
+    // own. They are due once a day and the supervisor already runs, so a
+    // second scheduler would be two things to reason about instead of one.
+    // Never allowed to fail the sweep: the recovery board matters more than
+    // a background re-check.
+    try {
+      await sweepWatches();
+    } catch {
+      // A failing watch records its own error against the watch itself.
+    }
   } finally {
     running = false;
   }

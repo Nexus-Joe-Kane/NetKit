@@ -248,3 +248,43 @@ button {
     scroll-behavior: auto !important;
   }
 }
+
+/* ---- Watched premises ---------------------------------------------- *
+ * One row per watch. The row is a card in miniature rather than a table
+ * line, because a change list has no sensible column.
+ */
+.watch-row {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border: 1px solid var(--sw-hairline);
+  border-radius: 10px;
+  background: var(--sw-white);
+}
+
+.watch-row__main {
+  min-width: 0;
+}
+
+.watch-row__address {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--sw-ink);
+  line-height: 1.4;
+}
+
+.watch-row__changes {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--sw-body);
+}
+
+@media (max-width: 640px) {
+  .watch-row {
+    flex-direction: column;
+  }
+}

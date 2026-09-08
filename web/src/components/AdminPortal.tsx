@@ -134,7 +134,7 @@ function StatusBoard(): ReactElement {
           <>
             <p>
               Lookups will stop using this integration immediately. Anything it provides falls through to the next
-              provider in the chain, or to demo data.
+              provider in the chain — and where it is the only provider, that section will say it is unavailable.
             </p>
             <p className="muted" style={{ fontSize: 12.5, marginBottom: 0 }}>
               {service.capability}

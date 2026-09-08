@@ -1,12 +1,13 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 import { confirmMatches, formatPostcode, identify, normaliseCli, type ApiResult, type LineTestType, parseBulkInput } from '@sw/shared';
-import { badRequest, forbidden, notFound, rateLimited } from '../lib/errors';
+import { badRequest, forbidden, notFound, rateLimited, uprnNotFound } from '../lib/errors';
 import { consumeQuota, refundQuota } from '../services/quota';
-import { addressByUprn, addressesByPostcode } from '../services/resolve';
+import { addressByUprn, addressesByPostcode, buildSiteReport } from '../services/resolve';
 import * as ops from '../services/operations';
 import { audit } from '../auth/store';
 import { runBulkLookup } from '../services/bulk';
+import { addWatch, listWatches, removeWatch } from '../services/watches';
 
 /**
  * Operational routes: network status, faults, diagnostics, orders, SIMs and
@@ -630,6 +631,49 @@ export function operationsRouter(): Router {
       if (!number) throw badRequest('Provide a company number.');
       const result = await ops.companyDetail(number);
       return { ...result.data, mode: result.mode };
+    }),
+  );
+
+  /* ---- Watched premises --------------------------------------------- */
+
+  router.get(
+    '/watches',
+    handler(async (req) => ({ watches: listWatches(req.user?.id ?? 'anonymous') })),
+  );
+
+  router.post(
+    '/watches',
+    handler(async (req) => {
+      const { uprn } = z.object({ uprn: z.string().min(1) }).parse(req.body ?? {});
+      const address = await addressByUprn(uprn);
+      if (!address) throw uprnNotFound(uprn);
+
+      // The report is built here rather than taken from the client, so the
+      // snapshot a watch is judged against is one the server produced.
+      const report = await buildSiteReport(address, identify(uprn), { includeSiblings: false });
+      const result = addWatch(req.user?.id ?? 'anonymous', report);
+      if (!result.ok) throw badRequest(result.message);
+
+      audit({
+        action: 'watch.added',
+        actorId: req.user?.id,
+        actorEmail: req.user?.email,
+        detail: { uprn, address: address.singleLine },
+        ip: req.ip,
+      });
+
+      return { watch: result.watch };
+    }),
+  );
+
+  router.delete(
+    '/watches/:id',
+    handler(async (req) => {
+      const id = String(req.params.id ?? '');
+      const removed = removeWatch(req.user?.id ?? 'anonymous', id);
+      if (!removed) throw notFound('No such watch.');
+      audit({ action: 'watch.removed', actorId: req.user?.id, actorEmail: req.user?.email, detail: { id }, ip: req.ip });
+      return { removed: true };
     }),
   );
 

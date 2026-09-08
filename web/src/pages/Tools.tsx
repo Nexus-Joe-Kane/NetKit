@@ -30,6 +30,7 @@ import {
 import type { CsvColumn } from '../lib/csv';
 import { Modal } from '../components/overlay';
 import { BulkLookup } from '../components/BulkLookup';
+import { WatchPanel } from '../components/WatchPanel';
 
 /**
  * Tools — the standalone lookups that are not about one site.
@@ -87,7 +88,7 @@ function addressQuery(
   };
 }
 
-export function ToolsPage(): ReactElement {
+export function ToolsPage({ onOpenSite }: { onOpenSite?: (uprn: string) => void }): ReactElement {
   const [active, setActive] = useState<ToolDef | null>(null);
 
   const tools: ToolDef[] = [
@@ -215,6 +216,8 @@ export function ToolsPage(): ReactElement {
       </Card>
 
       <BulkLookup />
+
+      <WatchPanel {...(onOpenSite ? { onOpenSite } : {})} />
 
       <div className="tool-grid">
         {tools.map((tool) => (

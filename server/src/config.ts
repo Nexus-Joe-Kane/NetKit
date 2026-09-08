@@ -266,7 +266,7 @@ export interface AppConfig {
   /**
    * The recovery supervisor: probes every integration on an interval and
    * tries to fix what it can. On by default — an internal tool that quietly
-   * serves demo data because a token expired is worse than one that notices.
+   * stops answering because a token expired is worse than one that notices.
    */
   supervisor: {
     enabled: boolean;

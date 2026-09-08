@@ -71,7 +71,7 @@ export function BulkLookup(): ReactElement {
 
   return (
     <div className="stack stack--tight">
-      <Card title="Bulk lookup" eyebrow="Many premises at once" index="01" accent={1}>
+      <Card title="Bulk lookup" eyebrow="Many premises at once" index="02" accent={1}>
         <div className="stack stack--tight">
           <div>
             <Label>Postcodes, UPRNs, addresses, CLIs — one per line</Label>
@@ -133,7 +133,7 @@ function BulkResults({ result }: { result: BulkResult }): ReactElement {
     <Card
       title="Results"
       eyebrow={`${result.completed} of ${result.requested} checked in ${Math.round(result.durationMs / 1000)}s`}
-      index="02"
+      index="03"
       accent={2}
       flush
       meta={<ExportButtons rows={result.rows} columns={COLUMNS} filenamePrefix="bulk-lookup" label="these results" />}

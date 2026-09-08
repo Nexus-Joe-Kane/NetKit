@@ -479,12 +479,21 @@ integer and NetKit carries it as a string, so the comparison is stringified;
 a mismatch there would silently downgrade every lookup to a postcode average,
 and there is a test pinning it.
 
-### There is no Ofcom mobile API
+### The mobile API is not on this portal
 
-Worth stating because it looks like there should be. Community client
-libraries reference Mobile Coverage products, but Ofcom's portal now offers
-**Broadband Coverage (Basic) and (Premium) only**. Mobile coverage comes from
-the Connected Nations dataset file. A speculative live-endpoint branch for a
-mobile API was removed from `signal/ofcom.ts` for this reason — it also used
-the wrong subscription header, and code that can never run is worse than no
-code because it makes an unused environment variable look meaningful.
+Worth stating because it caused a wrong claim in an earlier version of this
+document. `api.ofcom.org.uk` — the portal the broadband key comes from — now
+offers **Broadband Coverage (Basic) and (Premium) only**, so no mobile
+product can be requested there. There *is* an Ofcom mobile coverage API; it
+lives on a different platform, and a request for access has been submitted.
+
+Until the paperwork comes back, mobile coverage comes from the Connected
+Nations dataset file via `OFCOM_DATASET_PATH`, and the `Ofcom mobile
+coverage` probe on the status board says what it is waiting for.
+
+A speculative live-endpoint branch for a mobile API was removed from
+`signal/ofcom.ts`, because it was written against a guessed path with the
+wrong subscription header and could never have worked. Code that can never
+run is worse than no code: it makes an unused environment variable look
+meaningful. When the real documentation arrives — base URL, auth header and
+field names — wiring it is a short job against `signal/ofcom.ts`.

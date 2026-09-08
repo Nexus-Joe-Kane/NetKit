@@ -254,8 +254,8 @@ export function OrderFlow({ availability, offer, onClose, onPlaced }: OrderFlowP
               <span>
                 <strong>Rehearsal — nothing will be sent</strong>
                 <span className="flag__detail">
-                  No provider ordering credentials are configured, so this walks the whole flow and then refuses. The
-                  pricing below is demo data. Your daily cap is not charged.
+                  No provider ordering credentials are configured, so this walks the whole flow and then refuses.
+                  Nothing is sent to a supplier and your daily cap is not charged.
                 </span>
               </span>
             </div>

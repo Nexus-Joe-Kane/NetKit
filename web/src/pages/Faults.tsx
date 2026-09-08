@@ -103,7 +103,7 @@ export function FaultsPage(): ReactElement {
       {error && <Alert tone="error">{error}</Alert>}
       {providerError && (
         <Alert tone="warn">
-          <span>Showing demo data — the live call failed: {providerError}</span>
+          <span>This is incomplete — the live call failed: {providerError}</span>
         </Alert>
       )}
 
