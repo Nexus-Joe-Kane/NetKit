@@ -465,8 +465,14 @@ export interface LineRecord {
     status: string;
   }>;
 
-  /** Where we found this line — matters when Zen doesn't own it. */
-  discoveredVia: 'zen' | 'openreach' | 'cross-provider' | 'mock';
+  /**
+   * Where we found this line — matters when Zen doesn't own it.
+   *
+   * `giacom` is named rather than folded into `cross-provider` because it is
+   * the second wholesale account: knowing which supplier a line sits on is
+   * knowing who to ring about it.
+   */
+  discoveredVia: 'zen' | 'giacom' | 'openreach' | 'cross-provider' | 'mock';
   notes: string[];
 }
 

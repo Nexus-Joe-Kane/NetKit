@@ -11,6 +11,8 @@ import { loadDataset } from '../providers/signal/ofcom';
 import { clearReportCache } from '../services/resolve';
 import { clearCompaniesCache } from '../providers/companies/companiesHouse';
 import { clearThinkbroadbandCache } from '../providers/altnet/thinkbroadband';
+import { resetGiacomTokens } from '../providers/giacom/client';
+import { clearGiacomCaches } from '../providers/giacom/adapters';
 
 /**
  * The recovery supervisor.
@@ -130,6 +132,18 @@ function recoveryActionsFor(key: string): RecoveryAction[] {
 
   if (key === 'os-places') {
     return [{ name: 'Drop cached OS Places results', run: () => clearOsPlacesCache() }];
+  }
+
+  if (key.startsWith('giacom-')) {
+    return [
+      {
+        // Same story as Zen: an expired, revoked or pre-scope token is the
+        // most common real failure, and re-minting fixes it unnoticed.
+        name: 'Re-mint the Giacom OAuth token',
+        run: () => resetGiacomTokens(),
+      },
+      { name: 'Drop cached Giacom results', run: () => clearGiacomCaches() },
+    ];
   }
 
   if (key === 'thinkbroadband') {

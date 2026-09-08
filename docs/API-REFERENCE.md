@@ -309,3 +309,90 @@ self-test fails if any unchecked row claims `available`.
 | **CityFibre** direct | TM Forum Open APIs, well documented at `docs.cityfibre.com` | One network, needs a partner agreement |
 | **G.Network** direct | Availability-checker API via their reseller programme | One network, needs a partner agreement. The only route that covers G.Network |
 | **Ofcom Connected Nations** | Free, no account | Publishes gigabit-capable coverage only, with the per-operator split withheld for commercial confidentiality. Cannot name a network |
+
+---
+
+## Giacom (formerly Digital Wholesale Solutions) — the second wholesale supplier
+
+`https://docs.integrations.giacom.com/` — TM Forum Open APIs, OAuth 2.0
+client credentials.
+
+**Why it is here.** Zen answers authoritatively for Openreach and nothing
+else. Giacom carry **BT Wholesale, CityFibre, TalkTalk Business, Virgin Media
+Business and Sky Business**, so the same premises can be sellable through two
+accounts at different prices. Their answers are *merged* into the site report
+as separate rows tagged by supplier, rather than one replacing the other.
+
+### Endpoints (from their published OpenAPI document — 25 paths in total)
+
+| Method | Path | Used for |
+| --- | --- | --- |
+| `GET` | `/service`, `/service/{id}` | **Service inventory** — live *and* ceased lines. This is how a Giacom-supplied line appears at a premises at all |
+| `POST` | `/geographicAddressValidation` | Address matching against BT Wholesale, returning the Openreach **ALK** |
+| `POST` | `/geographicAddress` | Address search |
+| `GET` | `/serviceSpecification`, `/serviceSpecification/{id}` | Product catalogue |
+| `GET` | `/resource`, `/resourceSpecification` | CPE and resource inventory |
+| `POST`/`GET`/`PATCH` | `/serviceOrder`, `/serviceOrder/{id}` | Ordering — **deliberately not wired** |
+| `GET`/`POST` | `/cancelServiceOrder` | Order cancellation — not wired |
+| `POST` | `/appointment`, `/searchTimeSlot` | Appointment booking |
+| `POST` | `/topic/default/hub`, `/listener/*` | Webhook subscriptions and event listeners |
+
+### Environments
+
+| | Base URL | Token URL |
+| --- | --- | --- |
+| Production | `https://api.integrations.giacom.com/v2` | `https://auth.integrations.giacom.com/oauth2/token` |
+| UAT | `https://api.uat.integrations.giacom.com/v2` | `https://auth.uat.integrations.giacom.com/oauth2/token` |
+
+`GIACOM_ENVIRONMENT=uat` switches both.
+
+### Scopes
+
+Giacom define 21 scopes and grant them **individually**, so a credential that
+works for the service inventory can still be refused serviceability. Tokens
+cache per scope, and the admin board probes each capability separately rather
+than reporting "Giacom" as one thing.
+
+Used here: `serviceInventory.read`, `serviceCatalogue.read`,
+`resourceInventory.read`, `address.manage`, `serviceQualification.read`,
+`serviceQualification.submit`.
+
+### Two gaps, established by reading their spec
+
+**1. There is no fault or diagnostics API.** No TMF621 trouble ticket, no
+service test, no line test — confirmed by parsing their OpenAPI document
+(`troubleTicket`: 0 mentions, `diagnostic`: 0, `serviceTest`: 0). A
+Giacom-supplied line can be listed and inspected, but raising a fault and
+testing a line stay Zen-only. Every Giacom line carries a note saying so,
+because someone will go looking for the test button.
+
+**2. ServiceQualification exists as an entity but has no published path.**
+`integrations/serviceQualification.read` and `.submit` are both in their OAuth
+scope list, yet no `/serviceQualification` path appears in the public
+document — so it is granted and documented per tenant.
+
+> **Action for whoever holds the Giacom relationship:** ask them to enable
+> `serviceQualification` and send the endpoint path. Set
+> `GIACOM_QUALIFICATION_PATH` and per-address availability across all five of
+> their networks goes live immediately. Until then the adapter reads inventory
+> and catalogue only and **never claims availability** — the path is not
+> guessed, because a confident 404 would read as "no coverage".
+
+### Mapping notes
+
+TM Forum puts the interesting fields inside
+`serviceCharacteristic: [{name, value}]` rather than at the top level, and
+nests `{value: {value: …}}` often enough to matter — both are handled. Enum
+mappings are conservative: an unrecognised lifecycle state becomes `unknown`
+rather than being optimistically called active, and an unrecognised
+qualification result is `unknown` rather than available.
+
+The supplier decides the *operator*, not the brand selling it: BT Wholesale,
+TalkTalk and Sky all ride Openreach, so those come through as Openreach with
+the supplier named separately. CityFibre and Virgin Media Business are their
+own networks.
+
+Product-name matching is ordered specific-first, because several names
+contain the others — `EoFTTC` contains `FTTC`, and matching the general one
+first mislabels every Ethernet first-mile circuit as a broadband line. The
+tests pin that.

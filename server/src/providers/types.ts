@@ -29,17 +29,24 @@ export interface AvailabilityProvider extends ProviderMeta {
 }
 
 /**
- * Alt-net and cable coverage — everything that is not sold through the
- * wholesale chain we buy from.
+ * Extra options at a premises, beyond the primary wholesale chain.
  *
- * Deliberately a separate capability rather than part of `AvailabilityProvider`.
- * Wholesale availability is first-usable-wins, because Zen's answer for
- * Openreach is authoritative and a second opinion adds nothing. Alt-net
- * coverage is *additive*: no single source knows about all of CityFibre,
- * Virgin Media, Community Fibre and G.Network, so these results are merged
- * into the report rather than competing to replace it.
+ * Two kinds of thing land here, and both are *additive* rather than
+ * competing:
+ *
+ * - **Alt-net and cable coverage** — CityFibre, Virgin Media, Community
+ *   Fibre, G.Network. No single source knows about all of them.
+ * - **A second wholesale supplier** — Giacom carry BT Wholesale, CityFibre,
+ *   TalkTalk and Virgin Media Business, so the same premises can be sellable
+ *   through more than one account at different prices.
+ *
+ * Deliberately separate from `AvailabilityProvider`, which is
+ * first-usable-wins: Zen's Openreach answer is authoritative and a second
+ * opinion on it only contradicts confusingly. These results are merged into
+ * the report, deduped per operator+technology, with the source that actually
+ * checked the address winning over one that only knows the footprint.
  */
-export interface AltnetProvider extends ProviderMeta {
+export interface OfferProvider extends ProviderMeta {
   forAddress(address: AddressRecord): Promise<BroadbandOffer[]>;
 }
 

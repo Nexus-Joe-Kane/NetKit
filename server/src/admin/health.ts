@@ -1,9 +1,10 @@
-import { config, type ZenScope } from '../config';
+import { config, type GiacomScope, type ZenScope } from '../config';
 import { zenPing } from '../providers/zen/client';
 import { zenAvailabilityQuota } from '../providers/zen/adapters';
 import { isProviderEnabled, settings } from '../auth/store';
 import { fetchJson } from '../lib/http';
 import { datasetStatus } from '../providers/signal/ofcom';
+import { giacomPing } from '../providers/giacom/client';
 
 /**
  * Service status for the admin portal.
@@ -28,6 +29,7 @@ export interface ServiceStatus {
     | 'postcodes.io'
     | 'Companies House'
     | 'thinkbroadband'
+    | 'Giacom'
     | 'Resend'
     | 'Internal';
   /** What this integration gives the portal. */
@@ -66,6 +68,27 @@ const zenScopeProbe = (key: string, name: string, capability: string, scope: Zen
   configured: () => config().zen.configured && config().zen.scopes.includes(scope),
   run: async () => {
     const result = await zenPing(scope);
+    return result.ok
+      ? { state: 'ok' as const, detail: `Authenticated for ${scope}.` }
+      : { state: 'down' as const, detail: result.detail };
+  },
+});
+
+/**
+ * Giacom grant each of their twenty-one scopes individually, so every
+ * capability gets its own probe. A credential that works for the service
+ * inventory can still be refused serviceability, and the board should say
+ * which one rather than reporting "Giacom" as one thing.
+ */
+const giacomScopeProbe = (key: string, name: string, capability: string, scope: GiacomScope): Probe => ({
+  key,
+  name,
+  vendor: 'Giacom',
+  capability,
+  docsUrl: 'https://docs.integrations.giacom.com/',
+  configured: () => config().giacom.configured && config().giacom.scopes.includes(scope),
+  run: async () => {
+    const result = await giacomPing(scope);
     return result.ok
       ? { state: 'ok' as const, detail: `Authenticated for ${scope}.` }
       : { state: 'down' as const, detail: result.detail };
@@ -127,6 +150,34 @@ function probes(): Probe[] {
         };
       },
     },
+
+    // ---- Giacom ---------------------------------------------------------
+    // Scopes are granted individually, so each capability is probed
+    // separately: a working credential can still be refused one scope.
+    giacomScopeProbe(
+      'giacom-services',
+      'Giacom — Service inventory',
+      'Live and ceased services on the Giacom account, so a premises shows lines from both suppliers',
+      'integrations/serviceInventory.read',
+    ),
+    giacomScopeProbe(
+      'giacom-qualification',
+      'Giacom — Serviceability',
+      'Per-address availability across BT Wholesale, CityFibre, TalkTalk and Virgin Media Business',
+      'integrations/serviceQualification.submit',
+    ),
+    giacomScopeProbe(
+      'giacom-address',
+      'Giacom — Address matching',
+      'BT Wholesale address validation, returning the Openreach ALK for cross-checking Zen',
+      'integrations/address.manage',
+    ),
+    giacomScopeProbe(
+      'giacom-catalogue',
+      'Giacom — Product catalogue',
+      'Service specifications: what the Giacom account can sell',
+      'integrations/serviceCatalogue.read',
+    ),
 
     // ---- thinkbroadband -------------------------------------------------
     {

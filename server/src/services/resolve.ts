@@ -182,8 +182,8 @@ export async function allLinesAtPremises(
  * replacing the first. A provider that fails is skipped: partial coverage
  * beats none, and the report says which sources answered.
  */
-async function altnetOffersFor(address: AddressRecord): Promise<{ offers: BroadbandOffer[]; sources: string[] }> {
-  const chain = providers().altnet;
+async function supplementalOffersFor(address: AddressRecord): Promise<{ offers: BroadbandOffer[]; sources: string[] }> {
+  const chain = providers().offers;
   if (!chain.length) return { offers: [], sources: [] };
 
   const settled = await Promise.all(
@@ -226,26 +226,26 @@ async function availabilityFor(
   const started = Date.now();
   // Wholesale and alt-net are fetched together: they are independent
   // upstreams and one should never wait on the other.
-  const [result, altnet] = await Promise.all([
+  const [result, supplemental] = await Promise.all([
     firstResult(
       providers().availability,
       (p) => p.forAddress(address),
       (v) => v.offers.length > 0 || Boolean(v.openreach),
     ),
-    altnetOffersFor(address),
+    supplementalOffersFor(address),
   ]);
 
   if (result.value === null) {
     // Coverage alone is still worth showing — it answers "is there any
     // gigabit here at all" even when the wholesale check failed.
-    if (!altnet.offers.length) return { value: null, status: failed(result.errors) };
+    if (!supplemental.offers.length) return { value: null, status: failed(result.errors) };
     return {
       value: {
         ...(address.uprn ? { uprn: address.uprn } : {}),
         address,
-        offers: sortOffers(altnet.offers),
+        offers: sortOffers(supplemental.offers),
         checkedAt: new Date().toISOString(),
-        sources: altnet.sources,
+        sources: supplemental.sources,
       },
       status: ok('live', Date.now() - started),
     };
@@ -253,8 +253,8 @@ async function availabilityFor(
 
   const value: BroadbandAvailability = {
     ...result.value,
-    offers: sortOffers([...result.value.offers, ...altnet.offers]),
-    sources: [...result.value.sources, ...altnet.sources],
+    offers: sortOffers([...result.value.offers, ...supplemental.offers]),
+    sources: [...result.value.sources, ...supplemental.sources],
   };
   return { value, status: ok(result.mode, Date.now() - started) };
 }

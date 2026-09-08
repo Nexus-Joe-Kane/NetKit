@@ -56,6 +56,8 @@ Two worth knowing about before they surprise you:
 | `ZEN_ALLOW_ORDERING` | `false` | One of the two locks on placing real orders. The other is the admin-portal switch; both must be open. |
 | `AVAILABILITY_DAILY_BUDGET` | `250` | Premises lookups per user per day. Protects the account's shared fair-use quota. `0` removes it. |
 | `THINKBROADBAND_API_KEY` | unset | Alt-net and cable coverage — CityFibre, Virgin Media, Community Fibre, G.Network. Without it the coverage rows are demo footprint data, labelled as unchecked. |
+| `GIACOM_CLIENT_ID` / `GIACOM_CLIENT_SECRET` | unset | The second wholesale supplier — BT Wholesale, CityFibre, TalkTalk, Virgin Media Business, Sky. Lines from the Giacom account appear alongside Zen's. |
+| `GIACOM_QUALIFICATION_PATH` | unset | Leave blank until Giacom confirm the path. See `docs/API-REFERENCE.md`. |
 
 ### Two things that matter
 

@@ -1,7 +1,7 @@
 import type { AddressRecord, AvailabilityStatus, BroadbandOffer, NetworkOperator } from '@sw/shared';
 import { Seeded } from '../../lib/seeded';
 import { ALTNETS } from '../../fixtures/uk';
-import type { AltnetProvider } from '../types';
+import type { OfferProvider } from '../types';
 
 /**
  * Demo alt-net coverage.
@@ -69,7 +69,7 @@ export function buildFixtureAltnetOffers(address: AddressRecord): BroadbandOffer
   return offers;
 }
 
-export function createFixtureAltnetProvider(): AltnetProvider {
+export function createFixtureOfferProvider(): OfferProvider {
   return {
     name: 'fixture-altnet',
     label: 'Demo alt-net footprint',

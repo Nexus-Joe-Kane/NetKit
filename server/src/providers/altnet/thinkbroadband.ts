@@ -2,7 +2,7 @@ import type { AccessTechnology, AddressRecord, AvailabilityStatus, BroadbandOffe
 import { config } from '../../config';
 import { fetchJson } from '../../lib/http';
 import { TtlCache } from '../../lib/cache';
-import type { AltnetProvider } from '../types';
+import type { OfferProvider } from '../types';
 
 /**
  * thinkbroadband's UK Broadband Availability API.
@@ -322,7 +322,7 @@ async function fetchOffers(address: AddressRecord): Promise<BroadbandOffer[]> {
   return offers;
 }
 
-export function createThinkbroadbandProvider(): AltnetProvider {
+export function createThinkbroadbandProvider(): OfferProvider {
   const cfg = config().thinkbroadband;
   return {
     name: 'thinkbroadband',

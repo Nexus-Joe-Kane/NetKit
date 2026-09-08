@@ -126,6 +126,98 @@ function loadBt(): BtConfig {
   };
 }
 
+/**
+ * Giacom Integrations API scopes, verbatim from their published OpenAPI
+ * security scheme. Scope is bound to the token, so tokens cache per scope.
+ */
+export type GiacomScope =
+  | 'integrations/serviceQualification.read'
+  | 'integrations/serviceQualification.submit'
+  | 'integrations/serviceInventory.read'
+  | 'integrations/serviceCatalogue.read'
+  | 'integrations/resourceInventory.read'
+  | 'integrations/address.manage'
+  | 'integrations/appointment.manage'
+  | 'integrations/serviceOrder.read'
+  | 'integrations/serviceOrder.submit'
+  | 'integrations/serviceActivation.read'
+  | 'integrations/organization.read'
+  | 'integrations/notifications.read';
+
+/**
+ * Giacom (formerly Digital Wholesale Solutions) — the second wholesale
+ * supplier. TM Forum Open APIs, OAuth 2.0 client credentials.
+ *
+ * They carry BT Wholesale, CityFibre, TalkTalk Business, Virgin Media
+ * Business and Sky Business, which is the gap Zen leaves: Zen answers for
+ * Openreach and nothing else.
+ *
+ * `environment` picks between their published production and UAT hosts, so a
+ * new integration can be proved against UAT without touching code.
+ */
+export interface GiacomConfig {
+  clientId: string;
+  clientSecret: string;
+  environment: 'production' | 'uat';
+  baseUrl: string;
+  tokenUrl: string;
+  /**
+   * TMF645 ServiceQualification — the per-address serviceability check.
+   *
+   * The scope (`serviceQualification.read` / `.submit`) is in Giacom's
+   * published security scheme, but no path for it appears in their public
+   * OpenAPI document — so it is granted and documented per tenant. Configure
+   * the path once Giacom confirm it and availability goes live; until then
+   * the integration reads the service inventory and catalogue only.
+   */
+  qualificationPath: string;
+  scopes: GiacomScope[];
+  configured: boolean;
+}
+
+function loadGiacom(): GiacomConfig {
+  const clientId = str('GIACOM_CLIENT_ID');
+  const clientSecret = str('GIACOM_CLIENT_SECRET');
+  const environment = (str('GIACOM_ENVIRONMENT', 'production') === 'uat' ? 'uat' : 'production') as
+    | 'production'
+    | 'uat';
+
+  // Defaults are Giacom's own published servers, so only credentials are
+  // normally needed.
+  const defaultBase =
+    environment === 'uat' ? 'https://api.uat.integrations.giacom.com/v2' : 'https://api.integrations.giacom.com/v2';
+  const defaultToken =
+    environment === 'uat'
+      ? 'https://auth.uat.integrations.giacom.com/oauth2/token'
+      : 'https://auth.integrations.giacom.com/oauth2/token';
+
+  const scopes = str(
+    'GIACOM_SCOPES',
+    [
+      'integrations/serviceInventory.read',
+      'integrations/serviceCatalogue.read',
+      'integrations/resourceInventory.read',
+      'integrations/address.manage',
+      'integrations/serviceQualification.read',
+      'integrations/serviceQualification.submit',
+    ].join(','),
+  )
+    .split(/[,\s]+/)
+    .map((v) => v.trim())
+    .filter(Boolean) as GiacomScope[];
+
+  return {
+    clientId,
+    clientSecret,
+    environment,
+    baseUrl: str('GIACOM_BASE_URL', defaultBase),
+    tokenUrl: str('GIACOM_TOKEN_URL', defaultToken),
+    qualificationPath: str('GIACOM_QUALIFICATION_PATH', ''),
+    scopes,
+    configured: Boolean(clientId && clientSecret),
+  };
+}
+
 export interface AppConfig {
   env: 'development' | 'production' | 'test';
   port: number;
@@ -146,6 +238,7 @@ export interface AppConfig {
   requestTimeoutMs: number;
   rateLimit: { windowMs: number; max: number };
   zen: ZenConfig;
+  giacom: GiacomConfig;
   bt: BtConfig;
   jola: JolaConfig;
   /**
@@ -235,6 +328,7 @@ export function config(): AppConfig {
     requestTimeoutMs: num('REQUEST_TIMEOUT_MS', 12_000),
     rateLimit: { windowMs: num('RATE_LIMIT_WINDOW_MS', 60_000), max: num('RATE_LIMIT_MAX', 120) },
     zen: loadZen(),
+    giacom: loadGiacom(),
     bt: loadBt(),
     allowOrdering: bool('ZEN_ALLOW_ORDERING', false),
     quotas: { availabilityPerUserPerDay: Math.max(0, num('AVAILABILITY_DAILY_BUDGET', 250)) },
