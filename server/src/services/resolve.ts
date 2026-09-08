@@ -21,6 +21,7 @@ import { TtlCache } from '../lib/cache';
 import { badRequest, notFound, uprnNotFound } from '../lib/errors';
 import { firstResult, providers } from '../providers/registry';
 import { predictedSpeedsFor } from '../providers/coverage/ofcomBroadband';
+import { predictedFromDataset } from '../providers/coverage/ofcomFixedDataset';
 import { mastsNear } from '../providers/signal/openCellId';
 
 /**
@@ -317,13 +318,28 @@ async function availabilityFor(
     supplementalOffersFor(address),
     // The regulator's own prediction. Independent of both chains, and never
     // allowed to fail the section — it is context, not the answer.
-    predictedSpeedsFor(address).catch(() => null),
+    //
+    // The API first, then the Connected Nations file on disk. Same publisher,
+    // and the API is months fresher, so the file is a failover rather than a
+    // second opinion: it answers when there is no key yet or the endpoint is
+    // down, and everything it returns is stamped as a dated file.
+    predictedSpeedsFor(address)
+      .catch(() => null)
+      .then((live) => live ?? predictedFromDataset(address))
+      .catch(() => null),
   ]);
 
   if (result.value === null) {
     // Coverage alone is still worth showing — it answers "is there any
     // gigabit here at all" even when the wholesale check failed.
-    if (!supplemental.offers.length) return { value: null, status: failed(result.errors) };
+    //
+    // The regulator's own figures count as coverage for this purpose. With
+    // only Ofcom configured the section used to be dropped entirely and the
+    // tab read "no provider returned a result" while holding a perfectly
+    // good postcode answer — the same fault the mobile side had.
+    if (!supplemental.offers.length && !predicted) {
+      return { value: null, status: failed(result.errors) };
+    }
     const coverageOnly = sortOffers(supplemental.offers);
     const coverageHeadline = headlineFrom(coverageOnly);
     return {
@@ -434,7 +450,13 @@ async function signalFor(address: AddressRecord): Promise<{ value: SignalReport 
     firstResult(
       providers().signal,
       (p) => p.forAddress(address),
-      (v) => v.operators.length > 0,
+      // A report is usable if it names per-operator coverage *or* carries
+      // Ofcom's area-level figures. Testing only for operators threw away
+      // the whole area-level answer, because that source counts networks
+      // rather than naming them and so has no operator rows at all — the
+      // section then reported "no provider returned a result" while holding
+      // a perfectly good answer.
+      (v) => v.operators.length > 0 || Boolean(v.areaCoverage),
     ),
     mastsNear(address).catch(() => null),
   ]);

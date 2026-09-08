@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactElement } from 'react';
 import { statusLabel, technologyRank, type BroadbandAvailability, type BroadbandOffer } from '@sw/shared';
-import { Card, Cell, Chip, Label, SpeedBar, formatDate, formatMbps, type ChipTone } from './ui';
+import { Alert, Card, Cell, Chip, Label, SpeedBar, formatDate, formatMbps, type ChipTone } from './ui';
 import { Tabs, TabPanel, type TabDef } from './Tabs';
 import { Disclosure, Modal } from './overlay';
 import { OrderFlow } from './OrderFlow';
@@ -165,7 +165,12 @@ export function BroadbandPanel({ data }: { data: BroadbandAvailability }): React
         tabs={<Tabs tabs={tabs} active={filter} onChange={setFilter} variant="sub" label="Filter availability" />}
       >
         <TabPanel>
-          {filter === 'coverage' && (
+          {/* Also shown on the default tab when there are no offers at all:
+              with only Ofcom configured, their prediction is the entire
+              answer, and hiding it behind a tab called "Other networks" left
+              the operator staring at "nothing in this group" while the tool
+              held the only figure it had. */}
+          {(filter === 'coverage' || data.offers.length === 0) && (
             <div style={{ padding: '14px 18px 0' }}>
               {rows.length > 0 && (
                 <div className="flag flag--warn">
@@ -182,8 +187,24 @@ export function BroadbandPanel({ data }: { data: BroadbandAvailability }): React
               {data.predicted && (
                 <div style={{ marginTop: rows.length > 0 ? 14 : 0 }}>
                   <Label>What Ofcom predict for this premises</Label>
+
+                  {/* A dated file is not a current prediction, and the
+                      difference has to be visible before the numbers are. */}
+                  {data.predicted.basis === 'dataset' && (
+                    <div style={{ margin: '6px 0 10px' }}>
+                      <Alert tone="warn">
+                        <span>
+                          <strong>From a downloaded file, not the live Ofcom check.</strong> The coverage API did not
+                          answer, so these figures come from the Connected Nations fixed-broadband release
+                          {data.predicted.release ? ` published ${data.predicted.release}` : ''} — a snapshot of the
+                          whole postcode, months old. Treat it as background, not as an answer about this line.
+                        </span>
+                      </Alert>
+                    </div>
+                  )}
+
                   <p className="muted" style={{ fontSize: 12.5, margin: '4px 0 8px', maxWidth: 640 }}>
-                    The regulator's own model, {data.predicted.premisesMatched ? 'for this exact UPRN' : 'averaged across the postcode because Ofcom have no record of this UPRN'}.
+                    The regulator's own model, {data.predicted.premisesMatched ? 'for this exact UPRN' : 'across the postcode rather than this exact premises'}.
                     It names no operator — Ofcom withhold that as commercially confidential — so it answers what is
                     possible here, never who from. Useful as a second opinion when a wholesale estimate looks wrong.
                   </p>
@@ -192,6 +213,17 @@ export function BroadbandPanel({ data }: { data: BroadbandAvailability }): React
                     <Cell label="Max predicted up" value={data.predicted.maxUpMbps != null ? formatMbps(data.predicted.maxUpMbps) : undefined} mono />
                     <Cell label="Superfast (30 Mb+)" value={data.predicted.superfastDownMbps != null ? formatMbps(data.predicted.superfastDownMbps) : undefined} mono />
                     <Cell label="Ultrafast (300 Mb+)" value={data.predicted.ultrafastDownMbps != null ? formatMbps(data.predicted.ultrafastDownMbps) : undefined} mono />
+                    {/* The dataset publishes shares of the postcode rather
+                        than a speed per tier, so these appear only for it. */}
+                    <Cell label="Gigabit-ready premises" value={percent(data.predicted.gigabitPercent)} mono />
+                    <Cell label="Full-fibre premises" value={percent(data.predicted.fttpPercent)} mono />
+                    <Cell label="Superfast premises" value={percent(data.predicted.superfastPercent)} mono />
+                    <Cell label="Ultrafast premises" value={percent(data.predicted.ultrafastPercent)} mono />
+                    <Cell
+                      label="Below the 10 Mb obligation"
+                      value={percent(data.predicted.belowUsoPercent)}
+                      mono
+                    />
                     <Cell label="Matched" value={data.predicted.premisesMatched ? 'This exact premises' : 'Postcode only'} />
                     <Cell label="Premises in postcode" value={data.predicted.premisesInPostcode} mono />
                   </div>
@@ -212,7 +244,7 @@ export function BroadbandPanel({ data }: { data: BroadbandAvailability }): React
                   source is connected. The checkers above answer either way.
                 </p>
               </div>
-            ) : (
+            ) : data.offers.length === 0 ? null : (
               <div className="empty">
                 <h3>Nothing in this group</h3>
                 <p>Try another tab — the full list is under “All options”.</p>
@@ -663,3 +695,7 @@ export function OpenreachPanel({ data }: { data: BroadbandAvailability }): React
     </Card>
   );
 }
+
+/** A share of premises, or nothing when the source did not publish one. */
+const percent = (value?: number): string | undefined =>
+  value === undefined ? undefined : `${Math.round(value * 10) / 10}%`;

@@ -261,7 +261,7 @@ export interface AppConfig {
    * and never "who from" — which is exactly why it sits beside the offers
    * rather than among them.
    */
-  ofcomBroadband: { apiKey: string; baseUrl: string; configured: boolean };
+  ofcomBroadband: { apiKey: string; baseUrl: string; datasetPath: string; configured: boolean };
   openCellId: { apiKey: string; baseUrl: string; searchPath: string; radiusMetres: number; configured: boolean };
   /**
    * The recovery supervisor: probes every integration on an interval and
@@ -409,6 +409,16 @@ export function config(): AppConfig {
     },
     ofcomBroadband: {
       apiKey: str('OFCOM_BROADBAND_API_KEY'),
+      /*
+       * The Connected Nations fixed postcode release, as a failover.
+       *
+       * Unlike mobile, Ofcom publish fixed broadband per postcode, so this is
+       * a real per-postcode answer rather than an area average. Point it at
+       * the folder the zip extracts to. Used only when the API has no key or
+       * does not answer, and every figure from it is labelled as a dated file
+       * rather than a current prediction.
+       */
+      datasetPath: str('OFCOM_BROADBAND_DATASET_PATH'),
       baseUrl: str('OFCOM_BROADBAND_BASE_URL', 'https://api-proxy.ofcom.org.uk/broadband'),
       configured: Boolean(str('OFCOM_BROADBAND_API_KEY')),
     },
