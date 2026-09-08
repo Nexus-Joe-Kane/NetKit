@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react';
-import type { FaultCategory, FaultRecord } from '@sw/shared';
-import { slaState } from '@sw/shared';
+import type { FaultCategory, FaultRecord, SiteContact } from '@sw/shared';
+import { HOUSE_CONTACT, siteContactLabel, siteVisitBookedMessage, slaState } from '@sw/shared';
 import { useTabRoute } from '../lib/route';
 import { ApiClientError, api } from '../lib/api';
 import { Alert, Card, Cell, Chip, ExportButtons, Label, Spinner, formatDateTime, type ChipTone } from '../components/ui';
@@ -292,6 +292,8 @@ export function FaultModal({ fault, onClose }: { fault: FaultRecord | null; onCl
           </div>
         )}
 
+        <SiteVisitNotice fault={fault} />
+
         {fault.chargeableRisk && (
           <div className="flag flag--warn">
             <span className="flag__marker" aria-hidden="true" />
@@ -379,12 +381,58 @@ export function RaiseFaultModal({
     frequency: 'intermittent' as 'intermittent' | 'permanent',
     summary: '',
     testsCarriedOut: '',
-    contactName: '',
-    contactNumber: '',
     siteNotes: '',
+    ticketId: '',
+    ccEngineer: false,
+    siteContactId: '',
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  /*
+   * The customer's own contacts, loaded from the ticket.
+   *
+   * A picker rather than a text box, because the name and number handed to an
+   * engineer who is about to knock on a door has to be right, and a
+   * misremembered mobile number is a wasted visit somebody gets charged for.
+   * Limited to the organisation the ticket belongs to, so it cannot offer
+   * somebody from a different customer.
+   */
+  const [contacts, setContacts] = useState<SiteContact[] | null>(null);
+  const [contactsError, setContactsError] = useState<string | null>(null);
+  const chosenContact = contacts?.find((c) => c.id === form.siteContactId);
+
+  const ticketId = form.ticketId.trim();
+  useEffect(() => {
+    if (!/^#?\d{1,12}$/.test(ticketId)) {
+      setContacts(null);
+      setContactsError(null);
+      return;
+    }
+    let live = true;
+    // A short delay so a ticket number being typed does not fire a request
+    // per keystroke.
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const result = await api.ticketContacts(ticketId);
+          if (live) {
+            setContacts(result.contacts);
+            setContactsError(null);
+          }
+        } catch (err) {
+          if (live) {
+            setContacts(null);
+            setContactsError(err instanceof ApiClientError ? err.message : 'Could not read that ticket.');
+          }
+        }
+      })();
+    }, 400);
+    return () => {
+      live = false;
+      window.clearTimeout(timer);
+    };
+  }, [ticketId]);
 
   useEffect(() => {
     if (open && presetZenReference) setForm((f) => ({ ...f, zenReference: presetZenReference }));
@@ -403,10 +451,25 @@ export function RaiseFaultModal({
         frequency: form.frequency,
         summary: form.summary.trim(),
         ...(form.testsCarriedOut.trim() ? { testsCarriedOut: form.testsCarriedOut.trim() } : {}),
-        ...(form.contactName.trim() ? { contactName: form.contactName.trim() } : {}),
-        ...(form.contactNumber.trim() ? { contactNumber: form.contactNumber.trim() } : {}),
         ...(form.siteNotes.trim() ? { siteNotes: form.siteNotes.trim() } : {}),
+        ...(ticketId ? { ticketId } : {}),
+        ...(form.ccEngineer ? { ccEngineer: true } : {}),
+        ...(chosenContact
+          ? {
+              siteContactId: chosenContact.id,
+              siteContactName: chosenContact.name,
+              ...(chosenContact.email ? { siteContactEmail: chosenContact.email } : {}),
+              ...(chosenContact.phone ? { siteContactPhone: chosenContact.phone } : {}),
+            }
+          : {}),
       });
+      // The fault is raised even if the ticket note failed — saying so is the
+      // point, because an error would read as "the fault was not raised".
+      if (result.ticket?.attempted && !result.ticket.posted) {
+        setError(`Fault raised, but nothing was written to ticket ${ticketId}: ${result.ticket.error}`);
+        setBusy(false);
+        return;
+      }
       onRaised(result.fault);
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : 'Could not raise the fault.');
@@ -512,14 +575,82 @@ export function RaiseFaultModal({
 
         <div className="two-col">
           <label className="field">
-            <Label>Site contact name</Label>
-            <input className="field__input" value={form.contactName} onChange={(e) => setForm({ ...form, contactName: e.target.value })} />
+            <Label>Ticket number (optional)</Label>
+            <input
+              className="field__input"
+              value={form.ticketId}
+              onChange={(e) => setForm({ ...form, ticketId: e.target.value, siteContactId: '' })}
+              placeholder="48213"
+              inputMode="numeric"
+            />
+            <span className="field__hint">
+              What was sent to the supplier and what came back is added as a <strong>private note</strong> —
+              engineers see it, the customer does not.
+            </span>
           </label>
+
           <label className="field">
-            <Label>Site contact number</Label>
-            <input className="field__input" value={form.contactNumber} onChange={(e) => setForm({ ...form, contactNumber: e.target.value })} />
+            <Label>Site contact</Label>
+            <select
+              className="field__input"
+              value={form.siteContactId}
+              onChange={(e) => setForm({ ...form, siteContactId: e.target.value })}
+              disabled={!contacts?.length}
+            >
+              <option value="">
+                {contacts === null
+                  ? 'Enter a ticket number to load contacts'
+                  : contacts.length === 0
+                    ? 'No contacts on that ticket'
+                    : 'Nobody — use the support desk'}
+              </option>
+              {(contacts ?? []).map((contact) => (
+                <option key={contact.id} value={contact.id}>
+                  {siteContactLabel(contact)}
+                </option>
+              ))}
+            </select>
+            <span className="field__hint">
+              {contactsError
+                ? contactsError
+                : chosenContact?.phone
+                  ? `The supplier will be given ${chosenContact.name} on ${chosenContact.phone}.`
+                  : chosenContact
+                    ? `${chosenContact.name} has no phone number on the ticket — the supplier gets the desk number.`
+                    : 'Only contacts at this customer, taken from the ticket.'}
+            </span>
           </label>
         </div>
+
+        {/* The contact the supplier actually gets. Stated rather than left as
+            a form default somebody could type over. */}
+        <div className="flag flag--info" style={{ marginBottom: 14 }}>
+          <span className="flag__marker" aria-hidden="true" />
+          <span>
+            <strong>The supplier gets the desk, not you</strong>
+            <span className="flag__detail">
+              Every fault goes out with {HOUSE_CONTACT.email} and {HOUSE_CONTACT.phone}, so an update reaches
+              whoever is on rather than sitting in one inbox. Tick below to be added to the ticket as well.
+            </span>
+          </span>
+        </div>
+
+        <label className="field field--check" style={{ marginBottom: 14 }}>
+          <input
+            type="checkbox"
+            checked={form.ccEngineer}
+            onChange={(e) => setForm({ ...form, ccEngineer: e.target.checked })}
+            disabled={!ticketId}
+          />
+          <span>
+            Copy me in on the ticket
+            <span className="field__hint" style={{ display: 'block' }}>
+              {ticketId
+                ? 'Adds your account email to the Zendesk ticket, so supplier updates reach you directly too.'
+                : 'Needs a ticket number.'}
+            </span>
+          </span>
+        </label>
 
         <label className="field" style={{ marginBottom: 0 }}>
           <Label>Access and hazard notes</Label>
@@ -561,5 +692,96 @@ function SlaChip({ fault }: { fault: FaultRecord }): ReactElement {
     <Chip tone={tone} dot={state.live} title={`Target ${formatDateTime(fault.committedAt ?? fault.slaTarget) ?? ''}`}>
       {state.label}
     </Chip>
+  );
+}
+
+
+/**
+ * Tells the customer a visit is booked.
+ *
+ * The one message here that the customer sees. It is deliberately vague about
+ * who is coming — naming Openreach invites the customer to ring them, which
+ * loses us the thread and gets them nowhere, because a supplier will not
+ * discuss a wholesale fault with an end customer.
+ *
+ * It is a button rather than automatic because NetKit does not book
+ * appointments yet: the engineer books with the supplier and presses this.
+ * The wording and the posting are the same either way, so when booking does
+ * land it calls exactly this.
+ */
+function SiteVisitNotice({ fault }: { fault: FaultRecord }): ReactElement {
+  const [ticketId, setTicketId] = useState('');
+  const [ccEngineer, setCcEngineer] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState(false);
+
+  const supplier = fault.provider || 'the network supplier';
+  const ready = /^#?\d{1,12}$/.test(ticketId.trim());
+
+  const send = async (): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.notifySiteVisit(ticketId.trim(), { supplier, ccEngineer });
+      setDone(true);
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'Could not write to that ticket.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (done) {
+    return (
+      <Alert tone="ok">
+        The customer has been told the visit is booked, including the 24 hours’ notice and the missed-appointment
+        charge.
+      </Alert>
+    );
+  }
+
+  return (
+    <div className="stack stack--tight">
+      <div>
+        <Label>Engineer visit booked?</Label>
+        <p className="muted" style={{ fontSize: 12.5, margin: '4px 0 8px', maxWidth: 620 }}>
+          Sends the customer a <strong>public</strong> reply saying a visit is booked with the supplier and that a
+          slot will follow — including the 24 hours’ notice to change it and the charge if nobody is on site. It does
+          not name {supplier} to the customer.
+        </p>
+
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+          <input
+            className="field__input"
+            style={{ maxWidth: 160 }}
+            value={ticketId}
+            onChange={(e) => setTicketId(e.target.value)}
+            placeholder="Ticket number"
+            inputMode="numeric"
+          />
+          <button type="button" className="btn btn--ghost btn--small" onClick={() => setPreview((p) => !p)}>
+            {preview ? 'Hide wording' : 'Read the wording'}
+          </button>
+          <button
+            type="button"
+            className="btn btn--primary btn--small"
+            disabled={!ready || busy}
+            onClick={() => void send()}
+          >
+            {busy ? 'Sending…' : 'Tell the customer'}
+          </button>
+        </div>
+
+        <label className="field field--check" style={{ marginTop: 8, marginBottom: 0 }}>
+          <input type="checkbox" checked={ccEngineer} onChange={(e) => setCcEngineer(e.target.checked)} />
+          <span>Copy me in on the ticket</span>
+        </label>
+      </div>
+
+      {preview && <pre className="ticket-preview">{siteVisitBookedMessage({ supplier })}</pre>}
+      {error && <Alert tone="error">{error}</Alert>}
+    </div>
   );
 }

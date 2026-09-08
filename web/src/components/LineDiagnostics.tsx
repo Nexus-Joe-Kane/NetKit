@@ -38,6 +38,10 @@ export function LineDiagnostics({ line }: { line: LineRecord }): ReactElement {
   const [result, setResult] = useState<LineTestResult | null>(null);
   const [mode, setMode] = useState<'live'>('live');
   const [busy, setBusy] = useState<LineTestType | null>(null);
+  /** The customer's ticket, so a test run is recorded where somebody reads it. */
+  const [ticketId, setTicketId] = useState('');
+  const [noteError, setNoteError] = useState<string | null>(null);
+  const [notePosted, setNotePosted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [raiseOpen, setRaiseOpen] = useState(false);
@@ -97,9 +101,17 @@ export function LineDiagnostics({ line }: { line: LineRecord }): ReactElement {
     setBusy(type);
     setError(null);
     try {
-      const outcome = await api.runTest(zenReference, type, line.technology);
+      const outcome = await api.runTest(zenReference, type, line.technology, ticketId || undefined);
       setResult(outcome.result);
       setMode(outcome.mode);
+      // The test ran either way, so a ticket problem is said out loud rather
+      // than thrown — an error here would read as "the test did not run".
+      setNoteError(
+        outcome.ticket?.attempted && !outcome.ticket.posted
+          ? `Test ran, but nothing was written to ticket ${ticketId}: ${outcome.ticket.error}`
+          : null,
+      );
+      setNotePosted(Boolean(outcome.ticket?.posted));
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : 'Could not run that test.');
     } finally {
@@ -112,6 +124,28 @@ export function LineDiagnostics({ line }: { line: LineRecord }): ReactElement {
   return (
     <div className="stack stack--tight">
       {error && <Alert tone="error">{error}</Alert>}
+      {noteError && <Alert tone="warn">{noteError}</Alert>}
+      {notePosted && !noteError && (
+        <Alert tone="ok">The test and its result were added to ticket {ticketId} as a private note.</Alert>
+      )}
+
+      {/* A test run is evidence. Recording it against the ticket means the
+          next engineer to open it does not repeat the same test, and the
+          customer never sees the raw supplier output. */}
+      <label className="field" style={{ marginBottom: 0, maxWidth: 320 }}>
+        <Label>Ticket number (optional)</Label>
+        <input
+          className="field__input"
+          value={ticketId}
+          onChange={(e) => setTicketId(e.target.value)}
+          placeholder="48213"
+          inputMode="numeric"
+        />
+        <span className="field__hint">
+          Adds the request and the result as a <strong>private note</strong> — engineers see it, the customer does
+          not.
+        </span>
+      </label>
 
       <div>
         <Label>Available tests</Label>

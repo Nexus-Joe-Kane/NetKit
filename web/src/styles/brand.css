@@ -425,3 +425,37 @@ table.data tr.row--critical > td:first-child {
 .warn-board__reasons strong {
   color: inherit;
 }
+
+/* ---- A checkbox with a label beside it ------------------------------ */
+.field--check {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  font-size: 13px;
+  color: var(--sw-ink);
+  cursor: pointer;
+}
+
+.field--check input[type='checkbox'] {
+  margin-top: 2px;
+  flex: none;
+  width: 15px;
+  height: 15px;
+  accent-color: var(--sw-badge-1);
+}
+
+/* The exact words a customer will receive, before they are sent. */
+.ticket-preview {
+  margin: 0;
+  padding: 14px 16px;
+  background: var(--sw-panel);
+  border: 1px solid var(--sw-hairline);
+  border-radius: 8px;
+  font-family: var(--sw-font-body);
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--sw-body);
+  white-space: pre-wrap;
+  max-height: 320px;
+  overflow-y: auto;
+}

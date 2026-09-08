@@ -262,6 +262,8 @@ export interface AppConfig {
    * rather than among them.
    */
   ofcomBroadband: { apiKey: string; baseUrl: string; datasetPath: string; configured: boolean };
+  /** Zendesk Support: ticket notes, and the customer's own site contacts. */
+  zendesk: { subdomain: string; email: string; apiToken: string; configured: boolean };
   openCellId: { apiKey: string; baseUrl: string; searchPath: string; radiusMetres: number; configured: boolean };
   /**
    * The recovery supervisor: probes every integration on an interval and
@@ -406,6 +408,13 @@ export function config(): AppConfig {
       searchPath: str('OPENCELLID_SEARCH_PATH', '/cell/getInArea'),
       radiusMetres: Math.min(20_000, Math.max(500, num('OPENCELLID_RADIUS_METRES', 4000))),
       configured: Boolean(str('OPENCELLID_API_KEY') || str('OPENCELLID') || str('OPENCELLID_TOKEN')),
+    },
+    zendesk: {
+      // A bare subdomain or a full host; both get pasted in.
+      subdomain: str('ZENDESK_SUBDOMAIN'),
+      email: str('ZENDESK_EMAIL'),
+      apiToken: str('ZENDESK_API_TOKEN'),
+      configured: Boolean(str('ZENDESK_SUBDOMAIN') && str('ZENDESK_EMAIL') && str('ZENDESK_API_TOKEN')),
     },
     ofcomBroadband: {
       apiKey: str('OFCOM_BROADBAND_API_KEY'),

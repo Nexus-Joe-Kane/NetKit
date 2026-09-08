@@ -40,7 +40,41 @@ import type {
   CompanyDetail,
   BulkResult,
   WatchRecord,
+  SiteContact,
 } from '@sw/shared';
+
+/**
+ * What a fault raise accepts from the browser.
+ *
+ * `RaiseFaultRequest` is the provider-facing shape and still carries the
+ * contact fields, because that is what goes to Zen. This is the narrower set
+ * a person is allowed to fill in.
+ */
+export interface RaiseFaultInput {
+  zenReference: string;
+  category: RaiseFaultRequest['category'];
+  frequency: RaiseFaultRequest['frequency'];
+  summary: string;
+  testsCarriedOut?: string;
+  siteNotes?: string;
+  hazardNotes?: string;
+  ticketId?: string;
+  ccEngineer?: boolean;
+  siteContactId?: string;
+  siteContactName?: string;
+  siteContactEmail?: string;
+  siteContactPhone?: string;
+}
+
+/** What happened when a note was written to a ticket. */
+export interface TicketNoteOutcome {
+  attempted: boolean;
+  posted: boolean;
+  ticketId?: string;
+  url?: string;
+  ccEmails?: string[];
+  error?: string;
+}
 
 /** One premises or identifier this user looked up recently. */
 export interface RecentLookup {
@@ -197,8 +231,26 @@ export const api = {
       `/api/faults?state=${state}${zenReference ? `&zenReference=${encodeURIComponent(zenReference)}` : ''}`,
     ),
 
-  raiseFault: (input: RaiseFaultRequest) =>
-    post<Sourced & { fault: FaultRecord }>('/api/faults', input),
+  /**
+   * Raises a fault.
+   *
+   * Note what is *not* in the request: the contact email and number. The
+   * server sets those to the support desk, always, so a supplier cannot end
+   * up with one engineer's direct line. `ccEngineer` is the engineer's own
+   * involvement, and it goes on our ticket rather than the supplier's fault.
+   */
+  raiseFault: (input: RaiseFaultInput) =>
+    post<Sourced & { fault: FaultRecord; ticket?: TicketNoteOutcome }>('/api/faults', input),
+
+  /* ---- Tickets ------------------------------------------------------ */
+
+  /** The customer's own contacts for a ticket, for the site-contact picker. */
+  ticketContacts: (ticketId: string) =>
+    request<{ contacts: SiteContact[] }>(`/api/tickets/${encodeURIComponent(ticketId)}/contacts`),
+
+  /** Tells the customer, publicly, that a site visit is booked. */
+  notifySiteVisit: (ticketId: string, input: { supplier?: string; contactName?: string; ccEngineer?: boolean }) =>
+    post<{ ticket: TicketNoteOutcome }>(`/api/tickets/${encodeURIComponent(ticketId)}/site-visit`, input),
 
   /* ---- Diagnostics -------------------------------------------------- */
 
@@ -212,10 +264,18 @@ export const api = {
       `/api/diagnostics/${encodeURIComponent(zenReference)}/tests/${type}${technology ? `?technology=${encodeURIComponent(technology)}` : ''}`,
     ),
 
-  runTest: (zenReference: string, type: LineTestType, technology?: string) =>
-    post<Sourced & { result: LineTestResult }>(`/api/diagnostics/${encodeURIComponent(zenReference)}/tests/${type}`, {
-      ...(technology ? { technology } : {}),
-    }),
+  /**
+   * Runs a test. `ticketId` records the request and the result on the
+   * customer's ticket as a private note.
+   */
+  runTest: (zenReference: string, type: LineTestType, technology?: string, ticketId?: string) =>
+    post<Sourced & { result: LineTestResult; ticket?: TicketNoteOutcome }>(
+      `/api/diagnostics/${encodeURIComponent(zenReference)}/tests/${type}`,
+      {
+        ...(technology ? { technology } : {}),
+        ...(ticketId ? { ticketId } : {}),
+      },
+    ),
 
   profileOptions: (zenReference: string) =>
     request<Sourced & ProfileOptions>(`/api/diagnostics/${encodeURIComponent(zenReference)}/profile`),
