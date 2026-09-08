@@ -118,7 +118,7 @@ function LineDetail({ line }: { line: LineRecord }): ReactElement {
                 <Cell label="Product" value={line.productName} />
                 <Cell label="Technology" value={line.technology} />
                 <Cell label="Bearer" value={line.bearerSpeed} />
-                <Cell label="Found via" value={line.discoveredVia === 'mock' ? 'Demo data' : line.discoveredVia} />
+                <Cell label="Found via" value={line.discoveredVia} />
               </div>
               {line.notes.length > 0 && (
                 <div>

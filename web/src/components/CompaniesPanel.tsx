@@ -17,7 +17,7 @@ import { CompanyDetailModal, statusLabelOf } from './CompanyDetailModal';
  */
 
 export function CompaniesPanel({ postcode }: { postcode: string }): ReactElement {
-  const [data, setData] = useState<(CompanyContext & { mode: 'live' | 'mock'; providerError?: string }) | null>(null);
+  const [data, setData] = useState<(CompanyContext & { mode: 'live'; providerError?: string }) | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [detail, setDetail] = useState<CompanyRecord | null>(null);
@@ -57,7 +57,7 @@ export function CompaniesPanel({ postcode }: { postcode: string }): ReactElement
         meta={
           data ? (
             <>
-              {data.mode === 'mock' ? <Chip tone="warn" dot>Demo data</Chip> : <Chip tone="ok" dot>Live</Chip>}
+              <Chip tone="ok" dot>Live</Chip>
               <span className="muted" style={{ fontSize: 11.5 }}>at {data.postcode}</span>
             </>
           ) : undefined

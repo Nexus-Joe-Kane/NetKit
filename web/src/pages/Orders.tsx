@@ -83,7 +83,7 @@ export function OrdersPage(): ReactElement {
   const [tab, setTab] = useState<Tab>('status');
   const [orders, setOrders] = useState<OrderRecord[]>([]);
   const [query, setQuery] = useState('');
-  const [mode, setMode] = useState<'live' | 'mock'>('mock');
+  const [mode, setMode] = useState<'live'>('live');
   const [providerError, setProviderError] = useState<string | undefined>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -196,7 +196,7 @@ export function OrdersPage(): ReactElement {
         flush
         meta={
           <>
-            {mode === 'mock' ? <Chip tone="warn" dot>Demo data</Chip> : <Chip tone="ok" dot>Live</Chip>}
+            <Chip tone="ok" dot>Live</Chip>
             <ExportButtons rows={orders} columns={ORDER_COLUMNS} filenamePrefix={`orders-${tab}`} label="the order list" />
           </>
         }

@@ -65,7 +65,7 @@ function usedPercent(sim: SimRecord): number | null {
 
 export function SimsPage(): ReactElement {
   const [estate, setEstate] = useState<SimEstate | null>(null);
-  const [mode, setMode] = useState<'live' | 'mock'>('mock');
+  const [mode, setMode] = useState<'live'>('live');
   const [providerError, setProviderError] = useState<string | undefined>();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -217,13 +217,13 @@ export function SimsPage(): ReactElement {
 
       <Card
         title="SIMs"
-        eyebrow={mode === 'live' ? 'Zen (Jola-backed)' : 'Demo data'}
+        eyebrow="Zen (Jola-backed)"
         index="03"
         accent={2}
         flush
         meta={
           <>
-            {mode === 'mock' ? <Chip tone="warn" dot>Demo data</Chip> : <Chip tone="ok" dot>Live</Chip>}
+            <Chip tone="ok" dot>Live</Chip>
             <ExportButtons rows={rows} columns={SIM_COLUMNS} filenamePrefix="sims" label="the SIM list" />
           </>
         }

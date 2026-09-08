@@ -38,7 +38,7 @@ const failed = (errors: Error[]): SectionStatus => ({
   error: errors[0]?.message ?? 'No provider returned a result',
 });
 
-const ok = (mode: 'live' | 'mock', durationMs: number): SectionStatus => ({ ok: true, mode, durationMs });
+const ok = (mode: 'live' | 'skipped', durationMs: number): SectionStatus => ({ ok: true, mode, durationMs });
 
 /* ------------------------------------------------------------------ *
  * Address resolution
@@ -109,7 +109,7 @@ export async function findLines(id: ResolvedIdentifier): Promise<{ lines: LineRe
   // never be searched in one place, which is the whole point of the box.
   const seen = new Map<string, LineRecord>();
   const errors: Error[] = [];
-  let mode: 'live' | 'mock' = 'mock';
+  let mode: 'live' | 'skipped' = 'skipped';
   let answered = false;
 
   await Promise.all(
@@ -117,10 +117,7 @@ export async function findLines(id: ResolvedIdentifier): Promise<{ lines: LineRe
       try {
         for (const line of await runner(provider)) {
           const key = line.serviceId ?? line.lineAccessId ?? line.cli ?? line.id;
-          const existing = seen.get(key);
-          if (!existing || (existing.discoveredVia === 'mock' && line.discoveredVia !== 'mock')) {
-            seen.set(key, line);
-          }
+          if (!seen.has(key)) seen.set(key, line);
         }
         answered = true;
         if (provider.mode === 'live') mode = 'live';
@@ -178,7 +175,7 @@ export async function allLinesAtPremises(
   const seen = new Map<string, LineRecord>();
   const unmatched = new Map<string, LineRecord>();
   const errors: Error[] = [];
-  let mode: 'live' | 'mock' = 'mock';
+  let mode: 'live' | 'skipped' = 'skipped';
   let answered = false;
 
   const identity = (line: LineRecord): string =>
@@ -187,10 +184,9 @@ export async function allLinesAtPremises(
   const add = (line: LineRecord) => {
     // Prefer a live record over a fixture for the same line identity.
     const key = identity(line);
-    const existing = seen.get(key);
-    if (!existing || (existing.discoveredVia === 'mock' && line.discoveredVia !== 'mock')) {
-      seen.set(key, line);
-    }
+    // First writer wins: every record is live now, so there is no
+    // fixture to prefer against.
+    if (!seen.has(key)) seen.set(key, line);
   };
 
   await Promise.all(
@@ -478,7 +474,7 @@ export async function buildSiteReport(
       .slice(0, 60)
       .map(toSuggestion),
     status: {
-      address: { ok: true, mode: address.source === 'mock' ? 'mock' : 'live' },
+      address: { ok: true, mode: 'live' },
       broadband: availability.status,
       signal: signal.status,
       lines: lines.status,

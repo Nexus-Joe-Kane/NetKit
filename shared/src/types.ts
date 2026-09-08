@@ -499,7 +499,7 @@ export interface LineRecord {
    * the second wholesale account: knowing which supplier a line sits on is
    * knowing who to ring about it.
    */
-  discoveredVia: 'zen' | 'giacom' | 'openreach' | 'cross-provider' | 'mock';
+  discoveredVia: 'zen' | 'giacom' | 'openreach' | 'cross-provider';
   notes: string[];
 }
 
@@ -519,8 +519,8 @@ export interface LineLookupResult {
 /** Per-section fetch outcome, so one failing provider never blanks the page. */
 export interface SectionStatus {
   ok: boolean;
-  /** `live` = real API, `mock` = fixture, `skipped` = no credentials. */
-  mode: 'live' | 'mock' | 'skipped';
+  /** `live` = a provider answered, `skipped` = none could be asked. */
+  mode: 'live' | 'skipped';
   error?: string;
   durationMs?: number;
 }

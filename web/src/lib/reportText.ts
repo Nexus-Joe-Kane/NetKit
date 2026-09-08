@@ -215,15 +215,14 @@ export function siteReportToText(report: SiteReport): string {
     out.push('', 'LINES', rule(), '  No lines found at this premises.');
   }
 
-  // ---- Provenance ----------------------------------------------------
-  const demo = Object.entries(report.status)
-    .filter(([, s]) => s.mode === 'mock')
-    .map(([name]) => name);
   out.push('', rule('='));
   out.push(`Generated ${new Date(report.generatedAt).toLocaleString('en-GB')} by SupportWizard NetKit`);
   out.push(`Query "${report.query.raw}" read as ${report.query.kind}`);
-  if (demo.length) {
-    out.push(`NOTE: demo data was used for: ${demo.join(', ')} — not live provider data.`);
+  const unavailable = Object.entries(report.status)
+    .filter(([, s]) => s.mode === 'skipped' || !s.ok)
+    .map(([name]) => name);
+  if (unavailable.length) {
+    out.push(`NOTE: no data for: ${unavailable.join(', ')} — the provider is not connected or did not answer.`);
   }
   out.push('SupportWizard Internal · Confidential');
 

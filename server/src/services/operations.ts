@@ -32,7 +32,7 @@ import type {
   UsageReport,
   CompanyDetail,
 } from '@sw/shared';
-import { config, shouldRunLive } from '../config';
+import { config } from '../config';
 import { isProviderEnabled, settings } from '../auth/store';
 import { quotaLimit, quotaUsed } from './quota';
 import { circuitReason, reportLiveFailure, reportLiveSuccess, shouldAttempt } from '../admin/supervisor';
@@ -40,7 +40,7 @@ import * as assurance from '../providers/zen/assurance';
 import * as selfService from '../providers/zen/selfservice';
 import * as bt from '../providers/bt/adapters';
 import * as jola from '../providers/jola/adapters';
-import * as fx from '../providers/fixture/operations';
+import { notConfigured } from '../lib/errors';
 import {
   companiesHouseConfigured,
   fetchCompaniesAtPostcode,
@@ -51,15 +51,20 @@ import {
  * Operational orchestration.
  *
  * One pattern throughout: attempt the live provider when it is configured and
- * enabled, fall back to fixtures otherwise, and always report which was used
- * so the UI can label it. `DATA_MODE=live` suppresses the fallback so a
- * misconfiguration surfaces instead of being papered over.
+ * enabled, and otherwise say so plainly. There is no fixture fallback -- the
+ * demo engine has been removed, because invented data on a live deployment is
+ * worse than an empty panel that explains itself.
  */
 
 export interface Sourced<T> {
   data: T;
-  mode: 'live' | 'mock';
-  /** Set when a live call failed, or was skipped, and fixtures were used. */
+  /** Always `live` now: nothing else can produce data. */
+  mode: 'live';
+  /**
+   * Set only where a live call produced a shaped answer that is not a clean
+   * success -- an order whose outcome could not be confirmed, for instance.
+   * Not a fallback marker: there is nothing to fall back to.
+   */
   error?: string;
 }
 
@@ -68,32 +73,34 @@ interface Attempt<T> {
   key: string;
   configured: boolean;
   live: () => Promise<T>;
-  fixture: () => T;
 }
 
-async function resolve<T>({ key, configured, live, fixture }: Attempt<T>): Promise<Sourced<T>> {
-  const mode = config().dataMode;
-  const enabled = isProviderEnabled(key);
-  const canGoLive = enabled && shouldRunLive(configured);
-
-  if (!canGoLive) {
-    if (mode === 'live') {
-      throw new Error(
-        !enabled
-          ? `${key} is switched off in the admin portal.`
-          : `${key} has no credentials configured, and DATA_MODE=live forbids demo data.`,
-      );
-    }
-    return { data: fixture(), mode: 'mock' };
+/**
+ * Runs the live provider, or explains why it could not.
+ *
+ * There is no fallback. The demo engine used to stand in here, and invented
+ * data on a live deployment is worse than a panel that says what is missing:
+ * a plausible-looking fault list nobody raised, a SIM estate nobody owns.
+ *
+ * `not_configured` is a first-class error code with its own status, so a
+ * missing key, a provider switched off in the admin portal and a provider
+ * paused by the circuit breaker all reach the UI as one recognisable state
+ * carrying an actionable message -- rather than as an empty panel that looks
+ * like an answer.
+ */
+async function resolve<T>({ key, configured, live }: Attempt<T>): Promise<Sourced<T>> {
+  if (!isProviderEnabled(key)) {
+    throw notConfigured(`${key} is switched off in Admin portal → Integrations.`);
+  }
+  if (!configured) {
+    throw notConfigured(`${key} has no credentials configured. Admin portal → Service status says which.`);
   }
 
   // The circuit breaker: while it is open, skip the live call entirely rather
   // than making every request wait for the same timeout. The supervisor lets
   // one probe through once the backoff expires.
   if (!shouldAttempt(key)) {
-    const reason = circuitReason(key) ?? `${key} is temporarily paused after repeated failures.`;
-    if (mode === 'live') throw new Error(reason);
-    return { data: fixture(), mode: 'mock', error: reason };
+    throw notConfigured(circuitReason(key) ?? `${key} is temporarily paused after repeated failures.`);
   }
 
   try {
@@ -101,11 +108,9 @@ async function resolve<T>({ key, configured, live, fixture }: Attempt<T>): Promi
     reportLiveSuccess(key);
     return { data, mode: 'live' };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    reportLiveFailure(key, message);
-    if (mode === 'live') throw err;
-    // Degrade to fixtures but keep the reason, so the UI can say why.
-    return { data: fixture(), mode: 'mock', error: message };
+    reportLiveFailure(key, err instanceof Error ? err.message : String(err));
+    // The failure is the answer. Substituting data would hide an outage.
+    throw err;
   }
 }
 
@@ -134,10 +139,6 @@ export function networkStatus(options: { past?: boolean } = {}): Promise<Sourced
       ]);
       return { outages, plannedWork };
     },
-    fixture: () => ({
-      outages: fx.buildFixtureIncidents('outage', options.past),
-      plannedWork: fx.buildFixtureIncidents('planned', options.past),
-    }),
   });
 }
 
@@ -148,7 +149,6 @@ export function outagesForService(zenReference: string): Promise<Sourced<Inciden
     live: () => assurance.fetchOutagesForService(zenReference),
     // Most services are not caught in an outage, so the honest fixture is
     // usually an empty list.
-    fixture: () => fx.buildFixtureIncidents('outage').slice(0, Number(zenReference.slice(-1)) % 3 === 0 ? 1 : 0),
   });
 }
 
@@ -166,7 +166,6 @@ export function faults(options: { state: 'open' | 'closed'; zenReference?: strin
         : options.state === 'open'
           ? assurance.fetchOpenFaults()
           : assurance.fetchRecentlyClosedFaults(),
-    fixture: () => fx.buildFixtureFaults(options),
   });
 }
 
@@ -175,25 +174,6 @@ export function raiseFault(request: RaiseFaultRequest): Promise<Sourced<FaultRec
     key: 'zen-faults',
     configured: zenReady('indirect-faults'),
     live: () => assurance.raiseFault(request),
-    fixture: () => {
-      // A fixture "raise" must be visibly a rehearsal, not a real reference.
-      const record = fx.buildFixtureFaults({ state: 'open', zenReference: request.zenReference })[0];
-      return {
-        ...(record ?? ({} as FaultRecord)),
-        reference: 'DEMO-NOT-RAISED',
-        zenReference: request.zenReference,
-        category: request.category,
-        frequency: request.frequency,
-        summary: request.summary,
-        status: 'Not raised — demo mode',
-        state: 'open' as const,
-        detail:
-          'Demo mode: no fault was raised with Zen. Connect Zen credentials with the indirect-faults scope to raise for real.',
-        raisedAt: new Date().toISOString(),
-        provider: 'Demo data',
-        source: 'fixture:assurance',
-      };
-    },
   });
 }
 
@@ -206,7 +186,6 @@ export function availableTests(zenReference: string, technology?: string): Promi
     key: 'zen-diagnostics',
     configured: zenReady('indirect-diagnostics'),
     live: () => assurance.fetchAvailableTests(zenReference, technology),
-    fixture: () => fx.buildFixtureAvailableTests(zenReference, technology),
   });
 }
 
@@ -220,7 +199,6 @@ export function latestTest(zenReference: string, type: LineTestType, technology?
       if (!result) throw new Error('No previous test result is recorded for this service.');
       return result;
     },
-    fixture: () => fx.buildFixtureTestResult(zenReference, type),
   });
 }
 
@@ -230,10 +208,6 @@ export function runTest(zenReference: string, type: LineTestType, technology?: s
     key: 'zen-diagnostics',
     configured: zenReady('indirect-diagnostics'),
     live: () => assurance.runTest(zenReference, type, family),
-    fixture: () => ({
-      ...fx.buildFixtureTestResult(zenReference, type),
-      summary: `Demo mode — no test was run against the network. ${fx.buildFixtureTestResult(zenReference, type).summary ?? ''}`.trim(),
-    }),
   });
 }
 
@@ -242,7 +216,6 @@ export function profileOptions(zenReference: string): Promise<Sourced<ProfileOpt
     key: 'zen-diagnostics',
     configured: zenReady('indirect-diagnostics'),
     live: () => assurance.fetchProfileOptions(zenReference),
-    fixture: () => fx.buildFixtureProfileOptions(zenReference),
   });
 }
 
@@ -251,11 +224,6 @@ export function requestProfileChange(zenReference: string, profileCode: string):
     key: 'zen-diagnostics',
     configured: zenReady('indirect-diagnostics'),
     live: () => assurance.requestProfileChange(zenReference, profileCode),
-    fixture: () => ({
-      ...fx.buildFixtureTestResult(zenReference, 'profilechange'),
-      outcome: 'pass' as const,
-      summary: `Demo mode — no profile change was requested. The live call would set ${profileCode}.`,
-    }),
   });
 }
 
@@ -264,7 +232,6 @@ export function stability(zenReference: string, days = 30): Promise<Sourced<Stab
     key: 'zen-diagnostics',
     configured: zenReady('indirect-diagnostics'),
     live: () => assurance.fetchStability(zenReference, days),
-    fixture: () => fx.buildFixtureStability(zenReference, days),
   });
 }
 
@@ -273,7 +240,6 @@ export function usage(zenReference: string, period: UsageReport['period'] = 'cur
     key: 'zen-diagnostics',
     configured: zenReady('indirect-diagnostics'),
     live: () => assurance.fetchUsage(zenReference, period),
-    fixture: () => fx.buildFixtureUsage(zenReference, period),
   });
 }
 
@@ -291,7 +257,6 @@ export function orders(options: { searchTerm?: string; view?: 'search' | 'status
         : options.view === 'status'
           ? selfService.fetchOrderStatus(options.searchTerm)
           : selfService.searchOrders(options.searchTerm),
-    fixture: () => fx.buildFixtureOrders(options.searchTerm),
   });
 }
 
@@ -300,7 +265,6 @@ export function cancelOrder(zenReference: string, reason: string): Promise<Sourc
     key: 'zen-order',
     configured: zenReady('indirect-order'),
     live: () => selfService.cancelOrder(zenReference, reason),
-    fixture: () => ({ ok: false, message: 'Demo mode — no cancellation was sent to Zen.' }),
   });
 }
 
@@ -349,20 +313,19 @@ export function orderingGate(userId: string): OrderingGate {
  *
  * The gate is checked by the route before this is called; this is the last
  * line and re-checks nothing, because a second read of a toggle between the
- * check and the call would be a false comfort. It does honour demo mode,
- * which refuses rather than inventing a reference.
+ * check and the call would be a false comfort.
  */
 export async function placeOrder(request: PlaceOrderRequest): Promise<Sourced<PlaceOrderResult>> {
   const key = 'zen-placeorder';
-  const canGoLive = isProviderEnabled(key) && shouldRunLive(zenReady('indirect-placeorder'));
-  if (!canGoLive) return { data: fx.buildFixturePlaceOrder(request), mode: 'mock' };
+  if (!isProviderEnabled(key) || !zenReady('indirect-placeorder')) {
+    throw notConfigured('Ordering through Zen is not available: the placeorder scope is not configured.');
+  }
 
-  // Deliberately *not* routed through `resolve`. Everywhere else, a failed
-  // live call degrades to fixtures — which is right for a read. Here it would
-  // be a lie: a request that timed out may well have reached Zen and placed
-  // the order. So a failure is reported as a failure, with the wording an
-  // operator needs to hear, and the next step is to search the order book
-  // rather than to press the button again.
+  // Deliberately *not* routed through `resolve`. A failure here cannot be
+  // reported as a plain error: a request that timed out may well have reached
+  // Zen and placed the order. So it is reported as an unconfirmed order, with
+  // the wording an operator needs to hear, and the next step is to search the
+  // order book rather than to press the button again.
   try {
     const data = await selfService.placeOrder(request);
     reportLiveSuccess(key);
@@ -390,7 +353,6 @@ export function pricing(productCode: string, productName?: string): Promise<Sour
     key: 'zen-placeorder',
     configured: zenReady('indirect-placeorder'),
     live: () => selfService.fetchPricing(productCode, productName),
-    fixture: () => fx.buildFixturePricing(productCode, productName),
   });
 }
 
@@ -404,7 +366,6 @@ export function appointments(params: {
     key: 'zen-availability',
     configured: zenReady('indirect-availability'),
     live: () => selfService.fetchAppointments(params),
-    fixture: () => fx.buildFixtureAppointments(),
   });
 }
 
@@ -428,7 +389,6 @@ export function numberPortCheck(phoneNumber: string): Promise<Sourced<NumberPort
       }
       return started;
     },
-    fixture: () => fx.buildFixturePortCheck(phoneNumber),
   });
 }
 
@@ -437,7 +397,6 @@ export function ethernetQuotes(address: AddressRecord): Promise<Sourced<Ethernet
     key: 'zen-quote',
     configured: zenReady('indirect-quote'),
     live: () => selfService.fetchEthernetQuotes(address),
-    fixture: () => fx.buildFixtureEthernetQuotes(address),
   });
 }
 
@@ -457,7 +416,6 @@ export function simEstate(): Promise<Sourced<SimEstate>> {
       }
       return zenEstate;
     },
-    fixture: () => fx.buildFixtureSimEstate(),
   });
 }
 
@@ -466,7 +424,6 @@ export function networkConnectivity(phoneNumber: string): Promise<Sourced<Networ
     key: 'bt-home-network',
     configured: btReady('bt-home-network'),
     live: () => bt.checkNetworkConnectivity(phoneNumber),
-    fixture: () => fx.buildFixtureConnectivity(phoneNumber),
   });
 }
 
@@ -475,7 +432,6 @@ export function imeiLookup(phoneNumber: string): Promise<Sourced<ImeiLookup>> {
     key: 'bt-imei-lookup',
     configured: btReady('bt-imei-lookup'),
     live: () => bt.lookupImei(phoneNumber),
-    fixture: () => fx.buildFixtureImei(phoneNumber),
   });
 }
 
@@ -484,7 +440,6 @@ export function footfall(postcode: string): Promise<Sourced<FootfallInsight>> {
     key: 'bt-location-insights',
     configured: btReady('bt-location-insights'),
     live: () => bt.fetchFootfall({ postcode }),
-    fixture: () => fx.buildFixtureFootfall(postcode),
   });
 }
 
@@ -493,7 +448,6 @@ export function callRecords(from: Date, to: Date): Promise<Sourced<CallRecord[]>
     key: 'zen-cdr',
     configured: zenReady('indirect-cdr'),
     live: () => selfService.fetchCallRecords(from, to),
-    fixture: () => fx.buildFixtureCallRecords(from, to),
   });
 }
 
@@ -502,7 +456,6 @@ export function rdns(zenReference?: string): Promise<Sourced<RdnsRecord[]>> {
     key: 'zen-broadbandconnection',
     configured: zenReady('indirect-broadbandconnection'),
     live: () => selfService.fetchRdns(zenReference),
-    fixture: () => fx.buildFixtureRdns(zenReference),
   });
 }
 
@@ -520,7 +473,6 @@ export function addressMatch(query: {
     key: 'zen-availability',
     configured: zenReady('indirect-availability'),
     live: () => selfService.matchAddress(query),
-    fixture: () => fx.buildFixtureAddressMatch(query),
   });
 }
 
@@ -541,8 +493,10 @@ export async function registerAddress(request: {
   uprn?: string;
 }): Promise<Sourced<AddressRegistration>> {
   const key = 'zen-availability';
-  if (!(isProviderEnabled(key) && shouldRunLive(zenReady('indirect-availability')))) {
-    return { data: fx.buildFixtureAddressRegistration(request), mode: 'mock' };
+  if (!isProviderEnabled(key) || !zenReady('indirect-availability')) {
+    throw notConfigured(
+      'Registering an address with Openreach needs the Zen availability scope, which is not configured.',
+    );
   }
   try {
     const data = await selfService.registerAddress(request);
@@ -569,7 +523,6 @@ export function serviceHistory(zenReference: string): Promise<Sourced<ServiceHis
     key: 'zen-service',
     configured: zenReady('indirect-service'),
     live: () => selfService.fetchServiceHistory(zenReference),
-    fixture: () => fx.buildFixtureServiceHistory(zenReference),
   });
 }
 
@@ -578,7 +531,6 @@ export function notifications(options: { since?: string; searchTerm?: string } =
     key: 'zen-customerengagement',
     configured: zenReady('indirect-customerengagement'),
     live: () => selfService.fetchNotifications(options),
-    fixture: () => fx.buildFixtureNotifications(options),
   });
 }
 
@@ -587,7 +539,6 @@ export function networkConfiguration(zenReference?: string): Promise<Sourced<Net
     key: 'zen-broadbandconnection',
     configured: zenReady('indirect-broadbandconnection'),
     live: () => selfService.fetchNetworkConfiguration(zenReference),
-    fixture: () => fx.buildFixtureNetworkConfiguration(zenReference),
   });
 }
 
@@ -596,7 +547,6 @@ export function estateUsage(period?: string): Promise<Sourced<EstateUsageReport>
     key: 'zen-service',
     configured: zenReady('indirect-service'),
     live: () => selfService.fetchEstateUsage(period),
-    fixture: () => fx.buildFixtureEstateUsage(period),
   });
 }
 
@@ -609,7 +559,6 @@ export function companies(postcode: string): Promise<Sourced<CompanyContext>> {
     key: 'companies-house',
     configured: companiesHouseConfigured(),
     live: () => fetchCompaniesAtPostcode(postcode),
-    fixture: () => fx.buildFixtureCompanies(postcode),
   });
 }
 
@@ -625,7 +574,6 @@ export function companyDetail(companyNumber: string): Promise<Sourced<CompanyDet
     key: 'companies-house',
     configured: companiesHouseConfigured(),
     live: () => fetchCompanyDetail(companyNumber),
-    fixture: () => fx.buildFixtureCompanyDetail(companyNumber),
   });
 }
 

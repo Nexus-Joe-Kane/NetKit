@@ -86,7 +86,6 @@ export function adminRouter(): Router {
           disabled: services.filter((s) => s.state === 'disabled').length,
         },
         environment: {
-          dataMode: cfg.dataMode,
           version: cfg.version,
           nodeEnv: cfg.env,
           cacheTtlSeconds: cfg.cacheTtlSeconds,

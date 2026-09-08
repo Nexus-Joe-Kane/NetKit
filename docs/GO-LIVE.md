@@ -9,7 +9,7 @@ this is the checklist.
 ## Part 1 — Get it running (about 20 minutes)
 
 Nothing here needs a single API credential. At the end you will have a
-working portal serving demo data, and the admin board will tell you exactly
+working portal, and the admin board will tell you exactly
 which integrations are still waiting on keys.
 
 ### 1. Create the domain
@@ -235,7 +235,7 @@ appear as `RUNS`, not `BROKEN`.
 curl -s https://<domain>/healthz     # expect {"ok":true,...}
 ```
 
-Then sign in. **Expect every panel to say "Demo data"** — that is correct
+Then sign in. **Expect panels to say they are not connected** — that is correct
 until credentials land, and **Admin portal → Service status** lists all 26
 integrations with exactly what each is waiting for.
 
@@ -256,7 +256,7 @@ Set `BACKUP_DIR` somewhere the Plesk backup set already collects, so archives
 leave the machine. `DATA_DIR` is the only thing in the whole deployment that
 cannot be rebuilt from Git.
 
-**Part 1 is done.** The portal works. Everything below turns demo data into
+**Part 1 is done.** The portal works. Everything below turns a not-connected panel into
 real data, and can be done in any order, any time.
 
 ---

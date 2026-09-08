@@ -121,7 +121,6 @@ export function operationsRouter(): Router {
       return {
         ...result.data,
         mode: result.mode,
-        ...(result.error ? { providerError: result.error } : {}),
         checkedAt: new Date().toISOString(),
       };
     }),
@@ -131,7 +130,7 @@ export function operationsRouter(): Router {
     '/network/status/:zenReference',
     handler(async (req) => {
       const result = await ops.outagesForService(String(req.params.zenReference));
-      return { outages: result.data, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+      return { outages: result.data, mode: result.mode };
     }),
   );
 
@@ -143,7 +142,7 @@ export function operationsRouter(): Router {
       const state = String(req.query.state ?? 'open') === 'closed' ? 'closed' : 'open';
       const zenReference = String(req.query.zenReference ?? '').trim();
       const result = await ops.faults({ state, ...(zenReference ? { zenReference } : {}) });
-      return { faults: result.data, state, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+      return { faults: result.data, state, mode: result.mode };
     }),
   );
 
@@ -166,7 +165,7 @@ export function operationsRouter(): Router {
         },
         ip: req.ip,
       });
-      return { fault: result.data, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+      return { fault: result.data, mode: result.mode };
     }),
   );
 
@@ -177,7 +176,7 @@ export function operationsRouter(): Router {
     handler(async (req) => {
       const technology = String(req.query.technology ?? '') || undefined;
       const result = await ops.availableTests(String(req.params.zenReference), technology);
-      return { ...result.data, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+      return { ...result.data, mode: result.mode };
     }),
   );
 
@@ -190,7 +189,7 @@ export function operationsRouter(): Router {
       }
       const technology = String(req.query.technology ?? '') || undefined;
       const result = await ops.latestTest(String(req.params.zenReference), type as LineTestType, technology);
-      return { result: result.data, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+      return { result: result.data, mode: result.mode };
     }),
   );
 
@@ -212,7 +211,7 @@ export function operationsRouter(): Router {
         detail: { zenReference, type, outcome: result.data.outcome, mode: result.mode },
         ip: req.ip,
       });
-      return { result: result.data, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+      return { result: result.data, mode: result.mode };
     }),
   );
 
@@ -220,7 +219,7 @@ export function operationsRouter(): Router {
     '/diagnostics/:zenReference/profile',
     handler(async (req) => {
       const result = await ops.profileOptions(String(req.params.zenReference));
-      return { ...result.data, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+      return { ...result.data, mode: result.mode };
     }),
   );
 
@@ -239,7 +238,7 @@ export function operationsRouter(): Router {
         detail: { zenReference, profileCode, mode: result.mode },
         ip: req.ip,
       });
-      return { result: result.data, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+      return { result: result.data, mode: result.mode };
     }),
   );
 
@@ -248,7 +247,7 @@ export function operationsRouter(): Router {
     handler(async (req) => {
       const days = Math.min(90, Math.max(7, Number.parseInt(String(req.query.days ?? '30'), 10) || 30));
       const result = await ops.stability(String(req.params.zenReference), days);
-      return { ...result.data, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+      return { ...result.data, mode: result.mode };
     }),
   );
 
@@ -258,7 +257,7 @@ export function operationsRouter(): Router {
       const raw = String(req.query.period ?? 'current_month');
       const period = raw === 'day' || raw === 'month' ? raw : 'current_month';
       const result = await ops.usage(String(req.params.zenReference), period);
-      return { ...result.data, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+      return { ...result.data, mode: result.mode };
     }),
   );
 
@@ -271,7 +270,7 @@ export function operationsRouter(): Router {
       const raw = String(req.query.view ?? 'status');
       const view = raw === 'wip' || raw === 'search' ? raw : 'status';
       const result = await ops.orders({ ...(searchTerm ? { searchTerm } : {}), view });
-      return { orders: result.data, view, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+      return { orders: result.data, view, mode: result.mode };
     }),
   );
 
@@ -290,7 +289,7 @@ export function operationsRouter(): Router {
         detail: { zenReference, reason, mode: result.mode },
         ip: req.ip,
       });
-      return { ...result.data, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+      return { ...result.data, mode: result.mode };
     }),
   );
 
@@ -383,7 +382,6 @@ export function operationsRouter(): Router {
         ...result.data,
         mode: result.mode,
         gate: ops.orderingGate(userId),
-        ...(result.error ? { providerError: result.error } : {}),
       };
     }),
   );
@@ -395,7 +393,7 @@ export function operationsRouter(): Router {
       if (!productCode) throw badRequest('Provide ?productCode=');
       const productName = String(req.query.productName ?? '').trim() || undefined;
       const result = await ops.pricing(productCode, productName);
-      return { ...result.data, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+      return { ...result.data, mode: result.mode };
     }),
   );
 
@@ -410,7 +408,7 @@ export function operationsRouter(): Router {
         throw badRequest('An availability reference and product code are required — run an availability check first.');
       }
       const result = await ops.appointments({ availabilityReference, productCode, goldAddressKey, districtCode });
-      return { slots: result.data, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+      return { slots: result.data, mode: result.mode };
     }),
   );
 
@@ -420,7 +418,7 @@ export function operationsRouter(): Router {
     '/sims',
     handler(async () => {
       const result = await ops.simEstate();
-      return { ...result.data, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+      return { ...result.data, mode: result.mode };
     }),
   );
 
@@ -431,7 +429,7 @@ export function operationsRouter(): Router {
     handler(async (req) => {
       const cli = requireCli(req.query.q);
       const result = await ops.numberPortCheck(cli);
-      return { ...result.data, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+      return { ...result.data, mode: result.mode };
     }),
   );
 
@@ -440,7 +438,7 @@ export function operationsRouter(): Router {
     handler(async (req) => {
       const cli = requireCli(req.query.q);
       const result = await ops.networkConnectivity(cli);
-      return { ...result.data, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+      return { ...result.data, mode: result.mode };
     }),
   );
 
@@ -449,7 +447,7 @@ export function operationsRouter(): Router {
     handler(async (req) => {
       const cli = requireCli(req.query.q);
       const result = await ops.imeiLookup(cli);
-      return { ...result.data, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+      return { ...result.data, mode: result.mode };
     }),
   );
 
@@ -466,7 +464,6 @@ export function operationsRouter(): Router {
         // BT's product is London-only, so warn rather than return a blank.
         ...(ops.isLikelyLondon(postcode) ? {} : { outOfArea: true }),
         mode: result.mode,
-        ...(result.error ? { providerError: result.error } : {}),
       };
     }),
   );
@@ -485,7 +482,7 @@ export function operationsRouter(): Router {
       if (!address) throw notFound('Could not resolve that address. Provide ?uprn= or ?postcode=');
 
       const result = await ops.ethernetQuotes(address);
-      return { ...result.data, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+      return { ...result.data, mode: result.mode };
     }),
   );
 
@@ -506,7 +503,6 @@ export function operationsRouter(): Router {
         from: from.toISOString(),
         to: to.toISOString(),
         mode: result.mode,
-        ...(result.error ? { providerError: result.error } : {}),
       };
     }),
   );
@@ -516,7 +512,7 @@ export function operationsRouter(): Router {
     handler(async (req) => {
       const zenReference = String(req.query.zenReference ?? '').trim() || undefined;
       const result = await ops.rdns(zenReference);
-      return { records: result.data, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+      return { records: result.data, mode: result.mode };
     }),
   );
 
@@ -535,7 +531,7 @@ export function operationsRouter(): Router {
           ? { thoroughfareNumber: String(req.query.thoroughfareNumber).trim() }
           : {}),
       });
-      return { ...result.data, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+      return { ...result.data, mode: result.mode };
     }),
   );
 
@@ -567,7 +563,7 @@ export function operationsRouter(): Router {
         },
         ip: req.ip,
       });
-      return { ...result.data, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+      return { ...result.data, mode: result.mode };
     }),
   );
 
@@ -577,7 +573,7 @@ export function operationsRouter(): Router {
     '/diagnostics/:zenReference/history',
     handler(async (req) => {
       const result = await ops.serviceHistory(String(req.params.zenReference));
-      return { ...result.data, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+      return { ...result.data, mode: result.mode };
     }),
   );
 
@@ -598,7 +594,6 @@ export function operationsRouter(): Router {
       return {
         notifications: result.data,
         mode: result.mode,
-        ...(result.error ? { providerError: result.error } : {}),
         checkedAt: new Date().toISOString(),
       };
     }),
@@ -611,7 +606,7 @@ export function operationsRouter(): Router {
     handler(async (req) => {
       const zenReference = String(req.query.zenReference ?? '').trim() || undefined;
       const result = await ops.networkConfiguration(zenReference);
-      return { ...result.data, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+      return { ...result.data, mode: result.mode };
     }),
   );
 
@@ -623,7 +618,7 @@ export function operationsRouter(): Router {
       const postcode = String(req.query.postcode ?? '').trim();
       if (!postcode) throw badRequest('Provide ?postcode=');
       const result = await ops.companies(formatPostcode(postcode));
-      return { ...result.data, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+      return { ...result.data, mode: result.mode };
     }),
   );
 
@@ -633,7 +628,7 @@ export function operationsRouter(): Router {
       const number = String(req.params.number ?? '').trim();
       if (!number) throw badRequest('Provide a company number.');
       const result = await ops.companyDetail(number);
-      return { ...result.data, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+      return { ...result.data, mode: result.mode };
     }),
   );
 
@@ -645,7 +640,7 @@ export function operationsRouter(): Router {
       const period = String(req.query.period ?? '').trim();
       if (period && !/^\d{4}-\d{2}$/.test(period)) throw badRequest('A period looks like 2026-09.');
       const result = await ops.estateUsage(period || undefined);
-      return { ...result.data, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+      return { ...result.data, mode: result.mode };
     }),
   );
 

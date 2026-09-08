@@ -52,7 +52,11 @@ export interface RecentLookup {
 
 /** Every operational response says whether it came from a live API. */
 export interface Sourced {
-  mode: 'live' | 'mock';
+  /**
+   * Always `live`. The demo engine is gone, so a panel either has a real
+   * answer or the request failed with `not_configured` and never got here.
+   */
+  mode: 'live';
   providerError?: string;
 }
 
@@ -136,8 +140,6 @@ export interface SessionState {
   awaitingTwoFactor?: boolean;
   email?: string;
   warning?: string;
-  /** True when premises lookups are answered from fixtures. */
-  demoData?: boolean;
 }
 
 export const api = {
@@ -479,7 +481,7 @@ export interface Check {
   status: CheckStatus;
   detail: string;
   durationMs: number;
-  mode?: 'live' | 'mock';
+  mode?: 'live';
 }
 
 export interface SelfTestReport {

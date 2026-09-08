@@ -32,7 +32,7 @@ export interface Check {
   detail: string;
   durationMs: number;
   /** Where the data came from, when a check exercised a provider. */
-  mode?: 'live' | 'mock';
+  mode?: 'live';
 }
 
 export interface SelfTestReport {
@@ -43,7 +43,7 @@ export interface SelfTestReport {
   outcome: 'pass' | 'fail';
   counts: Record<CheckStatus, number>;
   checks: Check[];
-  environment: { dataMode: string; nodeEnv: string; version: string };
+  environment: { nodeEnv: string; version: string };
 }
 
 /** A postcode that exists in every provider, live or fixture. */
@@ -61,7 +61,7 @@ class Runner {
     group: string,
     id: string,
     name: string,
-    fn: () => Promise<{ status: CheckStatus; detail: string; mode?: 'live' | 'mock' }>,
+    fn: () => Promise<{ status: CheckStatus; detail: string; mode?: 'live' }>,
   ): Promise<Check> {
     const started = Date.now();
     let check: Check;
@@ -77,11 +77,19 @@ class Runner {
         ...(outcome.mode ? { mode: outcome.mode } : {}),
       };
     } catch (err) {
+      // A provider with no credentials is a known state, not a broken one.
+      // Since the demo engine was removed those calls throw `not_configured`
+      // rather than returning invented data, and failing the self-test for
+      // each unconfigured integration would put a deployment that works
+      // perfectly into permanent SELF-TEST FAILED. The status board is where
+      // missing credentials belong; this reports what is actually broken.
+      const notConfigured =
+        typeof err === 'object' && err !== null && (err as { code?: string }).code === 'not_configured';
       check = {
         id,
         group,
         name,
-        status: 'fail',
+        status: notConfigured ? 'skip' : 'fail',
         detail: err instanceof Error ? err.message : String(err),
         durationMs: Date.now() - started,
       };
@@ -91,7 +99,7 @@ class Runner {
   }
 }
 
-const pass = (detail: string, mode?: 'live' | 'mock') => ({ status: 'pass' as const, detail, ...(mode ? { mode } : {}) });
+const pass = (detail: string, mode?: 'live') => ({ status: 'pass' as const, detail, ...(mode ? { mode } : {}) });
 const warn = (detail: string) => ({ status: 'warn' as const, detail });
 const skip = (detail: string) => ({ status: 'skip' as const, detail });
 const fail = (detail: string) => ({ status: 'fail' as const, detail });
@@ -122,10 +130,15 @@ export async function runSelfTest(): Promise<SelfTestReport> {
     return pass(`Writable at ${dir}.`);
   });
 
-  await r.run('Configuration', 'cfg.data-mode', 'Data mode', async () => {
-    if (cfg.dataMode === 'live') return pass('live — no fallback to demo data.');
-    if (cfg.dataMode === 'mock') return warn('mock — every panel is showing demo data, including for real users.');
-    return pass('auto — live where credentials exist, demo data elsewhere.');
+  await r.run('Configuration', 'cfg.providers', 'Live providers', async () => {
+    // There is no demo engine to fall back to, so a deployment with nothing
+    // configured is not a working deployment and should say so at boot
+    // rather than at the first lookup.
+    const live = Object.values(providers().describe()).filter((p) => p.mode === 'live' && p.configured);
+    if (!live.length) {
+      return warn('No provider has credentials — every panel will say it is not connected.');
+    }
+    return pass(`${live.length} provider(s) configured and live.`);
   });
 
   /* ---- Identifier classification ---------------------------------- */
@@ -170,10 +183,24 @@ export async function runSelfTest(): Promise<SelfTestReport> {
   const registry = providers();
 
   await r.run('Providers', 'providers.chains', 'Every capability has at least one provider', async () => {
-    const empty = (['address', 'availability', 'signal', 'lines'] as const).filter((k) => registry[k].length === 0);
-    if (empty.length) {
+    // Address and availability are the tool. Without them there is nothing
+    // to look up, and with no demo engine behind them that is a failure
+    // rather than a degraded state.
+    const essential = (['address', 'availability'] as const).filter((k) => registry[k].length === 0);
+    if (essential.length) {
       return fail(
-        `No provider for: ${empty.join(', ')}. Lookups for these will return nothing. Check DATA_MODE and the admin switches.`,
+        `No provider for: ${essential.join(', ')}. Nothing can be looked up. ` +
+          'Add credentials, or check the switches in Admin portal → Integrations.',
+      );
+    }
+
+    // The rest are worth having and not fatal: a premises report without
+    // mobile signal is still a premises report, and it says so per section.
+    const optional = (['signal', 'lines'] as const).filter((k) => registry[k].length === 0);
+    if (optional.length) {
+      return warn(
+        `No provider for: ${optional.join(', ')}. Those panels will say they are not connected. ` +
+          'Everything else works.',
       );
     }
     return pass(
@@ -187,11 +214,10 @@ export async function runSelfTest(): Promise<SelfTestReport> {
     const list = await addressesByPostcode(PROBE_POSTCODE);
     if (!list.length) return fail(`No premises returned for ${PROBE_POSTCODE}.`);
     const withoutUprn = list.filter((a) => !a.uprn).length;
-    const mode = list[0]!.source === 'mock' ? 'mock' : 'live';
     if (withoutUprn === list.length) {
       return warn(`${list.length} premises returned, but none carried a UPRN. Address search works; UPRN lookup will not.`);
     }
-    return pass(`${list.length} premises at ${PROBE_POSTCODE}, ${list.length - withoutUprn} with a UPRN.`, mode);
+    return pass(`${list.length} premises at ${PROBE_POSTCODE}, ${list.length - withoutUprn} with a UPRN.`, 'live');
   });
 
   await r.run('Providers', 'providers.address-uprn', 'UPRN round-trips to the same premises', async () => {
@@ -202,13 +228,13 @@ export async function runSelfTest(): Promise<SelfTestReport> {
     const back = await addressByUprn(withUprn.uprn);
     if (!back) return fail(`UPRN ${withUprn.uprn} came from a postcode search but does not resolve on its own.`);
     if (back.uprn !== withUprn.uprn) return fail(`UPRN ${withUprn.uprn} resolved to a different premises (${back.uprn}).`);
-    return pass(`${withUprn.uprn} round-trips to "${back.singleLine}".`, back.source === 'mock' ? 'mock' : 'live');
+    return pass(`${withUprn.uprn} round-trips to "${back.singleLine}".`, 'live');
   });
 
   await r.run('Providers', 'providers.address-text', 'Free-text address search returns results', async () => {
     const list = await searchAddresses('High Street', 10);
     if (!list.length) return warn('No results for a free-text search. OS Places is the provider that serves this.');
-    return pass(`${list.length} matches for "High Street".`, list[0]!.source === 'mock' ? 'mock' : 'live');
+    return pass(`${list.length} matches for "High Street".`, 'live');
   });
 
   /* ---- The composite report ---------------------------------------- */
@@ -236,7 +262,7 @@ export async function runSelfTest(): Promise<SelfTestReport> {
     return pass(
       `Built for "${report.address.singleLine}" — ${report.broadband?.offers.length ?? 0} offers, ` +
         `${report.signal?.operators.length ?? 0} networks, ${report.lines.length} lines.`,
-      modes.has('live') ? 'live' : 'mock',
+      'live',
     );
   });
 
@@ -375,7 +401,7 @@ export async function runSelfTest(): Promise<SelfTestReport> {
     const confirmed = found.filter((o) => o.serviceability === 'confirmed').length;
     return pass(
       `${found.length} option(s) from the coverage chain: ${confirmed} address-checked, ${unchecked.length} footprint-only.`,
-      found.some((o) => o.source.startsWith('fixture')) ? 'mock' : 'live',
+      'live',
     );
   });
 
@@ -410,16 +436,38 @@ export async function runSelfTest(): Promise<SelfTestReport> {
   });
 
   await r.run('Operations', 'ops.tools', 'Every tool responds', async () => {
+    // A tool whose provider has no credentials is not a broken tool. Those
+    // are counted separately so this check stays a signal about code rather
+    // than a running total of keys still to arrive.
+    const unconfigured = (err: unknown): boolean =>
+      typeof err === 'object' && err !== null && (err as { code?: string }).code === 'not_configured';
+
+    const probe = async (name: string, run: () => Promise<unknown>): Promise<string> => {
+      try {
+        await run();
+        return name;
+      } catch (err) {
+        if (unconfigured(err)) return `${name} SKIPPED`;
+        return `${name} FAILED: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    };
+
     const outcomes = await Promise.all([
-      ops.numberPortCheck('01614969790').then(() => 'number-port').catch((e) => `number-port FAILED: ${e.message}`),
-      ops.networkConnectivity('07700900123').then(() => 'connectivity').catch((e) => `connectivity FAILED: ${e.message}`),
-      ops.imeiLookup('07700900123').then(() => 'imei').catch((e) => `imei FAILED: ${e.message}`),
-      ops.footfall('W8 5TT').then(() => 'footfall').catch((e) => `footfall FAILED: ${e.message}`),
-      ops.callRecords(new Date(Date.now() - 86_400_000), new Date()).then(() => 'cdrs').catch((e) => `cdrs FAILED: ${e.message}`),
-      ops.rdns().then(() => 'rdns').catch((e) => `rdns FAILED: ${e.message}`),
+      probe('number-port', () => ops.numberPortCheck('01614969790')),
+      probe('connectivity', () => ops.networkConnectivity('07700900123')),
+      probe('imei', () => ops.imeiLookup('07700900123')),
+      probe('footfall', () => ops.footfall('W8 5TT')),
+      probe('cdrs', () => ops.callRecords(new Date(Date.now() - 86_400_000), new Date())),
+      probe('rdns', () => ops.rdns()),
     ]);
+
     const failures = outcomes.filter((o) => o.includes('FAILED'));
     if (failures.length) return fail(failures.join('; '));
+
+    const skipped = outcomes.filter((o) => o.includes('SKIPPED')).length;
+    const answered = outcomes.length - skipped;
+    if (!answered) return skip(`All ${outcomes.length} tools are waiting on credentials.`);
+    if (skipped) return pass(`${answered} of ${outcomes.length} tools responded; ${skipped} awaiting credentials.`);
     return pass(`All ${outcomes.length} tools responded.`);
   });
 
@@ -483,7 +531,7 @@ export async function runSelfTest(): Promise<SelfTestReport> {
     outcome: counts.fail > 0 ? 'fail' : 'pass',
     counts,
     checks: r.checks,
-    environment: { dataMode: cfg.dataMode, nodeEnv: cfg.env, version: cfg.version },
+    environment: { nodeEnv: cfg.env, version: cfg.version },
   };
 
   audit({

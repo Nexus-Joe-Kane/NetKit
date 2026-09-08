@@ -415,21 +415,6 @@ function probes(): Probe[] {
       },
     },
 
-    // ---- Internal -------------------------------------------------------
-    {
-      key: 'fixtures',
-      name: 'Demo data engine',
-      vendor: 'Internal',
-      capability: 'Deterministic fixture data so the portal is usable before every credential is in place',
-      configured: () => cfg.dataMode !== 'live',
-      run: async () => ({
-        state: cfg.dataMode === 'mock' ? ('ok' as const) : ('ok' as const),
-        detail:
-          cfg.dataMode === 'mock'
-            ? 'Forced on — every panel is showing demo data.'
-            : 'Standing by. Used only where a live provider is unavailable.',
-      }),
-    },
   ];
 }
 

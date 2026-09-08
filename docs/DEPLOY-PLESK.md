@@ -189,4 +189,4 @@ be committed — but keep it outside the tree anyway, for the same reason
 | SPA loads but every API call 401s | Cookies are being dropped. Confirm HTTPS is on and that you are not mixing `www` and apex hostnames. |
 | Signed out on every deploy | `SESSION_SECRET` is unset, so a new one is generated per start. |
 | Users disappeared after a deploy | `DATA_DIR` is inside the Git working tree. Move it outside and restore from backup. |
-| Everything says "Demo data" | No credentials are configured yet. Expected — check **Admin portal → Service status** for what is still awaiting keys. |
+| Panels say "not connected" | No credentials are configured yet. Expected — check **Admin portal → Service status** for what is still awaiting keys. |

@@ -37,7 +37,7 @@ async function start() {
   const port = process.env.PORT || cfg.port || 3000;
 
   const server = app.listen(port, async () => {
-    console.log(`[netkit] SupportWizard NetKit v${cfg.version} ready on port ${port} (${cfg.env}, data mode: ${cfg.dataMode})`);
+    console.log(`[netkit] SupportWizard NetKit v${cfg.version} ready on port ${port} (${cfg.env})`);
     // Prove this deployment works before anyone relies on it, then keep
     // watching for anything that breaks later and try to fix it.
     await selfTestOnBoot();
