@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { isAbsolute, resolve as resolvePath } from 'node:path';
 
 export type DataMode = 'auto' | 'live' | 'mock';
 
@@ -317,6 +318,51 @@ export interface AppConfig {
 
 let cached: AppConfig | null = null;
 
+/**
+ * Where the only unrecoverable state lives: user accounts, settings, the
+ * audit log.
+ *
+ * A relative default is dangerous here rather than merely untidy. Resolved
+ * against the application root, `data` lands in `httpdocs/data` -- inside the
+ * Git working tree -- so a deploy that resets the tree takes every user
+ * account with it. That default shipped and was only masked on the live
+ * deployment because Plesk happened to inject an absolute path over it.
+ *
+ * So: no relative default. In production an absolute `DATA_DIR` is required
+ * and the process refuses to start without one, because failing at boot is
+ * recoverable and discovering it after a deploy is not. Development gets an
+ * absolute path of its own so `npm run dev` still works.
+ */
+function resolveDataDir(): string {
+  const raw = str('DATA_DIR');
+  const env = str('NODE_ENV', 'development');
+
+  if (raw) {
+    if (!isAbsolute(raw)) {
+      throw new Error(
+        `DATA_DIR must be an absolute path, got "${raw}". ` +
+          'A relative path resolves inside the deployment directory, where a ' +
+          'tree-resetting deploy would delete every user account. ' +
+          'Use something like /var/www/vhosts/<domain>/netkit-data.',
+      );
+    }
+    return raw;
+  }
+
+  if (env === 'production') {
+    throw new Error(
+      'DATA_DIR is not set. It must be an absolute path outside the ' +
+        'deployment directory, because it holds the user accounts, settings ' +
+        'and audit log -- the only state that cannot be rebuilt from Git. ' +
+        'Set it in Plesk under Node.js -> Custom environment variables.',
+    );
+  }
+
+  // Development only, and absolute so it can never be confused for a
+  // path inside whatever directory the dev server happened to start in.
+  return resolvePath(process.cwd(), '.data-dev');
+}
+
 export function config(): AppConfig {
   if (cached) return cached;
   const osKey = str('OS_PLACES_API_KEY');
@@ -326,7 +372,7 @@ export function config(): AppConfig {
     env: (str('NODE_ENV', 'development') as AppConfig['env']),
     port: num('PORT', 3000),
     publicDir: str('PUBLIC_DIR', ''),
-    dataDir: str('DATA_DIR', 'data'),
+    dataDir: resolveDataDir(),
     sessionSecret: str('SESSION_SECRET'),
     resend: {
       apiKey: str('RESEND_API_KEY'),

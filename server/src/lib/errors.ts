@@ -43,3 +43,21 @@ export const forbidden = (message: string, detail?: unknown) =>
 /** Thrown when a query matches several premises and the user must choose. */
 export const ambiguous = (message: string, suggestions: ApiError['suggestions']) =>
   new HttpError(300, 'ambiguous', message, undefined, suggestions);
+
+/**
+ * A UPRN the address dataset cannot resolve.
+ *
+ * Worth more than "No premises found", because the most common way to hit
+ * this is for the app to have offered the UPRN itself: a premises can be
+ * listed by a search and then be missing from a lookup that queries a
+ * different dataset, or be a parent record standing for a building whose
+ * flats are the real addresses. Either way the person has done nothing wrong
+ * and there is a next step, so the message says what it is.
+ */
+export const uprnNotFound = (uprn: string) =>
+  notFound(
+    `Nothing in the address dataset matches UPRN ${uprn}. ` +
+      'It may be a parent record for a building rather than a deliverable ' +
+      'address, or be held only in a dataset this lookup cannot reach. ' +
+      'Searching the postcode will list the addresses that can be opened.',
+  );

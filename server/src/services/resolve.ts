@@ -17,7 +17,7 @@ import {
 } from '@sw/shared';
 import { config } from '../config';
 import { TtlCache } from '../lib/cache';
-import { badRequest, notFound } from '../lib/errors';
+import { badRequest, notFound, uprnNotFound } from '../lib/errors';
 import { firstResult, providers } from '../providers/registry';
 import { predictedSpeedsFor } from '../providers/coverage/ofcomBroadband';
 
@@ -443,7 +443,7 @@ export async function resolveQuery(rawQuery: string, opts: ResolveOptions = {}):
   // An explicit UPRN from the dropdown short-circuits everything.
   if (opts.uprn) {
     const address = await addressByUprn(opts.uprn);
-    if (!address) throw notFound(`No premises found for UPRN ${opts.uprn}.`);
+    if (!address) throw uprnNotFound(opts.uprn);
     const query = identify(opts.uprn);
     return { query, suggestions: [], report: await buildSiteReport(address, query, budget) };
   }
@@ -473,7 +473,7 @@ export async function resolveQuery(rawQuery: string, opts: ResolveOptions = {}):
     // ---- UPRN: exact premises ----------------------------------------
     case 'uprn': {
       const address = await addressByUprn(query.normalised);
-      if (!address) throw notFound(`No premises found for UPRN ${query.normalised}.`);
+      if (!address) throw uprnNotFound(query.normalised);
       return { query, suggestions: [], report: await buildSiteReport(address, query, budget) };
     }
 

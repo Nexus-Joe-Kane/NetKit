@@ -75,14 +75,29 @@ export function App(): ReactElement {
     return <ForcePasswordChange onDone={refreshSession} />;
   }
 
-  return <Portal user={session.user} onSignOut={() => setSession({ authenticated: false })} />;
+  return (
+    <Portal
+      user={session.user}
+      demoData={session.demoData ?? false}
+      onSignOut={() => setSession({ authenticated: false })}
+    />
+  );
 }
 
 /* ------------------------------------------------------------------ *
  * The portal
  * ------------------------------------------------------------------ */
 
-function Portal({ user, onSignOut }: { user: PublicUser; onSignOut: () => void }): ReactElement {
+function Portal({
+  user,
+  onSignOut,
+  demoData = false,
+}: {
+  user: PublicUser;
+  onSignOut: () => void;
+  /** True when fixtures answer premises lookups. */
+  demoData?: boolean;
+}): ReactElement {
   const [view, setView] = useState<View>('lookup');
   const [result, setResult] = useState<SearchResponse | null>(null);
   const [report, setReport] = useState<SiteReport | null>(null);
@@ -230,7 +245,13 @@ function Portal({ user, onSignOut }: { user: PublicUser; onSignOut: () => void }
 
         {view === 'lookup' && (
           <>
-            <SearchBar onSubmit={runSearch} onPickAddress={pickAddress} busy={busy} initialValue={initialQuery} />
+            <SearchBar
+              onSubmit={runSearch}
+              onPickAddress={pickAddress}
+              busy={busy}
+              initialValue={initialQuery}
+              demoData={demoData}
+            />
 
             {error && <Alert tone="error">{error}</Alert>}
 

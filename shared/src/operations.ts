@@ -579,7 +579,6 @@ export interface CompanyRecord {
   sicCodes?: string[];
   /** Set when Companies House flags overdue accounts or a confirmation statement. */
   overdue?: string[];
-  officerCount?: number;
   url?: string;
   source: string;
 }

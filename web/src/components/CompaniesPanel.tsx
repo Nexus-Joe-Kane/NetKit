@@ -212,7 +212,6 @@ export function CompaniesPanel({ postcode }: { postcode: string }): ReactElement
               <Cell label="Type" value={detail.type} />
               <Cell label="Incorporated" value={formatDate(detail.incorporatedOn)} />
               <Cell label="Dissolved" value={formatDate(detail.dissolvedOn)} />
-              <Cell label="Officers" value={detail.officerCount} />
               <Cell label="Registered office" value={detail.registeredOffice} />
             </div>
 

@@ -392,9 +392,13 @@ function probes(): Probe[] {
           retries: 0,
           notFoundAsNull: true,
         });
+        // An empty answer is a real answer here. The probe lists the SIM
+        // estate, and an account with no SIMs on it returns nothing --
+        // which used to raise a Degraded alert that no action could clear.
+        // Only an unreachable or rejecting endpoint is a problem.
         return res !== null
           ? { state: 'ok' as const, detail: 'Reachable and authenticated.' }
-          : { state: 'degraded' as const, detail: 'Reachable but the probe endpoint returned nothing.' };
+          : { state: 'ok' as const, detail: 'Reachable and authenticated. No SIMs on the account.' };
       },
     },
 

@@ -5,3 +5,5 @@ export * from './grade';
 export * from './confirm';
 export * from './csv';
 export * from './operations';
+export * from "./addressMatch";
+export * from "./rate";

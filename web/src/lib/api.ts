@@ -135,6 +135,8 @@ export interface SessionState {
   awaitingTwoFactor?: boolean;
   email?: string;
   warning?: string;
+  /** True when premises lookups are answered from fixtures. */
+  demoData?: boolean;
 }
 
 export const api = {

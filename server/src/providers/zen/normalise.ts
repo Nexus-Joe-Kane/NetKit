@@ -14,6 +14,7 @@ import {
   type LineStatus,
   type OpenreachDetail,
   type SpeedEstimate,
+  mbpsFromRate,
 } from '@sw/shared';
 
 /**
@@ -243,6 +244,16 @@ const numeric = (v?: number | string | null): number | undefined => {
   return Number.isFinite(n) && n !== 0 ? n : typeof v === 'number' && v === 0 ? undefined : Number.isFinite(n) ? n : undefined;
 };
 
+/**
+ * Speed fields, as opposed to plain numbers.
+ *
+ * Zen name these `...SpeedValue` with no unit alongside, and the
+ * Openreach-derived ones arrive in kbit/s. Every speed read from Zen goes
+ * through here so a single premises cannot end up with one field in Mbit/s
+ * and another in kbit/s.
+ */
+const rate = (v?: number | string | null): number | undefined => mbpsFromRate(numeric(v) ?? null);
+
 const isoDate = (v?: string): string | undefined => {
   const s = text(v);
   if (!s) return undefined;
@@ -275,28 +286,28 @@ const isAmber = (rag?: string) => (rag ?? '').trim().toUpperCase().startsWith('A
 /** Range A is the clean estimate; Range B is the impacted one. */
 function speedsFrom(block: ZenRangeBlock): SpeedEstimate {
   return {
-    ...(numeric(block.rangeADownstreamBottomSpeedValue) != null
-      ? { downMbpsLow: numeric(block.rangeADownstreamBottomSpeedValue) }
+    ...(rate(block.rangeADownstreamBottomSpeedValue) != null
+      ? { downMbpsLow: rate(block.rangeADownstreamBottomSpeedValue) }
       : {}),
-    ...(numeric(block.rangeADownstreamTopSpeedValue) != null
-      ? { downMbpsHigh: numeric(block.rangeADownstreamTopSpeedValue) }
+    ...(rate(block.rangeADownstreamTopSpeedValue) != null
+      ? { downMbpsHigh: rate(block.rangeADownstreamTopSpeedValue) }
       : {}),
-    ...(numeric(block.rangeAUpstreamBottomSpeedValue) != null
-      ? { upMbpsLow: numeric(block.rangeAUpstreamBottomSpeedValue) }
+    ...(rate(block.rangeAUpstreamBottomSpeedValue) != null
+      ? { upMbpsLow: rate(block.rangeAUpstreamBottomSpeedValue) }
       : {}),
-    ...(numeric(block.rangeAUpstreamTopSpeedValue) != null ? { upMbpsHigh: numeric(block.rangeAUpstreamTopSpeedValue) } : {}),
+    ...(rate(block.rangeAUpstreamTopSpeedValue) != null ? { upMbpsHigh: rate(block.rangeAUpstreamTopSpeedValue) } : {}),
     basis: 'modelled',
   };
 }
 
 /** Range B, rendered as a note so the impacted estimate isn't lost. */
 function rangeBNote(block: ZenRangeBlock): string | null {
-  const down = numeric(block.rangeBDownstreamTopSpeedValue);
-  const up = numeric(block.rangeBUpstreamTopSpeedValue);
+  const down = rate(block.rangeBDownstreamTopSpeedValue);
+  const up = rate(block.rangeBUpstreamTopSpeedValue);
   if (down == null && up == null) return null;
   const parts = [
-    down != null ? `${numeric(block.rangeBDownstreamBottomSpeedValue) ?? '?'}–${down} Mbps down` : null,
-    up != null ? `${numeric(block.rangeBUpstreamBottomSpeedValue) ?? '?'}–${up} Mbps up` : null,
+    down != null ? `${rate(block.rangeBDownstreamBottomSpeedValue) ?? '?'}–${down} Mbps down` : null,
+    up != null ? `${rate(block.rangeBUpstreamBottomSpeedValue) ?? '?'}–${up} Mbps up` : null,
   ].filter(Boolean);
   return `Range B (impacted line) estimate: ${parts.join(', ')}.`;
 }
@@ -400,8 +411,8 @@ export function offersFromLineDetails(ld: ZenLineDetails): BroadbandOffer[] {
           unavailableMessage: text(f.fttpUnAvailableMessage),
           reason: text(f.reasonCodeDescription),
           speeds: {
-            ...(numeric(f.maxDownstreamSpeedValue) != null ? { downMbpsHigh: numeric(f.maxDownstreamSpeedValue) } : {}),
-            ...(numeric(f.maxUpstreamSpeedValue) != null ? { upMbpsHigh: numeric(f.maxUpstreamSpeedValue) } : {}),
+            ...(rate(f.maxDownstreamSpeedValue) != null ? { downMbpsHigh: rate(f.maxDownstreamSpeedValue) } : {}),
+            ...(rate(f.maxUpstreamSpeedValue) != null ? { upMbpsHigh: rate(f.maxUpstreamSpeedValue) } : {}),
             basis: 'headline',
           },
           ...(isoDate(f.readyDate) ? { readyDate: isoDate(f.readyDate) } : {}),
@@ -481,9 +492,9 @@ export function offersFromLineDetails(ld: ZenLineDetails): BroadbandOffer[] {
           ragDescription: a.ragDescription,
           reason: text(a.reasonCodeDescription),
           speeds: {
-            ...(numeric(a.speedRangeMinValue) != null ? { downMbpsLow: numeric(a.speedRangeMinValue) } : {}),
-            ...(numeric(a.speedRangeMaxValue ?? a.speedValue) != null
-              ? { downMbpsHigh: numeric(a.speedRangeMaxValue ?? a.speedValue) }
+            ...(rate(a.speedRangeMinValue) != null ? { downMbpsLow: rate(a.speedRangeMinValue) } : {}),
+            ...(rate(a.speedRangeMaxValue ?? a.speedValue) != null
+              ? { downMbpsHigh: rate(a.speedRangeMaxValue ?? a.speedValue) }
               : {}),
             basis: 'modelled',
           },
@@ -504,8 +515,8 @@ export function offersFromLineDetails(ld: ZenLineDetails): BroadbandOffer[] {
           rag: a.rag,
           ragDescription: a.ragDescription,
           speeds: {
-            ...(numeric(a.downloadSpeedValue) != null ? { downMbpsHigh: numeric(a.downloadSpeedValue) } : {}),
-            ...(numeric(a.uploadSpeedValue) != null ? { upMbpsHigh: numeric(a.uploadSpeedValue) } : {}),
+            ...(rate(a.downloadSpeedValue) != null ? { downMbpsHigh: rate(a.downloadSpeedValue) } : {}),
+            ...(rate(a.uploadSpeedValue) != null ? { upMbpsHigh: rate(a.uploadSpeedValue) } : {}),
             basis: 'modelled',
           },
           extraNotes: ['Annex M trades downstream for upstream — useful for hosted voice and CCTV.'],
@@ -525,9 +536,9 @@ export function offersFromLineDetails(ld: ZenLineDetails): BroadbandOffer[] {
           rag: a.rag,
           ragDescription: a.ragDescription,
           speeds: {
-            ...(numeric(a.speedRangeMinValue) != null ? { downMbpsLow: numeric(a.speedRangeMinValue) } : {}),
-            ...(numeric(a.speedRangeMaxValue ?? a.speedValue) != null
-              ? { downMbpsHigh: numeric(a.speedRangeMaxValue ?? a.speedValue) }
+            ...(rate(a.speedRangeMinValue) != null ? { downMbpsLow: rate(a.speedRangeMinValue) } : {}),
+            ...(rate(a.speedRangeMaxValue ?? a.speedValue) != null
+              ? { downMbpsHigh: rate(a.speedRangeMaxValue ?? a.speedValue) }
               : {}),
             basis: 'modelled',
           },
