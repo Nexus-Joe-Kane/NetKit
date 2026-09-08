@@ -480,7 +480,9 @@ function SiteReportView({
             </Card>
           ))}
 
-        {tab === 'lines' && <LinesPanel lines={report.lines} />}
+        {tab === 'lines' && (
+          <LinesPanel lines={report.lines} nearbyLines={report.nearbyLines ?? []} />
+        )}
 
         {tab === 'companies' && <CompaniesPanel postcode={report.address.postcode} />}
       </TabPanel>

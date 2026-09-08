@@ -333,7 +333,7 @@ export function SearchBar({
                     {entry.label ?? entry.query}
                     <span className="muted" style={{ fontSize: 11, marginLeft: 8 }}>{relativeTime(entry.at)}</span>
                   </span>
-                  <span className="typeahead__uprn sw-mono">{entry.uprn ?? entry.postcode ?? entry.kind}</span>
+                  <span className="typeahead__uprn sw-mono">{entry.postcode ?? entry.kind}</span>
                 </button>
               ))}
             </>
@@ -358,7 +358,9 @@ export function SearchBar({
                   onMouseEnter={() => setHighlight(i)}
                 >
                   <span className="typeahead__label">{s.label}</span>
-                  <span className="typeahead__uprn sw-mono">{s.uprn ?? s.postcode}</span>
+                  {/* The postcode, not the UPRN. A UPRN identifies a premises
+                      to a database; a postcode identifies it to a person. */}
+                  <span className="typeahead__uprn sw-mono">{s.postcode || s.postTown}</span>
                 </button>
               ))}
             </>

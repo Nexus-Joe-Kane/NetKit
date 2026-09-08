@@ -225,8 +225,15 @@ export function apiRouter(): Router {
       if (uprn) {
         const address = await addressByUprn(uprn);
         if (!address) throw uprnNotFound(uprn);
-        const { lines, status } = await allLinesAtPremises(address);
-        return { address, lines, status, checkedAt: new Date().toISOString(), sources: ['registry'] };
+        const { lines, nearby, status } = await allLinesAtPremises(address);
+        return {
+          address,
+          lines,
+          ...(nearby.length ? { nearbyLines: nearby } : {}),
+          status,
+          checkedAt: new Date().toISOString(),
+          sources: ['registry'],
+        };
       }
       if (!q) throw badRequest('Provide either ?q= (CLI, access line ID, service ID or ONT serial) or ?uprn=');
 

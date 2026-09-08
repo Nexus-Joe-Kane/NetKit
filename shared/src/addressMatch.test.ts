@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { finaliseAddress, type AddressRecord } from './index';
-import { rankAddresses, rankAddressMatches, tokeniseQuery, tokenMatches, addressWords } from './addressMatch';
+import { rankAddresses, rankAddressMatches, tokeniseQuery, tokenMatches, addressWords, samePremises } from './addressMatch';
 
 const addr = (over: Partial<AddressRecord> & { postTown: string; postcode: string }): AddressRecord =>
   finaliseAddress({ ...over, source: 'test' } as never);
@@ -104,4 +104,85 @@ test('an empty query passes results through untouched', () => {
 
 test('limit is respected', () => {
   assert.equal(rankAddresses(MEGANS, 'megans', 2).length, 2);
+});
+
+/* ---- samePremises --------------------------------------------------- */
+
+test('the Willow case: Zen formatting matches OS Places for one premises', () => {
+  // OS Places carry the organisation name; Zen do not. Capitalisation and
+  // punctuation differ. Exact string equality failed and the line vanished.
+  const os = addr({
+    organisation: 'Willow Estate Agents Ltd',
+    buildingNumber: '45',
+    thoroughfare: 'Brockley Rise',
+    postTown: 'LONDON',
+    postcode: 'SE23 1JG',
+    uprn: '100023253338',
+  });
+  const fromZen = addr({ buildingNumber: '45', thoroughfare: 'BROCKLEY RISE', postTown: 'LONDON', postcode: 'se231jg' });
+  assert.equal(samePremises(fromZen, os), true);
+});
+
+test('street type abbreviations do not break a premises match', () => {
+  const a = addr({ buildingNumber: '12', thoroughfare: 'Bath Road', postTown: 'READING', postcode: 'RG1 1AA' });
+  const b = addr({ buildingNumber: '12', thoroughfare: 'Bath Rd', postTown: 'READING', postcode: 'RG1 1AA' });
+  assert.equal(samePremises(a, b), true);
+});
+
+test('a different postcode is never the same premises', () => {
+  const a = addr({ buildingNumber: '45', thoroughfare: 'Brockley Rise', postTown: 'LONDON', postcode: 'SE23 1JG' });
+  const b = addr({ buildingNumber: '45', thoroughfare: 'Brockley Rise', postTown: 'LONDON', postcode: 'SE23 1JH' });
+  assert.equal(samePremises(a, b), false);
+});
+
+test('a neighbour at the same postcode is not matched', () => {
+  const a = addr({ buildingNumber: '45', thoroughfare: 'Brockley Rise', postTown: 'LONDON', postcode: 'SE23 1JG' });
+  const b = addr({ buildingNumber: '47', thoroughfare: 'Brockley Rise', postTown: 'LONDON', postcode: 'SE23 1JG' });
+  assert.equal(samePremises(a, b), false);
+});
+
+test('two flats in one building are not the same premises', () => {
+  const a = addr({ subBuilding: 'Flat 1', buildingNumber: '45', thoroughfare: 'Brockley Rise', postTown: 'LONDON', postcode: 'SE23 1JG' });
+  const b = addr({ subBuilding: 'Flat 2', buildingNumber: '45', thoroughfare: 'Brockley Rise', postTown: 'LONDON', postcode: 'SE23 1JG' });
+  assert.equal(samePremises(a, b), false);
+});
+
+test('a flat number the other side omits is not held against the match', () => {
+  // Zen routinely omit a flat number that AddressBase carries.
+  const withFlat = addr({ subBuilding: 'Flat 1', buildingNumber: '45', thoroughfare: 'Brockley Rise', postTown: 'LONDON', postcode: 'SE23 1JG' });
+  const without = addr({ buildingNumber: '45', thoroughfare: 'Brockley Rise', postTown: 'LONDON', postcode: 'SE23 1JG' });
+  assert.equal(samePremises(without, withFlat), true);
+});
+
+test('the same number on two streets sharing a postcode is separated', () => {
+  const a = addr({ buildingNumber: '1', thoroughfare: 'Mill Lane', postTown: 'BATH', postcode: 'BA1 1AA' });
+  const b = addr({ buildingNumber: '1', thoroughfare: 'Station Road', postTown: 'BATH', postcode: 'BA1 1AA' });
+  assert.equal(samePremises(a, b), false);
+});
+
+test('a named building with no number matches on its name', () => {
+  const a = addr({ buildingName: 'Kestrel House', thoroughfare: 'Mill Lane', postTown: 'BATH', postcode: 'BA1 1AA' });
+  const b = addr({ buildingName: 'KESTREL HOUSE', thoroughfare: 'Mill Lane', postTown: 'BATH', postcode: 'BA1 1AA' });
+  assert.equal(samePremises(a, b), true);
+});
+
+test('UPRNs decide outright when both sides have one', () => {
+  const a = addr({ uprn: '111', postTown: 'X', postcode: 'AA1 1AA' });
+  const b = addr({ uprn: '222', postTown: 'X', postcode: 'AA1 1AA' });
+  assert.equal(samePremises(a, b), false);
+  const c = addr({ uprn: '111', postTown: 'Y', postcode: 'BB2 2BB' });
+  assert.equal(samePremises(a, c), true, 'the same UPRN is the same premises whatever else says');
+});
+
+test('a bare street and postcode is not enough to claim a premises', () => {
+  // Claiming it would put a neighbour's circuit on the report.
+  const a = addr({ thoroughfare: 'Brockley Rise', postTown: 'LONDON', postcode: 'SE23 1JG' });
+  const b = addr({ thoroughfare: 'Brockley Rise', postTown: 'LONDON', postcode: 'SE23 1JG' });
+  assert.equal(samePremises(a, b), false);
+});
+
+test('a missing postcode on either side is not a match', () => {
+  const a = addr({ buildingNumber: '45', thoroughfare: 'Brockley Rise', postTown: 'LONDON', postcode: '' });
+  const b = addr({ buildingNumber: '45', thoroughfare: 'Brockley Rise', postTown: 'LONDON', postcode: 'SE23 1JG' });
+  assert.equal(samePremises(a, b), false);
 });

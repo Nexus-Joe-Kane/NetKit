@@ -85,10 +85,17 @@ export function finaliseAddress(a: Omit<AddressRecord, 'lines' | 'singleLine'> &
   } as AddressRecord;
 }
 
-/** The dropdown label: everything up to but excluding the post town. */
+/**
+ * The dropdown label: the whole address, post town included.
+ *
+ * It used to stop before the post town, which made two premises with the
+ * same building name in different towns look identical -- and the only thing
+ * distinguishing them in the list was a UPRN, which nobody can identify a
+ * building from. The postcode is shown alongside by the caller, so the two
+ * together read as the address someone would recognise.
+ */
 export function suggestionLabel(a: AddressRecord): string {
-  const lines = a.lines.filter((l) => l !== a.postTown);
-  return lines.length ? lines.join(', ') : a.singleLine;
+  return a.lines.length ? a.lines.join(', ') : a.singleLine;
 }
 
 export function toSuggestion(a: AddressRecord): AddressSuggestion {
