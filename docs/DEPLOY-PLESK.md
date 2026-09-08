@@ -1,5 +1,9 @@
 # Deploying NetKit to Plesk
 
+> For a shorter checklist in running order, see
+> **[GO-LIVE.md](GO-LIVE.md)**. This page is the same ground in more depth,
+> plus troubleshooting.
+
 NetKit is a Node application that serves its own SPA. On Plesk that means two
 things from the "Adding New Domain" screen: **Deploy using Git** for getting
 the code there, and **Node.js** enabled on the domain to run it.

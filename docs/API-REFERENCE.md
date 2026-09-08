@@ -396,3 +396,29 @@ Product-name matching is ordered specific-first, because several names
 contain the others — `EoFTTC` contains `FTTC`, and matching the general one
 first mislabels every Ethernet first-mile circuit as a broadband line. The
 tests pin that.
+
+---
+
+## The networks nobody will answer for
+
+G.Network, Community Fibre and several others will not confirm a specific
+address through any account SupportWizard holds, and no data licence covers
+per-premises serviceability for all of them. Their public checkers will
+answer in seconds if a person clicks.
+
+So the **Other networks** tab links straight out to them, each in a new tab
+so an operator never loses the report they are working from:
+
+| Checker | Postcode prefilled? |
+| --- | --- |
+| [G.Network address checker](https://www.g.network/address-checker) | **Yes** — `?postcode=` is confirmed against a live example |
+| [Openreach fibre checker](https://www.openreach.com/fibre-checker) | No |
+| [Virgin Media postcode checker](https://www.virginmedia.com/broadband/postcode-checker) | No |
+| [Ofcom broadband coverage](https://checker.ofcom.org.uk/en-gb/broadband-coverage) | No |
+
+Only G.Network's parameter is prefilled. Sending a made-up query string to
+the others risks a broken page, which is worse than one extra paste — so
+they are linked plain, and the panel says the postcode needs pasting.
+
+The tab is always present, including when there is no footprint data at all:
+that is precisely when an operator needs the manual checkers.
