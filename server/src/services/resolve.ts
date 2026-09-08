@@ -307,7 +307,7 @@ async function availabilityFor(
     };
   }
 
-  const merged = sortOffers([...result.value.offers, ...supplemental.offers]);
+  const merged = sortOffers([...markConfirmed(result.value.offers), ...supplemental.offers]);
   const headline = headlineFrom(merged) ?? result.value.headline;
   const value: BroadbandAvailability = {
     ...result.value,
@@ -317,6 +317,39 @@ async function availabilityFor(
     sources: [...result.value.sources, ...supplemental.sources, ...(predicted ? ['ofcom:broadband-api'] : [])],
   };
   return { value, status: ok(result.mode, Date.now() - started) };
+}
+
+/**
+ * Marks a wholesale availability answer as what it is: an address check.
+ *
+ * A wholesale check *is* per-premises, so these rows were left with
+ * `serviceability` absent and the sort compensated. That worked for ordering
+ * but read badly to a person: the detail panel for a genuinely orderable
+ * Openreach product showed SERVICEABILITY "—" and ORDERABLE "—" beside an
+ * enabled Order button, which is exactly the ambiguity the field exists to
+ * remove. An implicit "absent means confirmed" rule had already caused one
+ * inverted-sort bug, so it is now stated rather than inferred.
+ *
+ * A provider that has set the field itself is left alone -- Giacom already
+ * says `confirmed`, and nothing here should promote a footprint row.
+ */
+function markConfirmed(offers: BroadbandOffer[]): BroadbandOffer[] {
+  return offers.map((offer) =>
+    offer.serviceability
+      ? offer
+      : {
+          ...offer,
+          serviceability: 'confirmed' as const,
+          // Orderable is about this product at this address, not about
+          // whether the ordering switch is on -- that is a separate gate in
+          // the UI, and conflating them would claim a product cannot be had
+          // when it merely cannot be had by clicking here.
+          orderable: offer.status === 'available',
+          ...(offer.status === 'available'
+            ? {}
+            : { orderableReason: `Not orderable while the product reads "${offer.status}".` }),
+        },
+  );
 }
 
 /** Sellable first, then by status, then by technology. */
@@ -538,4 +571,4 @@ export function clearReportCache(): void {
 }
 
 /** Test hooks for the merge and ordering rules, which are easy to regress. */
-export const __resolveTesting = { dedupeKey, confidenceRank, sellRank, sortOffers, headlineFrom, belongsToPremises };
+export const __resolveTesting = { dedupeKey, confidenceRank, sellRank, sortOffers, headlineFrom, belongsToPremises, markConfirmed };

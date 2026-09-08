@@ -141,3 +141,46 @@ test('a line that matches nothing is excluded rather than guessed at', () => {
   assert.equal(belongsToPremises(orphan, address({ uprn: '123' })), false);
   assert.equal(belongsToPremises(orphan, address()), false);
 });
+
+test('a wholesale offer states its serviceability instead of leaving it blank', () => {
+  // The detail panel showed SERVICEABILITY "—" and ORDERABLE "—" for a
+  // GEA-FTTP product that was genuinely address-checked and had an enabled
+  // Order button beside it.
+  const [marked] = __resolveTesting.markConfirmed([
+    {
+      operator: 'Openreach',
+      technology: 'FTTP',
+      status: 'available',
+      retailer: 'ZEN',
+      speeds: { downMbpsHigh: 1800, upMbpsHigh: 120 },
+      source: 'zen:availability',
+    } as never,
+  ]);
+  assert.equal(marked?.serviceability, 'confirmed');
+  assert.equal(marked?.orderable, true);
+  assert.equal(marked?.orderableReason, undefined);
+});
+
+test('an unavailable wholesale row is confirmed but not orderable', () => {
+  const [marked] = __resolveTesting.markConfirmed([
+    { operator: 'Openreach', technology: 'FTTC', status: 'not_available', speeds: {}, source: 'zen:availability' } as never,
+  ]);
+  assert.equal(marked?.serviceability, 'confirmed', 'the check still happened');
+  assert.equal(marked?.orderable, false);
+  assert.match(marked?.orderableReason ?? '', /not_available/);
+});
+
+test('a footprint row is never promoted to confirmed', () => {
+  const [marked] = __resolveTesting.markConfirmed([
+    {
+      operator: 'Community Fibre',
+      technology: 'FTTP',
+      status: 'available',
+      serviceability: 'footprint',
+      speeds: {},
+      source: 'thinkbroadband',
+    } as never,
+  ]);
+  assert.equal(marked?.serviceability, 'footprint');
+  assert.equal(marked?.orderable, undefined, 'must not gain an orderable flag');
+});
