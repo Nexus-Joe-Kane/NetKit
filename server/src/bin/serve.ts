@@ -16,7 +16,7 @@ async function main(): Promise<void> {
 
   const app = createApp();
   const server = app.listen(cfg.port, async () => {
-    console.log(`[netkit] SupportWizard NetKit v${cfg.version} listening on :${cfg.port} (${cfg.env}, data mode: ${cfg.dataMode})`);
+    console.log(`[netkit] SupportWizard NetKit v${cfg.version} listening on :${cfg.port} (${cfg.env})`);
     // Prove the deployment works before anyone relies on it, then start
     // watching for anything that breaks later.
     await selfTestOnBoot();

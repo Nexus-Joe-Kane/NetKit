@@ -62,7 +62,7 @@ export function NetworkStatusPage(): ReactElement {
   const [tab, setTab] = useState<Tab>('outages');
   const [current, setCurrent] = useState<{ outages: Incident[]; plannedWork: Incident[] } | null>(null);
   const [past, setPast] = useState<{ outages: Incident[]; plannedWork: Incident[] } | null>(null);
-  const [mode, setMode] = useState<'live' | 'mock'>('mock');
+  const [mode, setMode] = useState<'live'>('live');
   const [providerError, setProviderError] = useState<string | undefined>();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -195,7 +195,7 @@ export function NetworkStatusPage(): ReactElement {
         index="01"
         accent={2}
         flush
-        meta={mode === 'mock' ? <Chip tone="warn" dot>Demo data</Chip> : <Chip tone="ok" dot>Live</Chip>}
+        meta=<Chip tone="ok" dot>Live</Chip>
         tabs={<Tabs tabs={tabs} active={tab} onChange={setTab} variant="sub" label="Network status sections" />}
       >
         <TabPanel>

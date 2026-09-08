@@ -48,14 +48,11 @@ export function SearchBar({
   onPickAddress,
   busy,
   initialValue = '',
-  demoData = false,
 }: {
   onSubmit: (query: string) => void;
   onPickAddress: (suggestion: AddressSuggestion) => void;
   busy: boolean;
   initialValue?: string;
-  /** True when fixtures answer lookups, so the worked examples resolve. */
-  demoData?: boolean;
 }): ReactElement {
   const [value, setValue] = useState(initialValue);
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
@@ -259,7 +256,7 @@ export function SearchBar({
             </>
           ) : (
             <div>
-              <Label>{recent.length > 0 ? 'Recent' : demoData ? 'Try' : 'You can type'}</Label>
+              <Label>{recent.length > 0 ? 'Recent' : 'You can type'}</Label>
               <div className="search__examples">
                 {recent.length > 0
                   ? recent.slice(0, 5).map((entry) => (
@@ -271,21 +268,6 @@ export function SearchBar({
                         title={`${entry.label ?? entry.query} — looked up ${relativeTime(entry.at)}`}
                       >
                         {entry.label ?? entry.query}
-                      </button>
-                    ))
-                  : demoData
-                  ? EXAMPLES.map((ex) => (
-                      <button
-                        key={ex.label}
-                        type="button"
-                        className="search__example"
-                        onClick={() => {
-                          setValue(ex.label);
-                          submit(ex.label);
-                        }}
-                        title={`Example ${ex.hint}`}
-                      >
-                        {ex.label}
                       </button>
                     ))
                   : ACCEPTED.map((kind) => (

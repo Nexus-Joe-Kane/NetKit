@@ -60,7 +60,7 @@ type Tab = 'open' | 'closed';
 export function FaultsPage(): ReactElement {
   const [tab, setTab] = useState<Tab>('open');
   const [faults, setFaults] = useState<FaultRecord[]>([]);
-  const [mode, setMode] = useState<'live' | 'mock'>('mock');
+  const [mode, setMode] = useState<'live'>('live');
   const [providerError, setProviderError] = useState<string | undefined>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -146,7 +146,7 @@ export function FaultsPage(): ReactElement {
         flush
         meta={
           <>
-            {mode === 'mock' ? <Chip tone="warn" dot>Demo data</Chip> : <Chip tone="ok" dot>Live</Chip>}
+            <Chip tone="ok" dot>Live</Chip>
             <ExportButtons rows={faults} columns={FAULT_COLUMNS} filenamePrefix={`faults-${tab}`} label="the fault book" />
             <button className="btn btn--primary btn--small" onClick={() => setRaising(true)}>
               Raise a fault
@@ -240,17 +240,10 @@ export function FaultsPage(): ReactElement {
           </button>
         }
       >
-        {raised?.reference === 'DEMO-NOT-RAISED' ? (
-          <p style={{ margin: 0 }}>
-            This is demo mode — no fault was sent to Zen. Connect Zen credentials with the{' '}
-            <code className="sw-mono">indirect-faults</code> scope and this will raise for real.
-          </p>
-        ) : (
-          <p style={{ margin: 0 }}>
-            The fault is with Zen as <strong className="sw-mono">{raised?.reference}</strong>. It will appear in the
-            open list, and updates from the supplier land on its timeline.
-          </p>
-        )}
+        <p style={{ margin: 0 }}>
+          The fault is with Zen as <strong className="sw-mono">{raised?.reference}</strong>. It will appear in the
+          open list, and updates from the supplier land on its timeline.
+        </p>
       </Modal>
     </div>
   );

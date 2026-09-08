@@ -306,10 +306,10 @@ function ToolRunner({ tool, onClose }: { tool: ToolDef; onClose: () => void }): 
 }
 
 /** Every result leads with whether it came from a live API. */
-function ModeBadge({ mode, providerError }: { mode: 'live' | 'mock'; providerError?: string }): ReactElement {
+function ModeBadge({ mode, providerError }: { mode: 'live'; providerError?: string }): ReactElement {
   return (
     <div className="row" style={{ gap: 8 }}>
-      {mode === 'live' ? <Chip tone="ok" dot>Live result</Chip> : <Chip tone="warn" dot>Demo data</Chip>}
+      <Chip tone="ok" dot>Live result</Chip>
       {providerError && (
         <span className="muted" style={{ fontSize: 11.5 }}>
           live call failed: {providerError}
@@ -323,7 +323,7 @@ function ModeBadge({ mode, providerError }: { mode: 'live' | 'mock'; providerErr
  * Result renderers
  * ------------------------------------------------------------------ */
 
-function PortResult({ data }: { data: NumberPortCheck & { mode: 'live' | 'mock'; providerError?: string } }): ReactElement {
+function PortResult({ data }: { data: NumberPortCheck & { mode: 'live'; providerError?: string } }): ReactElement {
   return (
     <>
       <ModeBadge mode={data.mode} {...(data.providerError ? { providerError: data.providerError } : {})} />
@@ -353,7 +353,7 @@ function PortResult({ data }: { data: NumberPortCheck & { mode: 'live' | 'mock';
 function ConnectivityResult({
   data,
 }: {
-  data: NetworkConnectivityCheck & { mode: 'live' | 'mock'; providerError?: string };
+  data: NetworkConnectivityCheck & { mode: 'live'; providerError?: string };
 }): ReactElement {
   return (
     <>
@@ -378,7 +378,7 @@ function ConnectivityResult({
   );
 }
 
-function ImeiResult({ data }: { data: ImeiLookup & { mode: 'live' | 'mock'; providerError?: string } }): ReactElement {
+function ImeiResult({ data }: { data: ImeiLookup & { mode: 'live'; providerError?: string } }): ReactElement {
   return (
     <>
       <ModeBadge mode={data.mode} {...(data.providerError ? { providerError: data.providerError } : {})} />
@@ -424,7 +424,7 @@ function ImeiResult({ data }: { data: ImeiLookup & { mode: 'live' | 'mock'; prov
   );
 }
 
-function EthernetResult({ data }: { data: EthernetQuoteSet & { mode: 'live' | 'mock'; providerError?: string } }): ReactElement {
+function EthernetResult({ data }: { data: EthernetQuoteSet & { mode: 'live'; providerError?: string } }): ReactElement {
   return (
     <>
       <ModeBadge mode={data.mode} {...(data.providerError ? { providerError: data.providerError } : {})} />
@@ -495,7 +495,7 @@ function EthernetResult({ data }: { data: EthernetQuoteSet & { mode: 'live' | 'm
 function FootfallResult({
   data,
 }: {
-  data: FootfallInsight & { outOfArea?: boolean; mode: 'live' | 'mock'; providerError?: string };
+  data: FootfallInsight & { outOfArea?: boolean; mode: 'live'; providerError?: string };
 }): ReactElement {
   const peak = data.series.reduce((max, d) => (d.visitors > max ? d.visitors : max), 0);
   const total = data.series.reduce((sum, d) => sum + d.visitors, 0);
@@ -588,7 +588,7 @@ const CDR_COLUMNS: Array<CsvColumn<CallRecord>> = [
 function CdrResult({
   data,
 }: {
-  data: { records: CallRecord[]; from: string; to: string; mode: 'live' | 'mock'; providerError?: string };
+  data: { records: CallRecord[]; from: string; to: string; mode: 'live'; providerError?: string };
 }): ReactElement {
   const totalCost = data.records.reduce((sum, r) => sum + (r.costPounds ?? 0), 0);
   const totalSeconds = data.records.reduce((sum, r) => sum + (r.durationSeconds ?? 0), 0);
@@ -655,7 +655,7 @@ function CdrResult({
 function RdnsResult({
   data,
 }: {
-  data: { records: RdnsRecord[]; mode: 'live' | 'mock'; providerError?: string };
+  data: { records: RdnsRecord[]; mode: 'live'; providerError?: string };
 }): ReactElement {
   const missing = data.records.filter((r) => !r.hostname).length;
 
@@ -720,7 +720,7 @@ function AddressMatchResult({
   data,
   query,
 }: {
-  data: AddressMatch & { mode: 'live' | 'mock'; providerError?: string };
+  data: AddressMatch & { mode: 'live'; providerError?: string };
   query: { postcode: string; premiseName?: string; thoroughfareNumber?: string };
 }): ReactElement {
   const [registering, setRegistering] = useState(false);
@@ -918,7 +918,7 @@ function AddressMatchResult({
 function NetworkConfigResult({
   data,
 }: {
-  data: NetworkConfiguration & { mode: 'live' | 'mock'; providerError?: string };
+  data: NetworkConfiguration & { mode: 'live'; providerError?: string };
 }): ReactElement {
   return (
     <>
@@ -997,7 +997,7 @@ const ESTATE_COLUMNS: Array<CsvColumn<EstateUsageRow>> = [
 function EstateUsageResult({
   data,
 }: {
-  data: EstateUsageReport & { mode: 'live' | 'mock'; providerError?: string };
+  data: EstateUsageReport & { mode: 'live'; providerError?: string };
 }): ReactElement {
   const over = data.rows.filter((r) => r.overAllowance).length;
 

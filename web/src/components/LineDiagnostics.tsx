@@ -36,7 +36,7 @@ export function LineDiagnostics({ line }: { line: LineRecord }): ReactElement {
   const zenReference = line.orderRef ?? line.id;
   const [tests, setTests] = useState<AvailableTests | null>(null);
   const [result, setResult] = useState<LineTestResult | null>(null);
-  const [mode, setMode] = useState<'live' | 'mock'>('mock');
+  const [mode, setMode] = useState<'live'>('live');
   const [busy, setBusy] = useState<LineTestType | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -112,14 +112,6 @@ export function LineDiagnostics({ line }: { line: LineRecord }): ReactElement {
   return (
     <div className="stack stack--tight">
       {error && <Alert tone="error">{error}</Alert>}
-      {mode === 'mock' && (
-        <Alert tone="warn">
-          <span>
-            Demo mode — nothing is run against the network. Connect Zen credentials with the{' '}
-            <code className="sw-mono">indirect-diagnostics</code> scope to test for real.
-          </span>
-        </Alert>
-      )}
 
       <div>
         <Label>Available tests</Label>
@@ -253,9 +245,7 @@ export function LineDiagnostics({ line }: { line: LineRecord }): ReactElement {
         }
       >
         <p style={{ margin: 0 }}>
-          {raised === 'DEMO-NOT-RAISED'
-            ? 'Demo mode — no fault was sent to Zen.'
-            : `The fault is with Zen as ${raised}.`}
+          {`The fault is with Zen as ${raised}.`}
         </p>
       </Modal>
 
@@ -271,7 +261,7 @@ export function LineDiagnostics({ line }: { line: LineRecord }): ReactElement {
 export function LineStability({ line }: { line: LineRecord }): ReactElement {
   const zenReference = line.orderRef ?? line.id;
   const [report, setReport] = useState<StabilityReport | null>(null);
-  const [mode, setMode] = useState<'live' | 'mock'>('mock');
+  const [mode, setMode] = useState<'live'>('live');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -300,7 +290,6 @@ export function LineStability({ line }: { line: LineRecord }): ReactElement {
 
   return (
     <div className="stack stack--tight">
-      {mode === 'mock' && <Alert tone="warn">Demo data.</Alert>}
 
       <div className="kv">
         <Cell label="Drops in 30 days" value={report.totalDrops} mono />
@@ -383,7 +372,7 @@ export function LineStability({ line }: { line: LineRecord }): ReactElement {
 export function LineUsage({ line }: { line: LineRecord }): ReactElement {
   const zenReference = line.orderRef ?? line.id;
   const [report, setReport] = useState<UsageReport | null>(null);
-  const [mode, setMode] = useState<'live' | 'mock'>('mock');
+  const [mode, setMode] = useState<'live'>('live');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -413,7 +402,6 @@ export function LineUsage({ line }: { line: LineRecord }): ReactElement {
 
   return (
     <div className="stack stack--tight">
-      {mode === 'mock' && <Alert tone="warn">Demo data.</Alert>}
 
       <div className="kv">
         <Cell label="Downloaded" value={formatBytes(report.bytesIn)} mono />
@@ -474,7 +462,7 @@ export function LineUsage({ line }: { line: LineRecord }): ReactElement {
 export function LineHistory({ line }: { line: LineRecord }): ReactElement {
   const zenReference = line.orderRef ?? line.id;
   const [history, setHistory] = useState<ServiceHistory | null>(null);
-  const [mode, setMode] = useState<'live' | 'mock'>('mock');
+  const [mode, setMode] = useState<'live'>('live');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -500,7 +488,6 @@ export function LineHistory({ line }: { line: LineRecord }): ReactElement {
 
   return (
     <div className="stack stack--tight">
-      {mode === 'mock' && <Alert tone="warn">Demo data.</Alert>}
       <div className="table-wrap">
         <table className="data">
           <thead>

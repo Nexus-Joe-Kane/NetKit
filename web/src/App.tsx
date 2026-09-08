@@ -78,7 +78,6 @@ export function App(): ReactElement {
   return (
     <Portal
       user={session.user}
-      demoData={session.demoData ?? false}
       onSignOut={() => setSession({ authenticated: false })}
     />
   );
@@ -91,12 +90,9 @@ export function App(): ReactElement {
 function Portal({
   user,
   onSignOut,
-  demoData = false,
 }: {
   user: PublicUser;
   onSignOut: () => void;
-  /** True when fixtures answer premises lookups. */
-  demoData?: boolean;
 }): ReactElement {
   const [view, setView] = useState<View>('lookup');
   const [result, setResult] = useState<SearchResponse | null>(null);
@@ -250,7 +246,6 @@ function Portal({
               onPickAddress={pickAddress}
               busy={busy}
               initialValue={initialQuery}
-              demoData={demoData}
             />
 
             {error && <Alert tone="error">{error}</Alert>}
@@ -369,7 +364,6 @@ function SiteReportView({
   const [copied, setCopied] = useState(false);
 
   const degraded = Object.entries(report.status).filter(([, s]) => !s.ok);
-  const usingDemoData = Object.values(report.status).some((s) => s.mode === 'mock');
 
   const orderable = report.broadband?.offers.filter((o) => o.status === 'available').length;
   const criticalFlags = report.broadband?.openreach?.flags.filter((f) => f.level === 'critical').length ?? 0;
@@ -407,11 +401,6 @@ function SiteReportView({
         {...(report.uprn ? { uprn: report.uprn } : {})}
         extra={
           <div className="row" style={{ gap: 6 }}>
-            {usingDemoData && (
-              <Chip tone="warn" dot title="At least one panel is showing fixture data because a provider is not connected">
-                Demo data
-              </Chip>
-            )}
             {siblings.length > 0 && (
               <button className="btn btn--ghost btn--small" onClick={() => setSiblingsOpen(true)}>
                 {siblings.length} more at this postcode

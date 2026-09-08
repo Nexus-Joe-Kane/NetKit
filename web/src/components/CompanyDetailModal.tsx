@@ -47,7 +47,7 @@ export function CompanyDetailModal({
   company: CompanyRecord | null;
   onClose: () => void;
 }): ReactElement {
-  const [detail, setDetail] = useState<(CompanyDetail & { mode: 'live' | 'mock' }) | null>(null);
+  const [detail, setDetail] = useState<(CompanyDetail & { mode: 'live' }) | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('overview');
@@ -114,7 +114,6 @@ export function CompanyDetailModal({
               Open on Companies House
             </a>
           )}
-          {detail?.mode === 'mock' && <Chip tone="warn" dot>Demo data</Chip>}
           <span className="grow" />
           <button type="button" className="btn btn--primary" onClick={onClose}>
             Close

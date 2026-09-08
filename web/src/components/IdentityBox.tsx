@@ -25,7 +25,7 @@ export function IdentityBox({
       <div className="identity__strip">
         <Label>Site identity</Label>
         <span className="muted" style={{ fontSize: 11 }}>
-          {address.source === 'mock' ? 'Demo data' : `Source: ${sourceLabel(address.source)}`}
+          {`Source: ${sourceLabel(address.source)}`}
         </span>
         <span className="grow" />
         {extra}

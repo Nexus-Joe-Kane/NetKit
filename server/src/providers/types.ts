@@ -12,7 +12,8 @@ export interface ProviderMeta {
   /** True when real credentials/endpoints are present. */
   readonly configured: boolean;
   /** `live` when it talks to a real API, `mock` when it returns fixtures. */
-  readonly mode: 'live' | 'mock';
+  /** Always 'live'. Kept as a field so the status board can report it. */
+  readonly mode: 'live';
 }
 
 export interface AddressProvider extends ProviderMeta {

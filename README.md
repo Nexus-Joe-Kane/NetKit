@@ -53,7 +53,7 @@ npm run build
 npm start                   # http://localhost:3000
 ```
 
-With no credentials at all it runs on deterministic demo data, so the whole
+With no credentials it runs, and every panel says which provider it is
 portal is usable and demonstrable immediately. Real postcode geography still
 comes from postcodes.io, which needs no key.
 
@@ -66,11 +66,9 @@ npm run dev:web             # SPA on :5173, proxying /api
 
 ### Data modes
 
-`DATA_MODE` controls how missing credentials are handled:
+There is no demo mode. A panel with no provider says so and names what is
+missing; it never shows invented data.
 
-- **`auto`** (default) — live providers where credentials exist, demo data elsewhere. Each panel shows which it used.
-- **`live`** — never fall back; surface the upstream error instead.
-- **`mock`** — always demo data. Useful for training and screenshots.
 
 ---
 
@@ -87,9 +85,9 @@ data/       Users, settings, audit log (gitignored, must persist)
 The important idea is the **provider chain**. Each capability — addresses,
 availability, signal, lines — is an ordered list of providers. The first one
 to return a usable answer wins, and a failure falls through to the next, with
-fixtures at the end of every chain. One dead upstream degrades a single panel
+a clear not-connected state per capability. One dead upstream degrades a single panel
 instead of blanking the page, and every panel reports whether it came from a
-live API or a fixture.
+live API.
 
 Adding an integration means writing one adapter against the interfaces in
 `server/src/providers/types.ts` and adding one probe in
@@ -158,7 +156,7 @@ with these credentials* — and runs automatically at startup:
 
 ```
 [netkit] self-test passed — 28 passed, 0 failed, 1 warnings, 0 skipped in 1210ms
-[netkit]   warn Configuration / Data mode: mock — every panel is showing demo data
+[netkit]   warn Configuration / Live providers: No provider has credentials
 ```
 
 ---

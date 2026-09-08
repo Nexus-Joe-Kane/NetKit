@@ -105,7 +105,7 @@ that Node for you. CentOS 7 stopped getting security patches in June 2024.
 11+, Ubuntu 22.04+). Node 20 and 22 then appear in the dropdown natively and
 the symlink comes out. Details and the revert command are in `GO-LIVE.md`.
 
-### 7. Keys that unlock panels currently showing demo data
+### 7. Keys that unlock panels currently saying they are not connected
 
 | Variable | What it turns on |
 | --- | --- |

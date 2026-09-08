@@ -97,9 +97,9 @@ export function apiRouter(): Router {
       const desc = providers().describe();
       const anyLive = Object.values(desc).some((p) => p.mode === 'live');
       return {
-        status: cfg.dataMode === 'live' && !anyLive ? ('degraded' as const) : ('ok' as const),
+        // With no demo engine behind it, nothing live means nothing works.
+        status: anyLive ? ('ok' as const) : ('degraded' as const),
         version: cfg.version,
-        dataMode: cfg.dataMode,
         providers: desc,
         uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
       };

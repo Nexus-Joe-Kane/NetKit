@@ -1,7 +1,6 @@
 import 'dotenv/config';
 import { isAbsolute, resolve as resolvePath } from 'node:path';
 
-export type DataMode = 'auto' | 'live' | 'mock';
 
 const str = (key: string, fallback = ''): string => (process.env[key] ?? '').trim() || fallback;
 const num = (key: string, fallback: number): number => {
@@ -235,7 +234,6 @@ export interface AppConfig {
    * `live`  — never fall back to mock; surface the error instead.
    * `mock`  — always use fixtures (useful for demos and UI work).
    */
-  dataMode: DataMode;
   cacheTtlSeconds: number;
   requestTimeoutMs: number;
   rateLimit: { windowMs: number; max: number };
@@ -382,7 +380,6 @@ export function config(): AppConfig {
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
-    dataMode: (str('DATA_MODE', 'auto') as DataMode),
     cacheTtlSeconds: num('CACHE_TTL_SECONDS', 900),
     requestTimeoutMs: num('REQUEST_TIMEOUT_MS', 12_000),
     rateLimit: { windowMs: num('RATE_LIMIT_WINDOW_MS', 60_000), max: num('RATE_LIMIT_MAX', 120) },
@@ -447,10 +444,4 @@ export function resetConfig(): void {
   cached = null;
 }
 
-/** Whether a given provider should run live, given credentials and DATA_MODE. */
-export function shouldRunLive(providerConfigured: boolean): boolean {
-  const mode = config().dataMode;
-  if (mode === 'mock') return false;
-  if (mode === 'live') return true;
-  return providerConfigured;
-}
+
