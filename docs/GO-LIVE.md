@@ -49,6 +49,23 @@ chmod 700 /var/www/vhosts/<domain>/netkit-data
 Document root points at `public/` so nginx serves the built SPA directly and
 anything that is not a file on disk falls through to Passenger.
 
+**Set the Node.js version before the first deploy, and check it after.** Plesk
+often defaults to something much older than 20 — v17 is common — and it uses
+that version for the "Installing the application dependencies" step it runs on
+its own, which happens before any deployment action you write. Under Node 17
+the install prints a wall of `EBADENGINE` warnings and then leaves a
+`node_modules` the app cannot boot from.
+
+If a deploy has already run under an older Node, changing the version is not
+enough on its own — the bad tree is still on disk:
+
+```bash
+# over SSH, from the application root
+rm -rf node_modules */node_modules
+```
+
+Then re-run the deployment action.
+
 ### 4. Environment variables
 
 **Node.js → Custom environment variables.** The minimum to boot:
@@ -79,6 +96,58 @@ bash plesk-deploy.sh
 Installs dependencies, builds all three packages, creates `DATA_DIR` at `700`
 if missing, touches `tmp/restart.txt` so Passenger reloads. Safe to re-run.
 If deployment actions are not on your plan, run it over SSH from `/httpdocs`.
+
+The script finds its own tools, because Plesk does not provide them. It runs
+deployment actions with a near-empty `PATH`, so it resolves Node itself out of
+`/opt/plesk/node/*/bin`, `~/.nvm` and the standard directories, picks the
+newest it finds at version 20 or above, and stops with an explanation rather
+than building under anything older.
+
+If the deploy log shows this:
+
+```
+plesk-deploy.sh: line 9: dirname: command not found
+plesk-deploy.sh: line 11: node: command not found
+plesk-deploy.sh: line 11: npm: command not found
+```
+
+you are running a version of the script from before that fix — pull the
+latest commit on the deployment branch and run the action again.
+
+**If Node itself will not start**, with errors naming `GLIBC_2.28`,
+`GLIBCXX_3.4.2x` or `CXXABI_1.3.x`:
+
+```
+node: /lib64/libc.so.6: version `GLIBC_2.28' not found (required by node)
+node: /lib64/libstdc++.so.6: version `GLIBCXX_3.4.22' not found (required by node)
+```
+
+that is not a permissions or PATH problem and re-running will not help. The
+Node binary was built for a newer OS than the server runs. Official Node 18,
+20 and 22 builds all require glibc 2.28; EL7-era systems (CentOS 7,
+RHEL 7, CloudLinux 7) ship glibc 2.17 and cannot run them at all.
+
+Confirm which situation you are in:
+
+```bash
+bash plesk-doctor.sh
+```
+
+It is read-only. It prints the OS, the glibc version, and every Node it can
+find with whether that Node actually starts — so an installed-but-unrunnable
+Node 20 is visible as `BROKEN` rather than looking like a missing one.
+
+If glibc is older than 2.28 there are two honest options, and no third:
+
+1. **Move the site to a newer OS** — the clean fix. Anything with glibc 2.28
+   or newer (Alma/Rocky 8+, Debian 10+, Ubuntu 20.04+) runs official builds.
+2. **Install a Node 20 built for glibc 2.17** — the `glibc-217` variant on
+   `unofficial-builds.nodejs.org`, or a Plesk Node package your host builds
+   for that OS. Ask the host first; they may already have one.
+
+Do not unpack a generic `linux-x64` Node tarball over a working install — that
+is precisely what produces the errors above, and it will also break any other
+Node site on the server.
 
 ### 6. Check it came up
 
@@ -141,6 +210,27 @@ Download the Connected Nations **postcode-level mobile coverage** file and
 point at it. Mobile signal stops being modelled and becomes Ofcom's published
 prediction. Column names are interpreted rather than hard-coded, so a new
 Ofcom release keeps working.
+
+### Ofcom broadband API — also free, also just a signup
+
+```
+OFCOM_BROADBAND_API_KEY=
+```
+
+Sign up at [api.ofcom.org.uk/signup](https://api.ofcom.org.uk/signup/),
+subscribe to **Broadband Coverage (Basic)** under Products (50,000 requests a
+month), and take the Primary key from your Profile page.
+
+Adds Ofcom's own per-premises predicted speeds to the site report, keyed by
+UPRN. Two uses: an independent second opinion when a wholesale estimate looks
+wrong, and the honest free answer to "is there gigabit at this address" before
+any wholesale account is connected.
+
+**It names no operator** — Ofcom withhold that as commercially confidential —
+so it appears beside the availability table, never as a row in it.
+
+There is **no Ofcom mobile API**: their portal sells the two broadband
+products and nothing else. Mobile coverage stays on the dataset above.
 
 ### OS Places
 
