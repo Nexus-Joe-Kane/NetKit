@@ -337,17 +337,42 @@ Nothing here is alarming, but worth writing down.
 ## 9. If I could only do three more things
 
 The original three are done — Ofcom coverage, copy-as-text, and automated
-testing with recovery. The next three I would pick:
+testing with recovery. So are escalation and recent lookups, which were the
+last list's picks. The next three:
 
-1. **Get the credentials in and run the self-test.** Everything is built and
-   mapped, but no mapping survives contact with a real response untouched.
-   The self-test will tell you in one click which integrations actually work
-   and which enum I mapped to `unknown`.
-2. **Escalate a persistent failure to a human** (§5.4). Recovery handles the
-   transient cases; an integration still failing an hour later is one a person
-   needs to know about.
-3. **Recent lookups per user** (§6.1). Small, and support staff check the same
-   site repeatedly all day.
+1. **Get the credentials in and run the self-test.** Still the top of the
+   list, and still nothing to do with code. Everything is built and mapped,
+   but no mapping survives contact with a real response untouched — and three
+   integrations are mapped against docs I could not fully read
+   (thinkbroadband's field spec is licensee-only, Giacom's
+   ServiceQualification path is per-tenant, BT publish no auth scheme). The
+   self-test tells you in one click which of the 26 actually work and which
+   enum came back as `unknown`.
+2. **Ask Giacom for the ServiceQualification path**, and ask which alt-nets
+   they can sell you. One environment variable turns on per-address
+   availability across BT Wholesale, CityFibre, TalkTalk, Virgin Media
+   Business and Sky. This is the single highest-value thing left and it is a
+   phone call, not a commit.
+3. **Saved sites / watchlist** (§6.2). Pin a problem site and see its faults,
+   outages and line stability on one screen. The recent-lookups store is most
+   of the plumbing already, so it is a small job for something support staff
+   would use every day.
+
+---
+
+## 10. What is genuinely not done
+
+Short, and none of it is blocking:
+
+| Thing | Why it is not done |
+| --- | --- |
+| **Ordering through Giacom** | Deliberate. Their order endpoints are documented and unwired: one supplier that can spend money is enough until the Zen path has been used in anger |
+| **Faults and line tests on Giacom lines** | Impossible, not deferred. They publish no trouble-ticket or diagnostics API — confirmed by parsing their spec. Every Giacom line says so on its own record |
+| **A client-facing report** | Needs a decision, not code. The brand guide has a whole client-facing document system NetKit does not touch (§6.6) |
+| **Bulk address check** | Needs the fair-use conversation with Zen first (§5.3). The per-user budget is the guard rail; what is missing is their permission |
+| **Dark mode** | The brand guide has no dark palette. A brand decision before a code one |
+| **MySQL instead of flat files** | Premature. Trigger is a second app process or ten users (§5.1) |
+| **G.Network availability** | No account, no aggregator carries them. The report links straight to their own checker instead |
 
 ---
 
