@@ -212,6 +212,25 @@ and why, is below them.
   Twenty watches per person, because every one of them is a real availability
   check on a schedule.
 
+### Shipped since
+
+- **Which network to try.** The mobile tab now combines Ofcom's prediction,
+  OpenCelliD mast distance and BT footfall into one recommendation, and says
+  which of the three it used, what it is missing, and how much weight to put
+  on the answer. Where two operators are within five points, mast distance
+  separates them; where the masts point somewhere the prediction does not,
+  that is raised as a suggestion rather than an override — a model and a mast
+  position disagreeing is a reason for an engineer to look, not a reason to
+  overrule the regulator. In a crowded area the shorter path is argued more
+  strongly, because a cell has finite capacity and a prediction of
+  propagation does not know that.
+- **A way out of the area-only case.** The Connected Nations file names no
+  operator, so it can never rank one. On backup data the panel offers Ofcom's
+  own public checker — which is per-operator — with the postcode on the
+  clipboard, and a box to enter the four ratings it showed. The
+  recommendation is then rebuilt from those, labelled as the engineer's
+  reading rather than as our data, and not saved.
+
 ### Blocked on something from you
 
 Nothing on the original list is still unbuilt for want of time. What is left

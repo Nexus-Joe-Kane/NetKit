@@ -474,3 +474,127 @@ table.data tr.row--critical > td:first-child {
 .usage-pct--over {
   color: var(--sw-crit-ink);
 }
+
+/* ---- Which network to try -------------------------------------------- *
+ * A verdict with its reasoning under it. Deliberately not a card: it sits
+ * inside the mobile panel and belongs to the coverage grid below it.
+ */
+.advice {
+  border: 1px solid var(--sw-hairline);
+  border-left: 4px solid var(--sw-badge-4);
+  border-radius: 10px;
+  background: var(--sw-white);
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+
+.advice__head {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.advice__verdict {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 3px;
+  font-family: var(--sw-font-heading);
+  font-size: 19px;
+  font-weight: 600;
+  color: var(--sw-ink);
+}
+
+.advice__reasons {
+  margin: 10px 0 0;
+  padding-left: 19px;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--sw-body);
+}
+
+.advice__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.advice__op {
+  border: 1px solid var(--sw-hairline);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--sw-panel);
+}
+
+.advice__op--best {
+  border-color: var(--sw-badge-4);
+  box-shadow: inset 0 0 0 1px var(--sw-badge-4);
+  background: var(--sw-white);
+}
+
+.advice__op-name {
+  display: block;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--sw-ink);
+}
+
+.advice__op-fact {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--sw-muted);
+}
+
+.advice__sources {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--sw-hairline);
+  font-size: 11.5px;
+  color: var(--sw-body);
+}
+
+.advice__missing {
+  margin: 8px 0 0;
+  padding-left: 19px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--sw-muted);
+}
+
+.advice__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.advice__hint {
+  margin: 8px 0 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--sw-muted);
+  max-width: 640px;
+}
+
+.advice__entry {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+  align-items: end;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px dashed var(--sw-hairline);
+  border-radius: 8px;
+  background: var(--sw-panel);
+}
