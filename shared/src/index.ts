@@ -11,3 +11,4 @@ export * from "./companies";
 export * from "./sla";
 export * from "./bulk";
 export * from "./printOptions";
+export * from "./geo";

@@ -11,6 +11,7 @@ import { loadDataset } from '../providers/signal/ofcom';
 import { clearReportCache } from '../services/resolve';
 import { clearCompaniesCache } from '../providers/companies/companiesHouse';
 import { clearOfcomBroadbandCache } from '../providers/coverage/ofcomBroadband';
+import { clearOpenCellIdCache } from '../providers/signal/openCellId';
 import { clearThinkbroadbandCache } from '../providers/altnet/thinkbroadband';
 import { resetGiacomTokens } from '../providers/giacom/client';
 import { clearGiacomCaches } from '../providers/giacom/adapters';
@@ -161,6 +162,10 @@ function recoveryActionsFor(key: string): RecoveryAction[] {
 
   if (key === 'ofcom-broadband') {
     return [{ name: 'Drop cached Ofcom predictions', run: () => clearOfcomBroadbandCache() }];
+  }
+
+  if (key === 'opencellid') {
+    return [{ name: 'Drop cached cell sites', run: () => clearOpenCellIdCache() }];
   }
 
   if (key === 'ofcom-coverage') {

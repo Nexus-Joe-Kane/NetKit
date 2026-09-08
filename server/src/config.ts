@@ -262,6 +262,7 @@ export interface AppConfig {
    * rather than among them.
    */
   ofcomBroadband: { apiKey: string; baseUrl: string; configured: boolean };
+  openCellId: { apiKey: string; baseUrl: string; searchPath: string; radiusMetres: number; configured: boolean };
   /**
    * The recovery supervisor: probes every integration on an interval and
    * tries to fix what it can. On by default — an internal tool that quietly
@@ -388,6 +389,15 @@ export function config(): AppConfig {
     bt: loadBt(),
     allowOrdering: bool('ZEN_ALLOW_ORDERING', false),
     quotas: { availabilityPerUserPerDay: Math.max(0, num('AVAILABILITY_DAILY_BUDGET', 250)) },
+    openCellId: {
+      apiKey: str('OPENCELLID_API_KEY'),
+      baseUrl: str('OPENCELLID_BASE_URL', 'https://opencellid.org'),
+      // Configurable because it is the one part of this integration taken
+      // from public documentation rather than a response we have seen.
+      searchPath: str('OPENCELLID_SEARCH_PATH', '/cell/getInArea'),
+      radiusMetres: Math.min(20_000, Math.max(500, num('OPENCELLID_RADIUS_METRES', 4000))),
+      configured: Boolean(str('OPENCELLID_API_KEY')),
+    },
     ofcomBroadband: {
       apiKey: str('OFCOM_BROADBAND_API_KEY'),
       baseUrl: str('OFCOM_BROADBAND_BASE_URL', 'https://api-proxy.ofcom.org.uk/broadband'),
