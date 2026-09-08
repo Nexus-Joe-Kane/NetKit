@@ -61,3 +61,17 @@ test('area names compare regardless of case and punctuation', () => {
   assert.equal(normaliseArea('Kingston upon Hull, East'), normaliseArea('KINGSTON UPON HULL EAST'));
   assert.equal(normaliseArea('  Bath  '), 'BATH');
 });
+
+test('a release column is recognised where the file combines publications', () => {
+  const meaning = interpretHeader(['release', 'level', 'area_code', 'area_name', 'EE_Voice_Indoor']);
+  assert.equal(meaning.releaseIndex, 0);
+  assert.equal(meaning.areaCodeIndex, 2);
+  assert.equal(meaning.areaNameIndex, 3);
+  assert.equal(meaning.columns.length, 1, 'release and level must not be read as measures');
+});
+
+test('a single-release file has no release column and still works', () => {
+  const meaning = interpretHeader(['area_name', 'EE_Voice_Indoor']);
+  assert.equal(meaning.releaseIndex, -1);
+  assert.equal(meaning.areaNameIndex, 0);
+});
