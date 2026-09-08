@@ -211,3 +211,88 @@ test('slugs become sentences without mangling real text', () => {
   assert.equal(humanise(undefined), '');
   assert.equal(humanise('  '), '');
 });
+
+/* ---- Disqualification and other appointments ------------------------ */
+
+const { mapDisqualification, mapAppointments } = __companiesHouseTesting;
+
+test('a disqualification with no end date is in force', () => {
+  const dq = mapDisqualification({
+    disqualifications: [
+      {
+        disqualified_from: '2024-03-01',
+        reason: { act: 'Company Directors Disqualification Act 1986', section: '6' },
+        court_name: 'Manchester County Court',
+        company_names: ['OLD TRADING LTD'],
+      },
+    ],
+  });
+  assert.equal(dq?.active, true);
+  assert.equal(dq?.from, '2024-03-01');
+  assert.match(dq?.reason ?? '', /Disqualification Act 1986/);
+  assert.match(dq?.reason ?? '', /section 6/);
+  assert.deepEqual(dq?.companies, ['OLD TRADING LTD']);
+});
+
+test('a disqualification that has expired is not in force', () => {
+  const dq = mapDisqualification({
+    disqualifications: [{ disqualified_from: '2015-01-01', disqualified_until: '2020-01-01' }],
+  });
+  assert.equal(dq?.active, false);
+  assert.equal(dq?.to, '2020-01-01');
+});
+
+test('the most recent order is the one reported', () => {
+  // Companies House do not guarantee an order, so this must not trust
+  // position in the array.
+  const dq = mapDisqualification({
+    disqualifications: [
+      { disqualified_from: '2015-01-01', court_name: 'Old Court' },
+      { disqualified_from: '2024-06-01', court_name: 'Recent Court' },
+    ],
+  });
+  assert.equal(dq?.authority, 'Recent Court');
+});
+
+test('no disqualification is the normal answer', () => {
+  assert.equal(mapDisqualification(null), null);
+  assert.equal(mapDisqualification({}), null);
+  assert.equal(mapDisqualification({ disqualifications: [] }), null);
+});
+
+test('other appointments exclude the company being viewed', () => {
+  const list = mapAppointments(
+    {
+      items: [
+        { appointed_to: { company_name: 'THIS ONE LTD', company_number: '11112222', company_status: 'active' }, officer_role: 'director' },
+        { appointed_to: { company_name: 'ANOTHER LTD', company_number: '33334444', company_status: 'active' }, officer_role: 'director' },
+      ],
+    },
+    '11112222',
+  );
+  assert.equal(list.length, 1);
+  assert.equal(list[0]?.companyNumber, '33334444');
+});
+
+test('a run of dissolved companies is surfaced, live and troubled first', () => {
+  const list = mapAppointments(
+    {
+      items: [
+        { appointed_to: { company_name: 'HEALTHY LTD', company_number: '1', company_status: 'active' }, officer_role: 'director' },
+        { appointed_to: { company_name: 'GONE LTD', company_number: '2', company_status: 'dissolved' }, officer_role: 'director' },
+        { appointed_to: { company_name: 'WINDING UP LTD', company_number: '3', company_status: 'liquidation' }, officer_role: 'director' },
+        { appointed_to: { company_name: 'RESIGNED LTD', company_number: '4', company_status: 'active' }, officer_role: 'director', resigned_on: '2020-01-01' },
+      ],
+    },
+    '99999999',
+  );
+  assert.equal(list.length, 4);
+  assert.equal(list[0]?.concerning, true, 'a live appointment at a troubled company leads');
+  assert.equal(list.at(-1)?.active, false, 'resignations sink');
+  assert.equal(list.filter((a: { concerning: boolean }) => a.concerning).length, 2);
+});
+
+test('an appointment missing its company is discarded', () => {
+  assert.deepEqual(mapAppointments({ items: [{ officer_role: 'director' }] }, '1'), []);
+  assert.deepEqual(mapAppointments(null, '1'), []);
+});

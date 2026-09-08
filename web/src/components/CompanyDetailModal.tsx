@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactElement } from 'react';
-import type { CompanyDetail, CompanyRecord } from '@sw/shared';
+import type { CompanyDetail, CompanyRecord, OfficerAppointment } from '@sw/shared';
 import { ApiClientError, api } from '../lib/api';
 import { Alert, Card, Cell, Chip, Empty, Label, Spinner, formatDate } from './ui';
 import { Modal } from './overlay';
@@ -76,6 +76,8 @@ export function CompanyDetailModal({
 
   const outstanding = detail?.outstandingCharges ?? 0;
   const activeOfficers = detail?.officers.filter((o) => o.active).length ?? 0;
+  // Only a ban still in force matters here; an expired one is history.
+  const disqualified = detail?.officers.filter((o) => o.disqualification?.active) ?? [];
 
   const tabs: Array<TabDef<Tab>> = [
     { id: 'overview', label: 'Overview' },
@@ -140,6 +142,23 @@ export function CompanyDetailModal({
                   {detail.dissolvedOn
                     ? `Dissolved on ${formatDate(detail.dissolvedOn)}. Anything billed to this company after that date needs looking at.`
                     : 'This company is not trading normally. Do not commit new spend without checking.'}
+                </span>
+              </span>
+            </div>
+          )}
+
+          {disqualified.length > 0 && (
+            <div className="flag flag--critical">
+              <span className="flag__marker" aria-hidden="true" />
+              <span>
+                <strong>
+                  {disqualified.length === 1
+                    ? `${disqualified[0]?.name} is disqualified from acting as a director`
+                    : `${disqualified.length} serving officers are disqualified from acting as directors`}
+                </strong>
+                <span className="flag__detail">
+                  A disqualification is a court order, not a filing problem. Do not accept a contract signed by
+                  them — see the Officers tab.
                 </span>
               </span>
             </div>
@@ -282,6 +301,29 @@ function Officers({ detail }: { detail: CompanyDetail }): ReactElement {
             <tr key={`${officer.name}:${officer.appointedOn ?? ''}:${officer.role}`}>
               <td>
                 <strong style={{ color: 'var(--sw-ink)' }}>{officer.name}</strong>
+                {officer.disqualification && (
+                  <div style={{ marginTop: 3 }}>
+                    <Chip
+                      tone={officer.disqualification.active ? 'crit' : 'idle'}
+                      dot={officer.disqualification.active}
+                      title={
+                        [
+                          officer.disqualification.reason,
+                          officer.disqualification.authority,
+                          officer.disqualification.companies?.length
+                            ? `Arising from: ${officer.disqualification.companies.join(', ')}`
+                            : undefined,
+                        ]
+                          .filter(Boolean)
+                          .join(' · ') || undefined
+                      }
+                    >
+                      {officer.disqualification.active
+                        ? `Disqualified${officer.disqualification.to ? ` until ${formatDate(officer.disqualification.to)}` : ''}`
+                        : 'Previously disqualified'}
+                    </Chip>
+                  </div>
+                )}
                 {officer.occupation && (
                   <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{officer.occupation}</div>
                 )}
@@ -301,8 +343,10 @@ function Officers({ detail }: { detail: CompanyDetail }): ReactElement {
                 )}
               </td>
               <td className="sw-mono" style={{ fontSize: 12 }}>{officer.bornOn ?? '—'}</td>
-              <td className="sw-mono" style={{ fontSize: 12 }}>
-                {officer.url ? (
+              <td style={{ fontSize: 12, maxWidth: 220 }}>
+                {officer.otherRoles && officer.otherRoles.length > 0 ? (
+                  <OtherRoles roles={officer.otherRoles} />
+                ) : officer.url ? (
                   <a href={officer.url} target="_blank" rel="noreferrer noopener">
                     {officer.otherAppointments ?? 'view'}
                   </a>
@@ -474,6 +518,39 @@ function Insolvency({ detail }: { detail: CompanyDetail }): ReactElement {
           )}
         </Card>
       ))}
+    </div>
+  );
+}
+
+/**
+ * The other companies an officer runs.
+ *
+ * Shown as a count with the troubled ones named, because the pattern is the
+ * point: a director of one other company is ordinary, a director of four
+ * dissolved ones and a new one is the thing worth noticing before agreeing
+ * credit.
+ */
+function OtherRoles({ roles }: { roles: OfficerAppointment[] }): ReactElement {
+  const live = roles.filter((r) => r.active);
+  const concerning = roles.filter((r) => r.concerning);
+
+  return (
+    <div>
+      <span className="sw-mono">{roles.length}</span>
+      <span className="muted" style={{ fontSize: 11 }}>
+        {' '}
+        ({live.length} live)
+      </span>
+      {concerning.length > 0 && (
+        <div style={{ marginTop: 3 }}>
+          <Chip
+            tone="warn"
+            title={concerning.map((r) => `${r.companyName} — ${statusLabelOf(r.companyStatus ?? 'unknown')}`).join('; ')}
+          >
+            {concerning.length} not trading normally
+          </Chip>
+        </div>
+      )}
     </div>
   );
 }
