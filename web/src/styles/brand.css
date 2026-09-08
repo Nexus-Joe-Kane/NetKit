@@ -1,0 +1,250 @@
+/*
+ * SupportWizard brand tokens — SW-BRAND-2026 v1.0.
+ *
+ * Values are taken verbatim from the Document Brand Guide. NetKit is an
+ * internal engineer tool, so it uses the *internal / engineer* system:
+ * full-page brand gradient, white rounded cards, navy footer band, with
+ * crimson reserved strictly as an accent.
+ *
+ * This is the only file that should contain a raw colour value.
+ */
+
+:root {
+  /* ---- Client-facing palette (§3) ---------------------------------- */
+  --sw-ink: #101317;
+  --sw-body: #3c444e;
+  --sw-muted: #66707a;
+  --sw-hairline: #e4e6e8;
+  --sw-panel: #f6f7f8;
+  --sw-white: #ffffff;
+
+  /* Masthead gradient, 105° */
+  --sw-grad-a: #ccf3ff;
+  --sw-grad-b: #dee9ff;
+  --sw-grad-c: #f1dcf9;
+  --sw-masthead: linear-gradient(105deg, var(--sw-grad-a) 0%, var(--sw-grad-b) 50%, var(--sw-grad-c) 100%);
+
+  /* ---- Internal / engineer palette (§3) ---------------------------- */
+  --sw-page-a: #bde5fc;
+  --sw-page-b: #c9d7fa;
+  --sw-card-strip: #dce8f8;
+  --sw-cell-rule: #c0ceea;
+  --sw-slate: #0f172a;
+  --sw-navy: #0d1b3e;
+
+  /* ---- Section badges (§3) ----------------------------------------- */
+  --sw-badge-1: #3b82f6;
+  --sw-badge-2: #7c5cbf;
+  --sw-badge-3: #e8a020;
+  --sw-badge-4: #4eadc5;
+  --sw-amber-panel: #fff8e8;
+  --sw-amber-ink: #b45309;
+
+  /* Crimson is an accent only — never a fill for large areas. */
+  --sw-crimson: #e51032;
+
+  /* ---- Presentation palette (§3) ----------------------------------- */
+  --sw-deck-ground: #f5f0fa;
+  --sw-deck-ink: #1f2738;
+  --sw-deck-body: #4a4a6a;
+  --sw-deck-rule: #b0b8c4;
+  --sw-warn: #f39c12;
+  --sw-critical: #e74c3c;
+
+  /* ---- Chart series — assign in this order, never cycle (§3) ------- */
+  --sw-series-1: #2a4fb5;
+  --sw-series-2: #e51032;
+  --sw-series-3: #1d8fb8;
+  --sw-series-4: #8258d6;
+  --sw-series-5: #1e7a55;
+  --sw-series-6: #c07a0a;
+
+  /* ---- Status colours, derived from the guide ---------------------- */
+  --sw-ok: #2e7d5b;
+  --sw-ok-bg: #eaf5ef;
+  --sw-warn-ink: #b8860b;
+  --sw-warn-bg: var(--sw-amber-panel);
+  --sw-crit-ink: #b4122b;
+  --sw-crit-bg: #fdecef;
+  --sw-info-ink: #4a5a8a;
+  --sw-info-bg: #eef2fb;
+  --sw-idle-ink: var(--sw-muted);
+  --sw-idle-bg: var(--sw-panel);
+
+  /* ---- Type (§4) --------------------------------------------------- */
+  /*
+   * Poppins throughout, headings and body alike. The guide pairs Poppins
+   * headings with Inter body; running one family everywhere is a deliberate
+   * house choice for this tool, with Segoe UI as the fallback so an offline
+   * machine still matches the Office documents.
+   *
+   * Poppins is geometric and wide, so it needs a slightly smaller base size,
+   * negative tracking at display sizes and a little positive tracking in
+   * small caps to stay legible in dense tables.
+   */
+  --sw-font-heading: 'Poppins', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --sw-font-body: 'Poppins', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --sw-font-mono: 'Consolas', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  /* Weights. Poppins 400 reads light against data, so body sits at 400 and
+     anything that must hold its own steps to 500. */
+  --sw-weight-body: 400;
+  --sw-weight-medium: 500;
+  --sw-weight-semibold: 600;
+
+  /* Type scale, tuned for Poppins rather than inherited from Inter. */
+  --sw-size-display: 26px;
+  --sw-size-title: 15px;
+  --sw-size-body: 13.5px;
+  --sw-size-data: 13px;
+  --sw-size-small: 12px;
+  --sw-size-tiny: 11px;
+
+  /* Small-caps labels: semibold, letter-spaced 0.13em, always uppercase. */
+  --sw-label-tracking: 0.13em;
+  --sw-label-size: 10px;
+  --sw-label-weight: 600;
+
+  /* ---- Geometry ---------------------------------------------------- */
+  --sw-radius-sm: 6px;
+  --sw-radius: 10px;
+  --sw-radius-lg: 14px;
+  --sw-gap: 16px;
+
+  /* Shadows stay soft — the guide's look is flat cards on a gradient. */
+  --sw-shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px -12px rgba(15, 23, 42, 0.16);
+  --sw-shadow-raised: 0 2px 4px rgba(15, 23, 42, 0.06), 0 18px 40px -16px rgba(15, 23, 42, 0.24);
+  --sw-shadow-focus: 0 0 0 3px rgba(59, 130, 246, 0.28);
+
+  --sw-max-width: 1280px;
+
+  color-scheme: light;
+}
+
+/* ---- Fixed details — never retype these (§5) ----------------------- */
+:root {
+  --sw-legal-name: 'SupportWizard – a division of ClubWizard Ltd';
+  --sw-address: '26 Fitzroy Square, London W1T 6ES';
+  --sw-support-email: 'help@supportwizard.net';
+  --sw-telephone: '+44 20 7043 3171';
+}
+
+/* ------------------------------------------------------------------ *
+ * Base
+ * ------------------------------------------------------------------ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--sw-font-body);
+  font-size: var(--sw-size-body);
+  font-weight: var(--sw-weight-body);
+  line-height: 1.55;
+  /* Poppins' wide geometric letterforms need pulling in slightly at body
+     sizes, or paragraphs read loose and the tables lose their grid. */
+  letter-spacing: -0.005em;
+  color: var(--sw-body);
+  /* Internal page ground: diagonal gradient across the whole page. */
+  background: linear-gradient(148deg, var(--sw-page-a) 0%, var(--sw-page-b) 100%) fixed;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5 {
+  font-family: var(--sw-font-heading);
+  color: var(--sw-ink);
+  font-weight: var(--sw-weight-semibold);
+  /* Geometric faces need more negative tracking as they get larger. */
+  letter-spacing: -0.018em;
+  margin: 0;
+  line-height: 1.22;
+}
+
+h1 { letter-spacing: -0.028em; }
+
+a {
+  color: var(--sw-series-1);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+a:hover {
+  color: var(--sw-badge-2);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+/* A single, consistent focus ring — visible for keyboard users only. */
+:focus-visible {
+  outline: 2px solid var(--sw-badge-1);
+  outline-offset: 2px;
+  border-radius: var(--sw-radius-sm);
+}
+
+::selection {
+  background: var(--sw-grad-c);
+  color: var(--sw-ink);
+}
+
+/* ---- Utility: the small-caps label used on every field (§4) -------- */
+.sw-label {
+  display: inline-block;
+  font-size: var(--sw-label-size);
+  font-weight: var(--sw-label-weight);
+  letter-spacing: var(--sw-label-tracking);
+  text-transform: uppercase;
+  color: var(--sw-muted);
+  line-height: 1.4;
+  /* Poppins' uppercase sits high; nudge the optical baseline. */
+  font-feature-settings: 'case' 1;
+}
+
+/*
+ * Numbered section eyebrow, mirroring how the brand guide numbers its own
+ * sections. It is the cue that ties a screen to the document system.
+ */
+.sw-label[data-index]::before {
+  content: attr(data-index);
+  margin-right: 7px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--sw-card-strip);
+  color: var(--sw-slate);
+  font-variant-numeric: tabular-nums;
+}
+
+.sw-mono {
+  font-family: var(--sw-font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+/* Respect a user's reduced-motion preference throughout. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
