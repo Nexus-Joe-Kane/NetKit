@@ -4,6 +4,7 @@ import { zenAvailabilityQuota } from '../providers/zen/adapters';
 import { isProviderEnabled, settings } from '../auth/store';
 import { fetchJson } from '../lib/http';
 import { datasetStatus } from '../providers/signal/ofcom';
+import { fixedDatasetConfigured, fixedDatasetStatus } from '../providers/coverage/ofcomFixedDataset';
 import { giacomPing } from '../providers/giacom/client';
 
 /**
@@ -229,6 +230,39 @@ function probes(): Probe[] {
       },
     },
 
+    // ---- Ofcom fixed-broadband dataset (the API's failover) -------------
+    {
+      key: 'ofcom-broadband-dataset',
+      name: 'Ofcom broadband dataset',
+      vendor: 'Ofcom',
+      capability:
+        'Failover for the coverage API: the Connected Nations fixed-broadband release, per postcode, from a file on disk',
+      docsUrl: 'https://www.ofcom.org.uk/phones-and-broadband/coverage-and-speeds/data-downloads2',
+      configured: () => fixedDatasetConfigured(),
+      run: async () => {
+        const status = fixedDatasetStatus();
+        if (!status.loaded) {
+          return {
+            state: 'down' as const,
+            detail: `Nothing loaded from ${status.path ?? 'OFCOM_BROADBAND_DATASET_PATH'} — point it at the folder the Connected Nations fixed-postcode zip extracts to.`,
+          };
+        }
+        if (!status.columnsUnderstood) {
+          return {
+            state: 'degraded' as const,
+            detail: `File loaded (${status.postcodes} postcodes) but no coverage columns were recognised — Ofcom may have renamed them.`,
+          };
+        }
+        return {
+          state: 'ok' as const,
+          detail: `${status.postcodes?.toLocaleString('en-GB')} postcodes indexed from ${status.columnsUnderstood} recognised columns${
+            status.release ? `, release ${status.release}` : ''
+          }. Used only when the API does not answer.`,
+          meta: { path: status.path, loadedAt: status.loadedAt, release: status.release },
+        };
+      },
+    },
+
     // ---- thinkbroadband -------------------------------------------------
     {
       key: 'thinkbroadband',
@@ -342,7 +376,10 @@ function probes(): Probe[] {
         }
         return {
           state: 'ok' as const,
-          detail: `${status.rows?.toLocaleString('en-GB')} postcodes indexed from ${status.columnsUnderstood} recognised columns.`,
+          // "Rows", not "postcodes": Ofcom publish no postcode-level mobile
+          // file, so these are areas, and calling them postcodes made the
+          // board claim something the dataset cannot do.
+          detail: `${status.rows?.toLocaleString('en-GB')} rows indexed from ${status.columnsUnderstood} recognised columns.`,
           meta: { path: status.path, loadedAt: status.loadedAt, columnsUnderstood: status.columnsUnderstood },
         };
       },

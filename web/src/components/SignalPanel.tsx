@@ -1,7 +1,20 @@
 import type { ReactElement } from 'react';
 import { useState } from 'react';
-import { gradeScore, type MobileCoverage, type MobileOperator, type SignalGrade, type SignalReport } from '@sw/shared';
-import { Card, Cell, Chip, Label, formatDate } from './ui';
+import {
+  allNetworks,
+  areaKindLabel,
+  atLeastOneNetwork,
+  gradeScore,
+  noNetwork,
+  rowLabel,
+  summariseArea,
+  type AreaCoverage,
+  type MobileCoverage,
+  type MobileOperator,
+  type SignalGrade,
+  type SignalReport,
+} from '@sw/shared';
+import { Alert, Card, Cell, Chip, Label, formatDate } from './ui';
 import { Tabs, TabPanel, type TabDef } from './Tabs';
 import { formatDistance } from '@sw/shared';
 import type { MastSite } from '@sw/shared';
@@ -160,9 +173,13 @@ export function SignalPanel({ data }: { data: SignalReport }): ReactElement {
       tabs={<Tabs tabs={tabs} active={tab} onChange={setTab} variant="sub" label="Mobile networks" />}
     >
       <TabPanel>
+        {/* Area-level data is a weaker answer than a per-address check and has
+            to say so before anything else on the panel. */}
+        {data.areaCoverage && <AreaFallback coverage={data.areaCoverage} />}
+
         {selected ? (
           <OperatorDetail coverage={selected} />
-        ) : (
+        ) : ranked.length === 0 ? null : (
           <>
             <div className="signal-grid">
               {ranked.map((coverage) => (
@@ -180,6 +197,83 @@ export function SignalPanel({ data }: { data: SignalReport }): ReactElement {
         )}
       </TabPanel>
     </Card>
+  );
+}
+
+/**
+ * Ofcom's area-level coverage, when that is all there is.
+ *
+ * Two things this has to get across before any number: it describes an area
+ * of tens of thousands of premises rather than this address, and it counts
+ * networks rather than naming them — Ofcom's file has a column for "three of
+ * the four networks", not one for EE. A panel that showed these figures
+ * without saying that would read as a coverage check, which is precisely
+ * what it is not.
+ */
+function AreaFallback({ coverage }: { coverage: AreaCoverage }): ReactElement {
+  // Premises indoors first: somebody asking about a site cares about
+  // buildings, and indoors is where the phone that is not working is.
+  const rows = [...coverage.rows]
+    .filter((r) => r.measure === 'premises')
+    .sort(
+      (a, b) =>
+        b.technology.localeCompare(a.technology) ||
+        Number(a.placement === 'outdoor') - Number(b.placement === 'outdoor'),
+    );
+
+  return (
+    <div className="stack stack--tight" style={{ marginBottom: 16 }}>
+      <Alert tone="warn">
+        <span>
+          <strong>Area figures, not a check on this address.</strong> No live coverage provider answered, so this
+          is Ofcom's Connected Nations file for the {areaKindLabel(coverage.kind)} of{' '}
+          <strong>{coverage.areaName}</strong>
+          {coverage.premisesCount ? ` (${coverage.premisesCount.toLocaleString('en-GB')} premises)` : ''}
+          {coverage.release ? `, published ${coverage.release}` : ''}. It says how many of the four networks cover
+          the area — not which — so it cannot answer “does EE work at this door”.
+        </span>
+      </Alert>
+
+      {summariseArea(coverage) && (
+        <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.6, color: 'var(--sw-ink)' }}>
+          {summariseArea(coverage)}.
+        </p>
+      )}
+
+      <div className="table-wrap">
+        <table className="data">
+          <thead>
+            <tr>
+              <th>Technology</th>
+              <th>Where</th>
+              <th>No network</th>
+              <th>At least one</th>
+              <th>All four</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => {
+              const none = noNetwork(row);
+              const any = atLeastOneNetwork(row);
+              const all = allNetworks(row);
+              return (
+                <tr key={`${row.technology}-${row.confidence ?? ''}-${row.placement}`}>
+                  <td>
+                    <strong style={{ color: 'var(--sw-ink)' }}>{rowLabel(row)}</strong>
+                  </td>
+                  <td style={{ fontSize: 12.5 }}>{row.placement === 'indoor' ? 'Premises indoors' : 'Premises outdoors'}</td>
+                  <td className="num">
+                    {none === undefined ? '—' : `${none}%`}
+                  </td>
+                  <td className="num">{any === undefined ? '—' : `${any}%`}</td>
+                  <td className="num">{all === undefined ? '—' : `${all}%`}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 

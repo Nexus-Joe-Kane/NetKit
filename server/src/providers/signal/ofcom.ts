@@ -1,6 +1,14 @@
-import { readFileSync, existsSync, statSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { basename, join, resolve } from 'node:path';
 import { gradeFromOfcom, type MobileOperator, type SignalGrade, type SignalReport } from '@sw/shared';
+import type {
+  AreaCoverage,
+  AreaCoverageRow,
+  AreaKind,
+  CoverageMeasure,
+  CoveragePlacement,
+  CoverageTechnology,
+} from '@sw/shared';
 import { config } from '../../config';
 import { fetchJson } from '../../lib/http';
 import type { SignalProvider } from '../types';
@@ -137,12 +145,104 @@ export interface HeaderMeaning {
    * depend on sort order rather than on which figures are newest.
    */
   releaseIndex: number;
+  /** -1 when the file does not state how many premises an area holds. */
+  premisesIndex: number;
   columns: ColumnMeaning[];
+  /**
+   * The columns Ofcom actually publish.
+   *
+   * The per-operator columns above are for a file that names operators.
+   * Connected Nations does not: it publishes `4G_prem_in_3` — the percentage
+   * of premises where exactly three of the four networks give indoor 4G. A
+   * reader that only understood the per-operator shape found nothing in the
+   * real file and the tab read "No provider returned a result" with a
+   * perfectly good dataset on disk.
+   */
+  bands: BandColumn[];
+}
+
+/** One `<tech>_<measure>_<placement>_<operators>` column. */
+export interface BandColumn {
+  index: number;
+  technology: CoverageTechnology;
+  measure: CoverageMeasure;
+  placement: CoveragePlacement;
+  /** Ofcom's confidence qualifier, present on the 5G columns only. */
+  confidence?: 'high' | 'very-high';
+  /** How many operators this column counts, 0 to 4. */
+  operators: number;
+}
+
+/**
+ * Reads one of Ofcom's band column names.
+ *
+ * `4G_prem_in_3`, `5G_geo_out_0`, `2G_prem_out_2`. Anchored and whole-string
+ * on purpose: a substring match here would swallow `4G_abrd_in_1` (A and B
+ * roads) and `4G_mway_in_2` (motorways), which measure something else
+ * entirely and would otherwise be mixed into the premises figures.
+ */
+export function bandColumn(header: string, index: number): BandColumn | null {
+  // 5G carries a confidence qualifier -- `5G_very_high_confidence_prem_out_3`
+  // -- and 2G/3G/4G do not. `very_high` is matched before `high` because the
+  // shorter alternative would otherwise consume it and silently merge the two
+  // into one row.
+  const m = /^([2345]G)(?:_(very_high|high)_confidence)?_(prem|geo)_(in|out)_([0-4])$/i.exec(header.trim());
+  if (!m) return null;
+  const confidence = m[2]?.toLowerCase();
+  return {
+    index,
+    technology: m[1]!.toUpperCase() as CoverageTechnology,
+    measure: m[3]!.toLowerCase() === 'prem' ? 'premises' : 'geographic',
+    placement: m[4]!.toLowerCase() === 'in' ? 'indoor' : 'outdoor',
+    ...(confidence === 'very_high' ? { confidence: 'very-high' as const } : {}),
+    ...(confidence === 'high' ? { confidence: 'high' as const } : {}),
+    operators: Number(m[5]),
+  };
 }
 
 /** Column names Ofcom and the combining script use for the area key. */
-const AREA_NAME_HEADERS = ['AREANAME', 'AREA', 'PCONNAME', 'LAUANAME', 'DEVCONNAME', 'NAME', 'CONSTITUENCY', 'LOCALAUTHORITY'];
-const AREA_CODE_HEADERS = ['AREACODE', 'PCON', 'PCONCODE', 'LAUA', 'LAUACODE', 'DEVCON', 'DEVCONCODE', 'CODE', 'ONSCODE', 'GSSCODE'];
+/*
+ * Ofcom's own column names are in here, verbatim.
+ *
+ * They were not, and the consequence was quiet: the constituency file keys on
+ * `parl_const` / `parl_const_name`, neither of which was on either list, so
+ * the reader found no area key at all — fell through to its
+ * "guess a postcode column" branch, indexed six hundred and fifty
+ * constituencies under column zero as though they were postcodes, and
+ * declared the whole dataset postcode-keyed. Every lookup then missed, and
+ * the tab read "No provider returned a result" with the right file on disk.
+ *
+ * Only the local-authority file happened to use a name already on the list,
+ * which is why it looked like it half worked.
+ */
+const AREA_NAME_HEADERS = [
+  'AREANAME',
+  'AREA',
+  'PCONNAME',
+  'PARLCONSTNAME',
+  'LAUANAME',
+  'DEVCONNAME',
+  'DEVOLVEDCONSTNAME',
+  'LOCATION',
+  'NAME',
+  'CONSTITUENCY',
+  'LOCALAUTHORITY',
+];
+const AREA_CODE_HEADERS = [
+  'AREACODE',
+  'PCON',
+  'PCONCODE',
+  'PARLCONST',
+  'LAUA',
+  'LAUACODE',
+  'DEVCON',
+  'DEVCONCODE',
+  'DEVOLVEDCONST',
+  'LOCATIONCODE',
+  'CODE',
+  'ONSCODE',
+  'GSSCODE',
+];
 const RELEASE_HEADERS = ['RELEASE', 'PUBLICATION', 'EDITION', 'VERSION', 'PERIOD', 'REPORTDATE'];
 
 /**
@@ -159,6 +259,10 @@ export function interpretHeader(headers: string[]): HeaderMeaning {
   let areaCodeIndex = -1;
   let releaseIndex = -1;
   const columns: ColumnMeaning[] = [];
+  const bands: BandColumn[] = [];
+  // Premises count is the denominator, and worth carrying so the UI can say
+  // how big the area is rather than quoting a percentage of nothing named.
+  let premisesIndex = -1;
 
   headers.forEach((raw, index) => {
     const header = raw.trim().replace(/^"|"$/g, '');
@@ -182,6 +286,17 @@ export function interpretHeader(headers: string[]): HeaderMeaning {
       return;
     }
 
+    const band = bandColumn(header, index);
+    if (band) {
+      bands.push(band);
+      return;
+    }
+
+    if (premisesIndex < 0 && ['PREMCOUNT', 'PREMISES', 'PREMISECOUNT'].includes(joined)) {
+      premisesIndex = index;
+      return;
+    }
+
     const operator = operatorFrom(header);
     const service = serviceFrom(header);
     const placement = placementFrom(header);
@@ -196,7 +311,7 @@ export function interpretHeader(headers: string[]): HeaderMeaning {
     postcodeIndex = guess >= 0 ? guess : 0;
   }
 
-  return { postcodeIndex, areaNameIndex, areaCodeIndex, releaseIndex, columns };
+  return { postcodeIndex, areaNameIndex, areaCodeIndex, releaseIndex, premisesIndex, columns, bands };
 }
 
 /** Area names are compared case- and punctuation-insensitively. */
@@ -217,6 +332,11 @@ interface CoverageRow {
 
 interface DatasetIndex {
   byPostcode: Map<string, CoverageRow>;
+  /**
+   * Area-level coverage from Ofcom's own column shape, keyed the same way as
+   * `byArea` — by ONS code and by name.
+   */
+  coverageByArea: Map<string, AreaCoverage>;
   /** Keyed by normalised area name and, where published, by ONS code. */
   byArea: Map<string, CoverageRow>;
   /** Which key the file actually carries, so lookups know what to try. */
@@ -265,6 +385,65 @@ function splitCsvLine(line: string): string[] {
  * Loads and indexes the dataset. Reloads when the file changes on disk, so
  * dropping in a new Ofcom release needs no restart.
  */
+/**
+ * Which CSVs make up the dataset.
+ *
+ * `OFCOM_DATASET_PATH` may point at a single CSV or at the folder the
+ * Connected Nations zip extracts to. The folder is the useful case: the zip
+ * holds the constituency, local-authority and devolved-constituency files
+ * together, and asking somebody to pick one and rename it is how the wrong
+ * one ends up configured.
+ *
+ * Ordered finest area first, because that is the order the lookup wants to
+ * try them in.
+ */
+function datasetFiles(absolute: string): string[] {
+  if (!statSync(absolute).isDirectory()) return [absolute];
+
+  const rank = (name: string): number => {
+    const n = name.toLowerCase();
+    if (n.includes('pcon')) return 0;
+    if (n.includes('devcon')) return 1;
+    if (n.includes('laua')) return 2;
+    return 3;
+  };
+
+  return readdirSync(absolute)
+    .filter((f) => f.toLowerCase().endsWith('.csv'))
+    .sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
+    .map((f) => join(absolute, f));
+}
+
+/** Which kind of area a Connected Nations file is keyed on. */
+function areaKindOf(file: string, headers: string[]): AreaKind {
+  const joined = `${file} ${headers.join(' ')}`.toLowerCase();
+  if (joined.includes('pcon') || joined.includes('parl_const')) return 'constituency';
+  if (joined.includes('devcon') || joined.includes('devolved')) return 'devolved-constituency';
+  if (joined.includes('laua')) return 'local-authority';
+  return 'area';
+}
+
+/**
+ * The Ofcom release, from the file name.
+ *
+ * `202507_mobile_coverage_pcon_r01.csv` is July 2025. Taken from the name
+ * because the rows carry no date of their own, and the release is what a
+ * person needs to judge how stale the answer is.
+ */
+function releaseOf(file: string): string | undefined {
+  const m = /(20\d{2})(0[1-9]|1[0-2])/.exec(file.replace(/[\\/]/g, ' '));
+  return m ? `${m[1]}-${m[2]}` : undefined;
+}
+
+const numberOrUndefined = (raw?: string): number | undefined => {
+  const v = Number.parseFloat((raw ?? '').replace(/[,%\s]/g, ''));
+  return Number.isFinite(v) ? v : undefined;
+};
+
+/**
+ * Loads and indexes the dataset. Reloads when anything changes on disk, so
+ * dropping in a new Ofcom release needs no restart.
+ */
 export function loadDataset(force = false): DatasetIndex | null {
   const path = config().ofcom.datasetPath;
   if (!path) return null;
@@ -275,62 +454,119 @@ export function loadDataset(force = false): DatasetIndex | null {
   const { mtimeMs } = statSync(absolute);
   if (!force && index && index.path === absolute && index.mtimeMs === mtimeMs) return index;
 
-  const text = readFileSync(absolute, 'utf8');
-  const lines = text.split(/\r?\n/).filter((l) => l.trim() !== '');
-  if (lines.length < 2) return null;
-
-  const { postcodeIndex, areaNameIndex, areaCodeIndex, releaseIndex, columns } = interpretHeader(splitCsvLine(lines[0]!));
   const byPostcode = new Map<string, CoverageRow>();
   const byArea = new Map<string, CoverageRow>();
+  const coverageByArea = new Map<string, AreaCoverage>();
   /** Which release each area key currently holds, so newer rows win. */
   const releaseByArea = new Map<string, string>();
-  const keyedBy: 'postcode' | 'area' = postcodeIndex >= 0 ? 'postcode' : 'area';
+  let keyedBy: 'postcode' | 'area' = 'area';
+  let rowCount = 0;
+  let columnsUnderstood = 0;
+  let bandsUnderstood = 0;
 
-  for (let i = 1; i < lines.length; i += 1) {
-    const cells = splitCsvLine(lines[i]!);
+  for (const file of datasetFiles(absolute)) {
+    const text = readFileSync(file, 'utf8').replace(/^\uFEFF/, '');
+    const lines = text.split(/\r?\n/).filter((l) => l.trim() !== '');
+    if (lines.length < 2) continue;
 
-    const row: CoverageRow = {};
-    for (const column of columns) {
-      const grade = gradeFromOfcom(cells[column.index]);
-      if (grade === 'unknown') continue;
-      (row[column.operator] ??= {})[`${column.service}_${column.placement}`] = grade;
+    const headers = splitCsvLine(lines[0]!);
+    const { postcodeIndex, areaNameIndex, areaCodeIndex, releaseIndex, premisesIndex, columns, bands } =
+      interpretHeader(headers);
+    columnsUnderstood += columns.length;
+    bandsUnderstood += bands.length;
+    if (postcodeIndex >= 0) keyedBy = 'postcode';
+
+    const kind = areaKindOf(file, headers);
+    const fileRelease = releaseOf(file);
+
+    for (let i = 1; i < lines.length; i += 1) {
+      const cells = splitCsvLine(lines[i]!);
+      rowCount += 1;
+
+      /* ---- Per-operator columns, where a file has them --------------- */
+      const row: CoverageRow = {};
+      for (const column of columns) {
+        const grade = gradeFromOfcom(cells[column.index]);
+        if (grade === 'unknown') continue;
+        (row[column.operator] ??= {})[`${column.service}_${column.placement}`] = grade;
+      }
+
+      /* ---- Ofcom's own band columns ---------------------------------- */
+      const grouped = new Map<string, AreaCoverageRow>();
+      for (const band of bands) {
+        const percent = numberOrUndefined(cells[band.index]);
+        // Ofcom leave a band empty rather than writing 0. An empty cell is
+        // "none in this band", so it is skipped rather than read as a gap in
+        // the data.
+        if (percent === undefined) continue;
+        const key = `${band.technology}|${band.confidence ?? ''}|${band.measure}|${band.placement}`;
+        const existing = grouped.get(key) ?? {
+          technology: band.technology as CoverageTechnology,
+          measure: band.measure as CoverageMeasure,
+          placement: band.placement as CoveragePlacement,
+          ...(band.confidence ? { confidence: band.confidence } : {}),
+          bands: [],
+        };
+        existing.bands.push({ operators: band.operators, percent });
+        grouped.set(key, existing);
+      }
+
+      const areaName = (cells[areaNameIndex] ?? '').trim();
+      const areaCode = (cells[areaCodeIndex] ?? '').trim();
+      const coverage: AreaCoverage | null = grouped.size
+        ? {
+            areaName: areaName || areaCode,
+            ...(areaCode ? { areaCode } : {}),
+            kind,
+            ...(premisesIndex >= 0 && numberOrUndefined(cells[premisesIndex]) !== undefined
+              ? { premisesCount: numberOrUndefined(cells[premisesIndex])! }
+              : {}),
+            rows: [...grouped.values()].map((r) => ({
+              ...r,
+              bands: [...r.bands].sort((a, b) => a.operators - b.operators),
+            })),
+            ...(fileRelease ? { release: fileRelease } : {}),
+            file: basename(file),
+          }
+        : null;
+
+      if (postcodeIndex >= 0) {
+        const postcode = normalisePostcode(cells[postcodeIndex] ?? '');
+        if (postcode && Object.keys(row).length) byPostcode.set(postcode, row);
+      }
+
+      // Indexed under both the code and the name. The code is unambiguous;
+      // the name is what postcodes.io returns, and the two disagree often
+      // enough (boundary reviews rename constituencies) that keeping both
+      // costs nothing and saves a miss.
+      //
+      // Where a key already has a row, the newer release keeps it. Release
+      // labels sort lexically in the form Ofcom use (`2025-07`, `2026-01`).
+      const release = releaseIndex >= 0 ? (cells[releaseIndex] ?? '').trim() : (fileRelease ?? '');
+      const claim = (key: string): void => {
+        if (!key) return;
+        const held = releaseByArea.get(key);
+        if (held !== undefined && release <= held) return;
+        if (Object.keys(row).length) byArea.set(key, row);
+        if (coverage) coverageByArea.set(key, coverage);
+        releaseByArea.set(key, release);
+      };
+      claim(normaliseArea(areaCode));
+      claim(normaliseArea(areaName));
     }
-    if (!Object.keys(row).length) continue;
-
-    if (postcodeIndex >= 0) {
-      const postcode = normalisePostcode(cells[postcodeIndex] ?? '');
-      if (postcode) byPostcode.set(postcode, row);
-    }
-
-    // Indexed under both the code and the name. The code is unambiguous; the
-    // name is what postcodes.io returns, and the two disagree often enough
-    // (boundary reviews rename constituencies) that keeping both costs
-    // nothing and saves a miss.
-    //
-    // Where a key already has a row, the newer release keeps it. Release
-    // labels sort lexically in the form Ofcom use (`2025-07`, `2026-01`), and
-    // a file with no release column keeps first-wins, which is the old
-    // behaviour for a single-release file.
-    const release = releaseIndex >= 0 ? (cells[releaseIndex] ?? '').trim() : '';
-    const claim = (key: string): void => {
-      if (!key) return;
-      const held = releaseByArea.get(key);
-      if (held !== undefined && release <= held) return;
-      byArea.set(key, row);
-      releaseByArea.set(key, release);
-    };
-    claim(normaliseArea(cells[areaCodeIndex] ?? ''));
-    claim(normaliseArea(cells[areaNameIndex] ?? ''));
   }
+
+  if (byArea.size === 0 && byPostcode.size === 0 && coverageByArea.size === 0) return null;
 
   index = {
     byPostcode,
     byArea,
+    coverageByArea,
     keyedBy,
     path: absolute,
     loadedAt: new Date().toISOString(),
-    rows: keyedBy === 'postcode' ? byPostcode.size : byArea.size,
-    columnsUnderstood: columns.length,
+    rows: rowCount,
+    columnsUnderstood: columnsUnderstood + bandsUnderstood,
     mtimeMs,
   };
   return index;
@@ -460,10 +696,11 @@ export function createOfcomSignalProvider(): SignalProvider {
       const dataset = loadDataset();
       if (!dataset) {
         throw new Error(
-          'Ofcom coverage is not available: point OFCOM_DATASET_PATH at a ' +
-            'Connected Nations mobile coverage CSV. Ofcom publish these per ' +
-            'parliamentary constituency and per local authority; there is no ' +
-            'postcode-level mobile file, and no Ofcom mobile API to use instead.',
+          'Ofcom coverage is not available: point OFCOM_DATASET_PATH at the ' +
+            'folder a Connected Nations mobile coverage zip extracts to, or at ' +
+            'one of its CSVs. Ofcom publish these per parliamentary ' +
+            'constituency and per local authority — there is no postcode-level ' +
+            'mobile file.',
         );
       }
 
@@ -492,8 +729,27 @@ export function createOfcomSignalProvider(): SignalProvider {
 
       for (const candidate of candidates) {
         if (!candidate.key) continue;
-        const row = dataset.byArea.get(normaliseArea(candidate.key));
+        const key = normaliseArea(candidate.key);
+
+        // A file that names operators is the better answer, so it is tried
+        // first even though Ofcom do not currently publish one.
+        const row = dataset.byArea.get(key);
         if (row) return buildReport(address, row, 'ofcom:dataset', candidate.label);
+
+        // Otherwise Ofcom's own shape: how many of the four networks cover
+        // the area. Returned with no `operators` at all, because inventing
+        // per-operator rows from a count is exactly the lie this avoids.
+        const coverage = dataset.coverageByArea.get(key);
+        if (coverage) {
+          return {
+            ...(address.uprn ? { uprn: address.uprn } : {}),
+            address,
+            operators: [],
+            areaCoverage: coverage,
+            checkedAt: new Date().toISOString(),
+            sources: [`ofcom:${coverage.file ?? 'dataset'}`],
+          };
+        }
       }
 
       throw new Error(

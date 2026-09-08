@@ -14,3 +14,4 @@ export * from "./printOptions";
 export * from "./geo";
 export * from "./watches";
 export * from './companyRisk';
+export * from './areaCoverage';

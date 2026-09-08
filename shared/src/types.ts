@@ -1,3 +1,4 @@
+import type { AreaCoverage } from './areaCoverage';
 /**
  * SupportWizard NetKit — shared domain model.
  *
@@ -314,6 +315,23 @@ export interface PredictedSpeeds {
   premisesMatched: boolean;
   /** How many premises the postcode returned, for context on an average. */
   premisesInPostcode?: number;
+  /** Share of premises in the postcode that can get gigabit, where published. */
+  gigabitPercent?: number;
+  superfastPercent?: number;
+  ultrafastPercent?: number;
+  fttpPercent?: number;
+  /** Share that cannot reach the 10 Mb universal service obligation. */
+  belowUsoPercent?: number;
+  /**
+   * Where this came from and how fresh it is.
+   *
+   * `api` is Ofcom's live coverage endpoint. `dataset` is a Connected Nations
+   * CSV on disk, which is a snapshot months old — the UI is required to say
+   * so rather than presenting a dated file as a current prediction.
+   */
+  basis?: 'api' | 'dataset';
+  /** The Ofcom release the dataset figures came from, e.g. `2025-07`. */
+  release?: string;
   source: string;
 }
 
@@ -422,6 +440,16 @@ export interface SignalReport {
   masts?: MastSite[];
   /** Best indoor voice + data across all four networks, for the summary. */
   headline?: { bestIndoorVoice?: MobileOperator; bestIndoorData?: MobileOperator };
+  /**
+   * Area-level coverage, when that is all there is.
+   *
+   * Present only when no per-address or per-operator source answered and the
+   * Ofcom Connected Nations file was used instead. It is a weaker answer --
+   * an area of tens of thousands of premises, counting networks rather than
+   * naming them -- so it never merges into `operators` and the UI is
+   * required to say what it is.
+   */
+  areaCoverage?: AreaCoverage;
   checkedAt: string;
   sources: string[];
 }
