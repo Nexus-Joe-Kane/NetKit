@@ -379,6 +379,40 @@ escalation email when the supervisor cannot repair an integration, and the
 alerts from **Watched premises** — a watch still records what changed without
 a mailer, but nobody gets told, which is most of the point.
 
+### Zendesk — the ticket side of a fault
+
+```
+ZENDESK_SUBDOMAIN=
+ZENDESK_EMAIL=
+ZENDESK_API_TOKEN=
+```
+
+`ZENDESK_EMAIL` is an agent account; the token comes from **Admin Centre →
+Apps and integrations → APIs → Zendesk API**. Auth is Basic with
+`<email>/token` as the username, which is Zendesk's own scheme.
+
+Three things turn on:
+
+- **Private notes.** Raising a fault or running a line test with a ticket
+  number recorded against it writes what went to the supplier and what came
+  back as a private note. Engineers see it; the customer does not.
+- **Site contacts.** The site-contact picker on the fault form reads the
+  contacts on that ticket's organisation, so a name and number handed to an
+  engineer is chosen rather than remembered. It cannot offer somebody from a
+  different customer.
+- **The site-visit message.** The one deliberately public reply: a visit is
+  booked with the supplier, a slot will follow, 24 hours' notice to change
+  it, and a charge if nobody is on site.
+
+The agent needs to see tickets, users and organisations, and to comment. A
+restricted agent will read some tickets and not others, which shows up as
+"Zendesk has no ticket N" for tickets that plainly exist.
+
+**Every fault goes to the supplier with `help@supportwizard.net` and
+`020 7043 3171`, and that is enforced on the server rather than defaulted in
+the form.** An engineer can tick a box to be added to the ticket, which is
+where updates land anyway.
+
 ### Companies House — free with registration
 
 ```

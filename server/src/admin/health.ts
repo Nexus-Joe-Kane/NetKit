@@ -5,6 +5,7 @@ import { isProviderEnabled, settings } from '../auth/store';
 import { fetchJson } from '../lib/http';
 import { datasetStatus } from '../providers/signal/ofcom';
 import { fixedDatasetConfigured, fixedDatasetStatus } from '../providers/coverage/ofcomFixedDataset';
+import { zendeskConfigured, zendeskPing } from '../providers/tickets/zendesk';
 import { giacomPing } from '../providers/giacom/client';
 
 /**
@@ -33,6 +34,7 @@ export interface ServiceStatus {
     | 'Giacom'
     | 'Resend'
     | 'OpenCelliD'
+    | 'Zendesk'
     | 'Internal';
   /** What this integration gives the portal. */
   capability: string;
@@ -381,6 +383,26 @@ function probes(): Probe[] {
           // board claim something the dataset cannot do.
           detail: `${status.rows?.toLocaleString('en-GB')} rows indexed from ${status.columnsUnderstood} recognised columns.`,
           meta: { path: status.path, loadedAt: status.loadedAt, columnsUnderstood: status.columnsUnderstood },
+        };
+      },
+    },
+
+    // ---- Zendesk --------------------------------------------------------
+    {
+      key: 'zendesk',
+      name: 'Zendesk Support',
+      vendor: 'Zendesk',
+      capability:
+        'Ticket notes for faults and line tests, the customer’s own site contacts, and the site-visit message',
+      docsUrl: 'https://developer.zendesk.com/api-reference/ticketing/introduction/',
+      configured: () => zendeskConfigured(),
+      run: async () => {
+        const started = Date.now();
+        const result = await zendeskPing();
+        return {
+          state: result.ok ? ('ok' as const) : ('down' as const),
+          detail: result.detail,
+          meta: { probeMs: Date.now() - started },
         };
       },
     },

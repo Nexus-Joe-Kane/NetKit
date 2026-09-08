@@ -1,7 +1,20 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
-import { confirmMatches, formatPostcode, identify, normaliseCli, type ApiResult, type LineTestType, parseBulkInput } from '@sw/shared';
-import { badRequest, forbidden, notFound, rateLimited, uprnNotFound } from '../lib/errors';
+import {
+  HOUSE_CONTACT,
+  confirmMatches,
+  faultRaisedNote,
+  formatPostcode,
+  identify,
+  lineTestNote,
+  normaliseCli,
+  parseBulkInput,
+  siteVisitBookedMessage,
+  type ApiResult,
+  type LineTestType,
+} from '@sw/shared';
+import { comment, siteContactsForTicket, zendeskConfigured } from '../providers/tickets/zendesk';
+import { badRequest, forbidden, notConfigured, notFound, rateLimited, uprnNotFound } from '../lib/errors';
 import { consumeQuota, refundQuota } from '../services/quota';
 import { addressByUprn, addressesByPostcode, buildSiteReport } from '../services/resolve';
 import * as ops from '../services/operations';
@@ -29,17 +42,95 @@ const handler =
 
 const TEST_TYPES = ['linetest', 'xdsltest', 'tamtest', 'kbdtest', 'servicetest', 'profilechange'] as const;
 
+/**
+ * Leaves a note on a customer's ticket, without letting it break the thing
+ * it is a note about.
+ *
+ * A fault raised with a supplier cannot be un-raised, and a line test has
+ * already run. If Zendesk is down, or the ticket number was a typo, the
+ * answer is to say so on the response rather than to fail a request whose
+ * real work already succeeded — an operator who sees an error assumes the
+ * fault was not raised and raises it again.
+ */
+interface TicketNoteOutcome {
+  attempted: boolean;
+  posted: boolean;
+  ticketId?: string;
+  url?: string;
+  ccEmails?: string[];
+  error?: string;
+}
+
+async function noteOnTicket(input: {
+  ticketId?: string;
+  body: string;
+  visibility: 'private' | 'public';
+  ccEmails?: string[];
+}): Promise<TicketNoteOutcome> {
+  if (!input.ticketId) return { attempted: false, posted: false };
+  if (!zendeskConfigured()) {
+    return {
+      attempted: true,
+      posted: false,
+      ticketId: input.ticketId,
+      error: 'Zendesk is not connected, so nothing was written to the ticket. Admin portal → Service status.',
+    };
+  }
+
+  try {
+    const result = await comment({
+      ticketId: input.ticketId,
+      body: input.body,
+      visibility: input.visibility,
+      ...(input.ccEmails?.length ? { ccEmails: input.ccEmails } : {}),
+    });
+    return {
+      attempted: true,
+      posted: true,
+      ticketId: result.ticketId,
+      ...(result.url ? { url: result.url } : {}),
+      ...(result.ccEmails.length ? { ccEmails: result.ccEmails } : {}),
+    };
+  } catch (err) {
+    return {
+      attempted: true,
+      posted: false,
+      ticketId: input.ticketId,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+
+/**
+ * What the client may send when raising a fault.
+ *
+ * `contactEmail` and `contactNumber` are deliberately absent. The address and
+ * number a supplier gets are the desk's, always, and that is enforced here
+ * rather than defaulted in the form -- a default can be typed over, and a
+ * supplier holding an engineer's direct line rings the engineer at six in the
+ * evening instead of whoever is on.
+ *
+ * The engineer's own address has one use: `ccEngineer` adds them to our
+ * Zendesk ticket, which is where the updates land anyway.
+ */
 const raiseFaultSchema = z.object({
   zenReference: z.string().trim().min(1, 'A service reference is required.').max(64),
   category: z.enum(['synchronisation', 'performance', 'authentication', 'voice', 'other']),
   frequency: z.enum(['intermittent', 'permanent']),
   summary: z.string().trim().min(10, 'Describe the fault in at least a sentence.').max(1000),
   testsCarriedOut: z.string().trim().max(2000).optional(),
-  contactName: z.string().trim().max(120).optional(),
-  contactNumber: z.string().trim().max(40).optional(),
-  contactEmail: z.string().trim().email().max(320).optional(),
   siteNotes: z.string().trim().max(2000).optional(),
   hazardNotes: z.string().trim().max(2000).optional(),
+  /** The customer's own ticket, so the exchange is recorded against it. */
+  ticketId: z.string().trim().max(16).optional(),
+  /** Adds the signed-in engineer to the ticket, from their account email. */
+  ccEngineer: z.boolean().optional(),
+  /** Chosen from the customer's contacts, never typed. */
+  siteContactId: z.string().trim().max(32).optional(),
+  siteContactName: z.string().trim().max(160).optional(),
+  siteContactEmail: z.string().trim().email().max(320).optional(),
+  siteContactPhone: z.string().trim().max(40).optional(),
 });
 
 /**
@@ -153,21 +244,134 @@ export function operationsRouter(): Router {
     handler(async (req) => {
       const parsed = raiseFaultSchema.safeParse(req.body);
       if (!parsed.success) throw badRequest(parsed.error.issues[0]?.message ?? 'Invalid fault details.');
+      const input = parsed.data;
 
-      const result = await ops.raiseFault(parsed.data);
+      const siteContact = input.siteContactName
+        ? {
+            id: input.siteContactId ?? input.siteContactName,
+            name: input.siteContactName,
+            ...(input.siteContactEmail ? { email: input.siteContactEmail } : {}),
+            ...(input.siteContactPhone ? { phone: input.siteContactPhone } : {}),
+          }
+        : undefined;
+
+      // The supplier gets the desk's details and, where one was chosen, the
+      // site contact's name and number so the engineer can get in. Never the
+      // operator's own address.
+      const result = await ops.raiseFault({
+        zenReference: input.zenReference,
+        category: input.category,
+        frequency: input.frequency,
+        summary: input.summary,
+        ...(input.testsCarriedOut ? { testsCarriedOut: input.testsCarriedOut } : {}),
+        ...(input.siteNotes ? { siteNotes: input.siteNotes } : {}),
+        ...(input.hazardNotes ? { hazardNotes: input.hazardNotes } : {}),
+        contactName: siteContact?.name ?? HOUSE_CONTACT.name,
+        contactNumber: siteContact?.phone ?? HOUSE_CONTACT.phone,
+        contactEmail: HOUSE_CONTACT.email,
+      });
+
+      // The ticket note is best-effort on purpose. The fault is raised with
+      // the supplier by this point and cannot be un-raised, so a Zendesk
+      // outage must not turn a successful fault into a failed request — it
+      // reports what happened instead.
+      const note = await noteOnTicket({
+        ticketId: input.ticketId,
+        visibility: 'private',
+        body: faultRaisedNote({
+          ...(result.data.reference ? { reference: result.data.reference } : {}),
+          serviceReference: input.zenReference,
+          category: input.category,
+          frequency: input.frequency,
+          summary: input.summary,
+          ...(input.testsCarriedOut ? { testsCarriedOut: input.testsCarriedOut } : {}),
+          ...(siteContact ? { siteContact } : {}),
+          ...(req.user?.name ? { raisedBy: req.user.name } : {}),
+          supplier: 'Zen',
+        }),
+        ...(input.ccEngineer && req.user?.email ? { ccEmails: [req.user.email] } : {}),
+      });
+
       audit({
         actorId: req.user?.id,
         actorEmail: req.user?.email,
         action: 'fault.raised',
         detail: {
-          zenReference: parsed.data.zenReference,
-          category: parsed.data.category,
+          zenReference: input.zenReference,
+          category: input.category,
           reference: result.data.reference,
           mode: result.mode,
+          ...(input.ticketId ? { ticketId: input.ticketId } : {}),
+          ...(note.error ? { ticketNoteError: note.error } : {}),
+          ...(siteContact ? { siteContact: siteContact.name } : {}),
+          ccEngineer: Boolean(input.ccEngineer),
         },
         ip: req.ip,
       });
-      return { fault: result.data, mode: result.mode };
+      return { fault: result.data, mode: result.mode, ticket: note };
+    }),
+  );
+
+  /* ---- Tickets ------------------------------------------------------ */
+
+  /**
+   * The customer's own contacts for a ticket.
+   *
+   * Feeds the site-contact picker. Narrow by design: only the organisation
+   * the ticket belongs to, so it cannot offer somebody from a different
+   * customer — which is the one mistake that matters when handing a name to
+   * an engineer about to knock on a door.
+   */
+  router.get(
+    '/tickets/:id/contacts',
+    handler(async (req) => {
+      if (!zendeskConfigured()) {
+        throw notConfigured('Zendesk is not connected, so site contacts cannot be looked up.');
+      }
+      const contacts = await siteContactsForTicket(String(req.params.id));
+      return { contacts };
+    }),
+  );
+
+  /**
+   * Tells the customer a visit is booked.
+   *
+   * The one deliberately public message in here: somebody has to be on site,
+   * and the notice period and the missed-appointment charge are things a
+   * customer must learn before the visit rather than on an invoice after it.
+   *
+   * A button today. NetKit does not book appointments yet -- the engineer
+   * books with the supplier and presses this -- and the moment it does, this
+   * is what it will call.
+   */
+  router.post(
+    '/tickets/:id/site-visit',
+    handler(async (req) => {
+      const ticketId = String(req.params.id);
+      const body = (req.body ?? {}) as { supplier?: string; contactName?: string; ccEngineer?: boolean };
+
+      const note = await noteOnTicket({
+        ticketId,
+        visibility: 'public',
+        body: siteVisitBookedMessage({
+          ...(body.supplier ? { supplier: String(body.supplier).slice(0, 80) } : {}),
+          ...(body.contactName ? { contactName: String(body.contactName).slice(0, 120) } : {}),
+        }),
+        ...(body.ccEngineer && req.user?.email ? { ccEmails: [req.user.email] } : {}),
+      });
+
+      if (!note.posted) {
+        throw badRequest(note.error ?? 'The update was not written to the ticket.');
+      }
+
+      audit({
+        actorId: req.user?.id,
+        actorEmail: req.user?.email,
+        action: 'ticket.site_visit_notified',
+        detail: { ticketId: note.ticketId, supplier: body.supplier ?? 'unspecified' },
+        ip: req.ip,
+      });
+      return { ticket: note };
     }),
   );
 
@@ -203,17 +407,51 @@ export function operationsRouter(): Router {
         throw badRequest(`Unknown test type "${type}".`);
       }
       const zenReference = String(req.params.zenReference);
-      const technology = String((req.body as { technology?: string })?.technology ?? '') || undefined;
+      const body = (req.body ?? {}) as { technology?: string; ticketId?: string };
+      const technology = String(body.technology ?? '') || undefined;
 
       const result = await ops.runTest(zenReference, type as LineTestType, technology);
+
+      // Same best-effort note as a fault: the test has already run against
+      // the line, so a ticket problem is reported rather than thrown.
+      const note = await noteOnTicket({
+        ...(body.ticketId ? { ticketId: String(body.ticketId).trim() } : {}),
+        visibility: 'private',
+        body: lineTestNote({
+          testType: type,
+          serviceReference: zenReference,
+          outcome: result.data.outcome,
+          ...(result.data.summary ? { summary: result.data.summary } : {}),
+          ...(result.data.faultLocation ? { faultLocation: result.data.faultLocation } : {}),
+          ...(result.data.metrics.length
+            ? {
+                detail: result.data.metrics.map((m) => ({
+                  label: m.label,
+                  value: m.unit ? `${m.value} ${m.unit}` : m.value,
+                  ...(m.verdict && m.verdict !== 'info' ? { verdict: m.verdict } : {}),
+                })),
+              }
+            : {}),
+          ...(result.data.recommendations?.length ? { recommendations: result.data.recommendations } : {}),
+          ...(req.user?.name ? { runBy: req.user.name } : {}),
+        }),
+      });
+
       audit({
         actorId: req.user?.id,
         actorEmail: req.user?.email,
         action: 'diagnostics.test_run',
-        detail: { zenReference, type, outcome: result.data.outcome, mode: result.mode },
+        detail: {
+          zenReference,
+          type,
+          outcome: result.data.outcome,
+          mode: result.mode,
+          ...(note.ticketId ? { ticketId: note.ticketId } : {}),
+          ...(note.error ? { ticketNoteError: note.error } : {}),
+        },
         ip: req.ip,
       });
-      return { result: result.data, mode: result.mode };
+      return { result: result.data, mode: result.mode, ticket: note };
     }),
   );
 
