@@ -215,18 +215,70 @@ export async function fetchJolaEstate(): Promise<SimEstate> {
   };
 }
 
-/** Looks a single SIM up by ICCID or MSISDN. */
+/**
+ * Looks a single SIM up by ICCID or MSISDN, with its usage.
+ *
+ * The usage call is made only here. This is the one place a single SIM is in
+ * hand, and it is where voice and SMS figures are worth the extra request --
+ * an estate view would need one call per SIM for the same data.
+ */
 export async function findJolaSim(identifier: string): Promise<SimRecord | null> {
   const estate = await fetchJolaEstate();
   const needle = identifier.replace(/\s/g, '').toLowerCase();
   const digits = needle.replace(/\D/g, '');
-  return (
+  const sim =
     estate.sims.find(
       (s) =>
         s.iccid.toLowerCase() === needle ||
         (digits.length >= 6 && (s.msisdn ?? '').replace(/\D/g, '').endsWith(digits)),
-    ) ?? null
-  );
+    ) ?? null;
+  if (!sim) return null;
+
+  // Jola key usage on their SIM id, which the estate row carries in `raw`
+  // only as the id we matched on -- so fall back to the ICCID, which their
+  // API also accepts. Usage never fails the lookup: a SIM with no usage is
+  // still the SIM someone asked for.
+  const usage = await fetchJolaSimUsage(sim.iccid).catch(() => null);
+  return usage ? { ...sim, ...usage } : sim;
 }
 
 export const __jolaTesting = { jolaState, mapJolaSim, mapJolaCustomer, rowsFrom, bytesFromMb };
+
+/**
+ * Current-period usage for one SIM.
+ *
+ * The estate listing carries data used and nothing else, so voice minutes and
+ * SMS counts are only obtainable here -- and they are the two figures a bill
+ * query turns on. One call per SIM, which is why this is not folded into the
+ * estate fetch: it is for a SIM someone has actually looked up.
+ *
+ * Returns null when Jola hold no usage for the SIM, which they answer with a
+ * 404 and which is a legitimate answer for a SIM that has never attached.
+ */
+export async function fetchJolaSimUsage(simId: string): Promise<{
+  usedBytes?: number;
+  usedVoiceMinutes?: number;
+  usedSms?: number;
+  usagePeriodStart?: string;
+  usagePeriodEnd?: string;
+} | null> {
+  const payload = await jolaCall<unknown>(`/api/v1/sims/${encodeURIComponent(simId)}/usage/current`);
+  if (payload === null) return null;
+
+  const dataMb = pickNumber(payload, 'DataMb', 'dataMb', 'dataUsedMb', 'DataUsedMb', 'usageDataMb', 'dataUsed', 'DataUsed');
+  const voice = pickNumber(payload, 'VoiceMinutes', 'voiceMinutes', 'voiceUsed', 'VoiceUsed', 'voiceUsageMinutes');
+  const sms = pickNumber(payload, 'SmsCount', 'smsCount', 'sms', 'SMS', 'smsUsed', 'SmsUsed', 'usageSms');
+  const start = pickString(payload, 'periodStart', 'PeriodStart', 'from', 'From', 'startDate', 'StartDate');
+  const end = pickString(payload, 'periodEnd', 'PeriodEnd', 'to', 'To', 'endDate', 'EndDate');
+
+  const usage = {
+    ...(bytesFromMb(dataMb) != null ? { usedBytes: bytesFromMb(dataMb) } : {}),
+    ...(voice != null ? { usedVoiceMinutes: voice } : {}),
+    ...(sms != null ? { usedSms: sms } : {}),
+    ...(start ? { usagePeriodStart: start } : {}),
+    ...(end ? { usagePeriodEnd: end } : {}),
+  };
+
+  // An empty object would claim a usage answer where there is none.
+  return Object.keys(usage).length ? usage : null;
+}

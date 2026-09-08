@@ -627,6 +627,18 @@ export interface SimRecord {
   allowanceBytes?: number;
   boltOnBytes?: number;
   usedBytes?: number;
+  /**
+   * Voice and SMS use for the current period.
+   *
+   * Only a per-SIM usage call carries these -- an estate listing gives data
+   * alone -- so they are present on a single SIM that has been looked up and
+   * absent on the rows of an estate view.
+   */
+  usedVoiceMinutes?: number;
+  usedSms?: number;
+  /** The period the usage figures cover, where the provider states it. */
+  usagePeriodStart?: string;
+  usagePeriodEnd?: string;
   /** Bars applied, e.g. data, voice, roaming. */
   bars?: string[];
   /** Current attach state, where the provider reports it. */
