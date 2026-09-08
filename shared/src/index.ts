@@ -17,3 +17,4 @@ export * from './companyRisk';
 export * from './areaCoverage';
 export * from './houseContact';
 export * from './simReportOptions';
+export * from './networkAdvice';

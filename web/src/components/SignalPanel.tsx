@@ -15,6 +15,7 @@ import {
   type SignalReport,
 } from '@sw/shared';
 import { Alert, Card, Cell, Chip, Label, formatDate } from './ui';
+import { NetworkAdvicePanel } from './NetworkAdvicePanel';
 import { Tabs, TabPanel, type TabDef } from './Tabs';
 import { formatDistance } from '@sw/shared';
 import type { MastSite } from '@sw/shared';
@@ -176,6 +177,10 @@ export function SignalPanel({ data }: { data: SignalReport }): ReactElement {
         {/* Area-level data is a weaker answer than a per-address check and has
             to say so before anything else on the panel. */}
         {data.areaCoverage && <AreaFallback coverage={data.areaCoverage} />}
+
+        {/* Which network to try, from whatever sources answered. Above the
+            grid because it is the question somebody actually has. */}
+        <NetworkAdvicePanel report={data} />
 
         {selected ? (
           <OperatorDetail coverage={selected} />
