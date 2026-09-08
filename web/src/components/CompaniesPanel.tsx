@@ -1,8 +1,8 @@
 import { useEffect, useState, type ReactElement } from 'react';
 import type { CompanyContext, CompanyRecord } from '@sw/shared';
 import { ApiClientError, api } from '../lib/api';
-import { Alert, Card, Cell, Chip, Empty, Label, Spinner, formatDate } from '../components/ui';
-import { Modal } from './overlay';
+import { Alert, Card, Cell, Chip, Empty, Spinner, formatDate } from '../components/ui';
+import { CompanyDetailModal, statusLabelOf } from './CompanyDetailModal';
 
 /**
  * Who is registered at this premises.
@@ -15,24 +15,6 @@ import { Modal } from './overlay';
  * Companies at the postcode rather than the exact premises, because that is
  * what the register indexes — the ones registered at this address are marked.
  */
-
-/** Status strings Companies House uses, in words a person would say. */
-const STATUS_LABEL: Record<string, string> = {
-  active: 'Active',
-  dissolved: 'Dissolved',
-  liquidation: 'In liquidation',
-  receivership: 'In receivership',
-  administration: 'In administration',
-  'voluntary-arrangement': 'Voluntary arrangement',
-  'insolvency-proceedings': 'Insolvency proceedings',
-  'converted-closed': 'Converted or closed',
-  closed: 'Closed',
-  open: 'Open',
-  removed: 'Removed',
-};
-
-const statusLabelOf = (status: string): string =>
-  STATUS_LABEL[status] ?? status.replace(/-/g, ' ').replace(/^./, (c) => c.toUpperCase());
 
 export function CompaniesPanel({ postcode }: { postcode: string }): ReactElement {
   const [data, setData] = useState<(CompanyContext & { mode: 'live' | 'mock'; providerError?: string }) | null>(null);
@@ -170,74 +152,7 @@ export function CompaniesPanel({ postcode }: { postcode: string }): ReactElement
         )}
       </Card>
 
-      <Modal
-        open={detail !== null}
-        onClose={() => setDetail(null)}
-        eyebrow="Companies House"
-        title={detail?.name ?? ''}
-        subtitle={detail ? `${detail.companyNumber} · ${statusLabelOf(detail.status)}` : undefined}
-        footer={
-          <>
-            {detail?.url && (
-              <a className="btn btn--ghost" href={detail.url} target="_blank" rel="noreferrer noopener">
-                Open on Companies House
-              </a>
-            )}
-            <span className="grow" />
-            <button type="button" className="btn btn--primary" onClick={() => setDetail(null)}>
-              Close
-            </button>
-          </>
-        }
-      >
-        {detail && (
-          <div className="stack stack--tight">
-            {detail.concerning && (
-              <div className="flag flag--critical">
-                <span className="flag__marker" aria-hidden="true" />
-                <span>
-                  <strong>{statusLabelOf(detail.status)}</strong>
-                  <span className="flag__detail">
-                    {detail.dissolvedOn
-                      ? `Dissolved on ${formatDate(detail.dissolvedOn)}. Anything billed to this company after that date needs looking at.`
-                      : 'This company is not trading normally. Do not commit new spend without checking.'}
-                  </span>
-                </span>
-              </div>
-            )}
-
-            <div className="kv">
-              <Cell label="Company number" value={detail.companyNumber} mono copy />
-              <Cell label="Status" value={statusLabelOf(detail.status)} />
-              <Cell label="Type" value={detail.type} />
-              <Cell label="Incorporated" value={formatDate(detail.incorporatedOn)} />
-              <Cell label="Dissolved" value={formatDate(detail.dissolvedOn)} />
-              <Cell label="Registered office" value={detail.registeredOffice} />
-            </div>
-
-            {detail.sicCodes && detail.sicCodes.length > 0 && (
-              <div>
-                <Label>Nature of business (SIC)</Label>
-                <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 5 }}>
-                  {detail.sicCodes.map((code) => (
-                    <Chip key={code} tone="idle">{code}</Chip>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {detail.overdue && detail.overdue.length > 0 && (
-              <div className="flag flag--warn">
-                <span className="flag__marker" aria-hidden="true" />
-                <span>
-                  <strong>Filings overdue</strong>
-                  <span className="flag__detail">{detail.overdue.join('; ')}.</span>
-                </span>
-              </div>
-            )}
-          </div>
-        )}
-      </Modal>
+      <CompanyDetailModal company={detail} onClose={() => setDetail(null)} />
     </>
   );
 }

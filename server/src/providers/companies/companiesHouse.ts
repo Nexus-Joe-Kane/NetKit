@@ -1,4 +1,14 @@
-import type { CompanyContext, CompanyRecord } from '@sw/shared';
+import type {
+  CompanyCharge,
+  CompanyContext,
+  CompanyDetail,
+  CompanyFiling,
+  CompanyInsolvencyCase,
+  CompanyInsolvencyPractitioner,
+  CompanyOfficer,
+  CompanyPsc,
+  CompanyRecord,
+} from '@sw/shared';
 import { config } from '../../config';
 import { fetchJson } from '../../lib/http';
 import { TtlCache } from '../../lib/cache';
@@ -153,4 +163,399 @@ export function clearCompaniesCache(): void {
 }
 
 /** Test hook. */
-export const __companiesHouseTesting = { mapCompany, CONCERNING };
+
+
+/* ------------------------------------------------------------------ *
+ * Deep detail
+ * ------------------------------------------------------------------ */
+
+/**
+ * The full picture for one company, from six endpoints at once.
+ *
+ * Fetched only when someone opens a company, never while building the list:
+ * the list can hold forty companies and this is six calls each. Companies
+ * House allow 600 requests per five minutes, which is generous for one
+ * company on demand and would not survive 240 on every postcode lookup.
+ *
+ * A 404 on charges, PSC or insolvency is the normal answer for most
+ * companies -- the resource only exists when there is something in it -- so
+ * those are read as "none" rather than as failures. Anything that genuinely
+ * fails is named in `unavailable` so the panel can say which part is missing
+ * instead of quietly showing an empty tab.
+ */
+
+interface ChOfficerItem {
+  name?: string;
+  officer_role?: string;
+  appointed_on?: string;
+  resigned_on?: string;
+  nationality?: string;
+  occupation?: string;
+  country_of_residence?: string;
+  address?: ChAddress;
+  date_of_birth?: { month?: number; year?: number };
+  identification?: { identification_type?: string };
+  links?: { officer?: { appointments?: string }; self?: string };
+}
+
+interface ChPscItem {
+  name?: string;
+  kind?: string;
+  notified_on?: string;
+  ceased_on?: string;
+  natures_of_control?: string[];
+  nationality?: string;
+  country_of_residence?: string;
+  address?: ChAddress;
+}
+
+interface ChFilingItem {
+  date?: string;
+  category?: string;
+  type?: string;
+  description?: string;
+  pages?: number;
+  description_values?: Record<string, string>;
+}
+
+interface ChChargeItem {
+  charge_number?: number;
+  status?: string;
+  created_on?: string;
+  delivered_on?: string;
+  satisfied_on?: string;
+  persons_entitled?: Array<{ name?: string }>;
+  classification?: { description?: string; type?: string };
+  particulars?: { description?: string };
+}
+
+interface ChInsolvencyCase {
+  type?: string;
+  dates?: Array<{ type?: string; date?: string }>;
+  practitioners?: Array<{
+    name?: string;
+    role?: string;
+    appointed_on?: string;
+    ceased_to_act_on?: string;
+    address?: ChAddress;
+  }>;
+  notes?: string[];
+}
+
+interface ChProfile extends ChCompany {
+  jurisdiction?: string;
+  has_charges?: boolean;
+  has_insolvency_history?: boolean;
+  registered_office_is_in_dispute?: boolean;
+  previous_company_names?: Array<{ name?: string }>;
+  accounts?: {
+    overdue?: boolean;
+    next_due?: string;
+    last_accounts?: { made_up_to?: string };
+  };
+  confirmation_statement?: {
+    overdue?: boolean;
+    next_due?: string;
+    last_made_up_to?: string;
+  };
+}
+
+const detailCache = new TtlCache<CompanyDetail>(60 * 60 * 1000, 200);
+
+/** Turns `creditors-voluntary-liquidation` into something readable. */
+function humanise(value?: string): string {
+  const s = clean(value);
+  if (!s) return '';
+  return s.replace(/[-_]+/g, ' ').replace(/^./, (c) => c.toUpperCase());
+}
+
+/** Companies House give month and year only, which is the point. */
+function bornOn(dob?: { month?: number; year?: number }): string | undefined {
+  if (!dob?.year) return undefined;
+  const month = dob.month ? String(dob.month).padStart(2, '0') : undefined;
+  return month ? `${dob.year}-${month}` : String(dob.year);
+}
+
+export function mapOfficer(raw: ChOfficerItem): CompanyOfficer | null {
+  const name = clean(raw.name);
+  if (!name) return null;
+  const resignedOn = clean(raw.resigned_on);
+  const officerId = clean(raw.links?.officer?.appointments)?.match(/officers\/([^/]+)\//)?.[1];
+
+  return {
+    name,
+    role: humanise(raw.officer_role) || 'Officer',
+    ...(clean(raw.appointed_on) ? { appointedOn: clean(raw.appointed_on) } : {}),
+    ...(resignedOn ? { resignedOn } : {}),
+    active: !resignedOn,
+    ...(clean(raw.nationality) ? { nationality: clean(raw.nationality) } : {}),
+    ...(clean(raw.occupation) ? { occupation: clean(raw.occupation) } : {}),
+    ...(clean(raw.country_of_residence) ? { countryOfResidence: clean(raw.country_of_residence) } : {}),
+    ...(addressOf(raw.address) ? { address: addressOf(raw.address) } : {}),
+    ...(bornOn(raw.date_of_birth) ? { bornOn: bornOn(raw.date_of_birth) } : {}),
+    // A corporate officer has no date of birth and carries an
+    // identification block instead.
+    ...(raw.identification?.identification_type ? { corporate: true } : {}),
+    ...(officerId ? { officerId } : {}),
+    ...(officerId
+      ? { url: `https://find-and-update.company-information.service.gov.uk/officers/${officerId}/appointments` }
+      : {}),
+  };
+}
+
+export function mapPsc(raw: ChPscItem): CompanyPsc | null {
+  const name = clean(raw.name);
+  if (!name) return null;
+  const ceasedOn = clean(raw.ceased_on);
+  return {
+    name,
+    kind: humanise(raw.kind) || 'Person with significant control',
+    ...(clean(raw.notified_on) ? { notifiedOn: clean(raw.notified_on) } : {}),
+    ...(ceasedOn ? { ceasedOn } : {}),
+    active: !ceasedOn,
+    natureOfControl: (raw.natures_of_control ?? []).map(humanise).filter(Boolean),
+    ...(clean(raw.nationality) ? { nationality: clean(raw.nationality) } : {}),
+    ...(clean(raw.country_of_residence) ? { countryOfResidence: clean(raw.country_of_residence) } : {}),
+    ...(addressOf(raw.address) ? { address: addressOf(raw.address) } : {}),
+  };
+}
+
+export function mapFiling(raw: ChFilingItem): CompanyFiling | null {
+  const date = clean(raw.date);
+  if (!date) return null;
+
+  // Companies House descriptions are template keys like
+  // `accounts-with-accounts-type-small`, with the values in a side object.
+  let description = clean(raw.description) ?? '';
+  if (raw.description_values) {
+    for (const [key, value] of Object.entries(raw.description_values)) {
+      description = description.replace(new RegExp(`\\{${key}\\}`, 'g'), String(value));
+    }
+  }
+  description = humanise(description) || 'Filing';
+
+  return {
+    date,
+    category: humanise(raw.category) || 'Other',
+    ...(clean(raw.type) ? { type: clean(raw.type) } : {}),
+    description,
+    ...(typeof raw.pages === 'number' ? { pages: raw.pages } : {}),
+  };
+}
+
+export function mapCharge(raw: ChChargeItem): CompanyCharge {
+  const status = humanise(raw.status) || 'Unknown';
+  return {
+    ...(typeof raw.charge_number === 'number' ? { chargeNumber: raw.charge_number } : {}),
+    status,
+    // Only a satisfied or fully-released charge stops mattering; anything
+    // else is still security held over the company's assets.
+    outstanding: !/satisf|fully-?released|part-?released/i.test(raw.status ?? ''),
+    ...(clean(raw.created_on) ? { createdOn: clean(raw.created_on) } : {}),
+    ...(clean(raw.delivered_on) ? { deliveredOn: clean(raw.delivered_on) } : {}),
+    ...(clean(raw.satisfied_on) ? { satisfiedOn: clean(raw.satisfied_on) } : {}),
+    personsEntitled: (raw.persons_entitled ?? [])
+      .map((p) => clean(p.name))
+      .filter((n): n is string => Boolean(n)),
+    ...(clean(raw.classification?.description) ? { classification: clean(raw.classification?.description) } : {}),
+    ...(clean(raw.particulars?.description) ? { particulars: clean(raw.particulars?.description) } : {}),
+  };
+}
+
+export function mapInsolvencyCase(raw: ChInsolvencyCase): CompanyInsolvencyCase {
+  return {
+    type: humanise(raw.type) || 'Insolvency case',
+    dates: (raw.dates ?? [])
+      .map((d) => ({ label: humanise(d.type) || 'Date', date: clean(d.date) ?? '' }))
+      .filter((d) => d.date !== ''),
+    practitioners: (raw.practitioners ?? [])
+      .map((p) => {
+        const name = clean(p.name);
+        if (!name) return null;
+        return {
+          name,
+          ...(clean(p.role) ? { role: humanise(p.role) } : {}),
+          ...(clean(p.appointed_on) ? { appointedOn: clean(p.appointed_on) } : {}),
+          ...(clean(p.ceased_to_act_on) ? { ceasedToActOn: clean(p.ceased_to_act_on) } : {}),
+          ...(addressOf(p.address) ? { address: addressOf(p.address) } : {}),
+        };
+      })
+      .filter((p): p is CompanyInsolvencyPractitioner => p !== null),
+    notes: (raw.notes ?? []).map((n) => clean(n)).filter((n): n is string => Boolean(n)),
+  };
+}
+
+/** One authenticated GET against Companies House. */
+async function chGet<T>(path: string): Promise<T | null> {
+  const cfg = config().companiesHouse;
+  const basic = Buffer.from(`${cfg.apiKey}:`).toString('base64');
+  return fetchJson<T>(`${cfg.baseUrl}${path}`, {
+    label: 'companies-house',
+    headers: { Authorization: `Basic ${basic}` },
+    timeoutMs: Math.min(config().requestTimeoutMs, 8000),
+    retries: 1,
+    // Charges, PSC and insolvency resources do not exist unless the company
+    // has one, so a 404 here is "none" and not an error.
+    notFoundAsNull: true,
+  });
+}
+
+/**
+ * Runs a section fetch, recording rather than throwing on failure.
+ *
+ * One dead section should not lose the other five: a company profile is
+ * still worth showing when the filing history times out. The caller reports
+ * which sections are missing.
+ */
+async function section<T>(
+  label: string,
+  unavailable: string[],
+  run: () => Promise<T>,
+  fallback: T,
+): Promise<T> {
+  try {
+    return await run();
+  } catch {
+    unavailable.push(label);
+    return fallback;
+  }
+}
+
+/** How many filings to keep. Enough to see a year of activity. */
+const FILING_LIMIT = 20;
+
+export async function fetchCompanyDetail(companyNumber: string): Promise<CompanyDetail> {
+  const number = companyNumber.trim().toUpperCase();
+  const hit = detailCache.get(number);
+  if (hit) return hit;
+
+  const unavailable: string[] = [];
+  const base = `/company/${encodeURIComponent(number)}`;
+
+  const [profile, officersRes, pscRes, filingsRes, chargesRes, insolvencyRes] = await Promise.all([
+    section('Profile', unavailable, () => chGet<ChProfile>(base), null),
+    section(
+      'Officers',
+      unavailable,
+      () => chGet<{ items?: ChOfficerItem[]; total_results?: number }>(`${base}/officers?items_per_page=100`),
+      null,
+    ),
+    section(
+      'Ownership',
+      unavailable,
+      () =>
+        chGet<{ items?: ChPscItem[]; total_results?: number }>(
+          `${base}/persons-with-significant-control?items_per_page=100`,
+        ),
+      null,
+    ),
+    section(
+      'Filing history',
+      unavailable,
+      () => chGet<{ items?: ChFilingItem[] }>(`${base}/filing-history?items_per_page=${FILING_LIMIT}`),
+      null,
+    ),
+    section('Charges', unavailable, () => chGet<{ items?: ChChargeItem[] }>(`${base}/charges`), null),
+    section('Insolvency', unavailable, () => chGet<{ cases?: ChInsolvencyCase[] }>(`${base}/insolvency`), null),
+  ]);
+
+  if (!profile) {
+    // Without the profile there is no company, and the caller should say so
+    // rather than render an empty shell.
+    throw new Error(`Companies House has no profile for company ${number}.`);
+  }
+
+  const status = clean(profile.company_status) ?? 'unknown';
+  const address = profile.registered_office_address ?? profile.address;
+
+  const officers = (officersRes?.items ?? [])
+    .map(mapOfficer)
+    .filter((o): o is CompanyOfficer => o !== null)
+    // Serving officers first, then most recently appointed: the person to
+    // ring is at the top rather than buried among decades of resignations.
+    .sort(
+      (a, b) =>
+        Number(b.active) - Number(a.active) || (b.appointedOn ?? '').localeCompare(a.appointedOn ?? ''),
+    );
+
+  const psc = (pscRes?.items ?? [])
+    .map(mapPsc)
+    .filter((p): p is CompanyPsc => p !== null)
+    .sort((a, b) => Number(b.active) - Number(a.active) || a.name.localeCompare(b.name));
+
+  const filings = (filingsRes?.items ?? [])
+    .map(mapFiling)
+    .filter((f): f is CompanyFiling => f !== null)
+    .sort((a, b) => b.date.localeCompare(a.date));
+
+  const charges = (chargesRes?.items ?? [])
+    .map(mapCharge)
+    .sort((a, b) => Number(b.outstanding) - Number(a.outstanding) || (b.createdOn ?? '').localeCompare(a.createdOn ?? ''));
+
+  const insolvency = (insolvencyRes?.cases ?? []).map(mapInsolvencyCase);
+
+  const filingDates = {
+    ...(clean(profile.accounts?.next_due) ? { accountsNextDue: clean(profile.accounts?.next_due) } : {}),
+    ...(clean(profile.accounts?.last_accounts?.made_up_to)
+      ? { accountsLastMadeUpTo: clean(profile.accounts?.last_accounts?.made_up_to) }
+      : {}),
+    ...(profile.accounts?.overdue != null ? { accountsOverdue: profile.accounts.overdue } : {}),
+    ...(clean(profile.confirmation_statement?.next_due)
+      ? { confirmationStatementNextDue: clean(profile.confirmation_statement?.next_due) }
+      : {}),
+    ...(clean(profile.confirmation_statement?.last_made_up_to)
+      ? { confirmationStatementLastMadeUpTo: clean(profile.confirmation_statement?.last_made_up_to) }
+      : {}),
+    ...(profile.confirmation_statement?.overdue != null
+      ? { confirmationStatementOverdue: profile.confirmation_statement.overdue }
+      : {}),
+  };
+
+  const previousNames = (profile.previous_company_names ?? [])
+    .map((n) => clean(n.name))
+    .filter((n): n is string => Boolean(n));
+
+  const detail: CompanyDetail = {
+    companyNumber: clean(profile.company_number) ?? number,
+    name: clean(profile.company_name) ?? clean(profile.title) ?? number,
+    status,
+    concerning: CONCERNING.some((c) => status.toLowerCase().includes(c)),
+    ...(clean(profile.company_type) ? { type: clean(profile.company_type) } : {}),
+    ...(clean(profile.date_of_creation) ? { incorporatedOn: clean(profile.date_of_creation) } : {}),
+    ...(clean(profile.date_of_cessation) ? { dissolvedOn: clean(profile.date_of_cessation) } : {}),
+    ...(addressOf(address) ? { registeredOffice: addressOf(address) } : {}),
+    ...(profile.registered_office_is_in_dispute ? { registeredOfficeInDispute: true } : {}),
+    ...(profile.sic_codes?.length ? { sicCodes: profile.sic_codes } : {}),
+    ...(previousNames.length ? { previousNames } : {}),
+    ...(clean(profile.jurisdiction) ? { jurisdiction: humanise(profile.jurisdiction) } : {}),
+    ...(Object.keys(filingDates).length ? { filingDates } : {}),
+    officers,
+    ...(officersRes?.total_results != null ? { officerCount: officersRes.total_results } : {}),
+    psc,
+    ...(pscRes?.total_results != null ? { pscCount: pscRes.total_results } : {}),
+    filings,
+    charges,
+    ...(charges.length ? { outstandingCharges: charges.filter((c) => c.outstanding).length } : {}),
+    insolvency,
+    unavailable,
+    url: `https://find-and-update.company-information.service.gov.uk/company/${encodeURIComponent(number)}`,
+    source: 'companies-house',
+    checkedAt: new Date().toISOString(),
+  };
+
+  detailCache.set(number, detail);
+  return detail;
+}
+
+/** Test hook. */
+export const __companiesHouseTesting = {
+  mapCompany,
+  CONCERNING,
+  mapOfficer,
+  mapPsc,
+  mapFiling,
+  mapCharge,
+  mapInsolvencyCase,
+  humanise,
+  bornOn,
+};

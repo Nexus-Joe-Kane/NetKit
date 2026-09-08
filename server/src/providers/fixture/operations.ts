@@ -35,6 +35,12 @@ import type {
   StabilityReport,
   TestMetric,
   UsageReport,
+  CompanyDetail,
+  CompanyOfficer,
+  CompanyPsc,
+  CompanyFiling,
+  CompanyCharge,
+  CompanyInsolvencyCase,
 } from '@sw/shared';
 import { Seeded } from '../../lib/seeded';
 import { EXCHANGES, regionFor } from '../../fixtures/uk';
@@ -1231,36 +1237,174 @@ const COMPANY_TRADES = ['Consulting', 'Logistics', 'Dental Care', 'Joinery', 'Me
 export function buildFixtureCompanies(postcode: string): CompanyContext {
   const rng = new Seeded(`companies:${postcode}`);
   const companies: CompanyRecord[] = [];
+  const region = regionFor(postcode);
 
   for (let i = 0; i < rng.int(1, 4); i += 1) {
     const seed = new Seeded(`company:${postcode}:${i}`);
-    const status = seed.weighted([
-      ['active', 8],
-      ['liquidation', 1],
-      ['dissolved', 1],
-    ] as const);
-    const incorporated = new Date(Date.now() - seed.int(400, 9000) * 86_400_000).toISOString().slice(0, 10);
-    const region = regionFor(postcode);
+    const companyNumber = seed.digits(8);
+
+    // Projected from the full record rather than generated alongside it.
+    // Generating both independently meant the list could offer a company in
+    // liquidation and the detail panel would open a different, active
+    // company -- the two disagreed about the same row, which is worse in
+    // demo mode than anywhere else because it is what people are shown
+    // while learning to trust the tool.
+    const detail = buildFixtureCompanyDetail(companyNumber);
 
     companies.push({
-      companyNumber: seed.digits(8),
-      name: `${seed.pick(COMPANY_WORDS)} ${seed.pick(COMPANY_TRADES)} ${seed.pick(COMPANY_SUFFIXES)}`.toUpperCase(),
-      status,
-      concerning: status !== 'active',
-      type: 'ltd',
-      incorporatedOn: incorporated,
-      ...(status === 'dissolved'
-        ? { dissolvedOn: new Date(Date.now() - seed.int(10, 380) * 86_400_000).toISOString().slice(0, 10) }
-        : {}),
+      companyNumber,
+      name: detail.name,
+      status: detail.status,
+      concerning: detail.concerning,
+      ...(detail.type ? { type: detail.type } : {}),
+      ...(detail.incorporatedOn ? { incorporatedOn: detail.incorporatedOn } : {}),
+      ...(detail.dissolvedOn ? { dissolvedOn: detail.dissolvedOn } : {}),
       registeredOffice: `${seed.int(1, 180)} ${seed.pick(['High Street', 'Mill Lane', 'Station Road'])}, ${region.town}, ${formatPostcode(postcode)}`,
       registeredHere: true,
-      sicCodes: [seed.pick(['62020', '43320', '86230', '70229', '56102', '68209'])],
-      ...(seed.bool(0.25) ? { overdue: ['Confirmation statement overdue'] } : {}),
-      url: 'https://find-and-update.company-information.service.gov.uk/',
+      ...(detail.sicCodes ? { sicCodes: detail.sicCodes } : {}),
+      ...(detail.filingDates?.accountsOverdue ? { overdue: ['Accounts overdue'] } : {}),
+      url: detail.url ?? 'https://find-and-update.company-information.service.gov.uk/',
       source: 'fixture:companies-house',
     });
   }
 
   companies.sort((a, b) => Number(b.concerning) - Number(a.concerning) || a.name.localeCompare(b.name));
   return { postcode: formatPostcode(postcode), companies, source: 'fixture:companies-house' };
+}
+
+/**
+ * A company's full record, for demo mode.
+ *
+ * Deterministic from the company number, so the same company always has the
+ * same officers and the same charge holder — a screenshot taken for training
+ * stays true, and a bug reported against one company can be reproduced.
+ */
+export function buildFixtureCompanyDetail(companyNumber: string): CompanyDetail {
+  const rng = new Seeded(`company-detail:${companyNumber}`);
+  const status = rng.weighted([
+    ['active', 8],
+    ['liquidation', 1],
+    ['dissolved', 1],
+  ] as const);
+  const incorporatedOn = new Date(Date.now() - rng.int(400, 9000) * 86_400_000).toISOString().slice(0, 10);
+  const day = (back: number): string => new Date(Date.now() - back * 86_400_000).toISOString().slice(0, 10);
+
+  const officers: CompanyOfficer[] = Array.from({ length: rng.int(1, 4) }, (_, i) => {
+    const seed = new Seeded(`officer:${companyNumber}:${i}`);
+    const resigned = i > 0 && seed.bool(0.35);
+    return {
+      name: `${seed.pick(['SMITH, John', 'PATEL, Anita', 'OKONKWO, David', 'HUGHES, Rhian', 'BAKER, Thomas'])}`,
+      role: i === 0 ? 'Director' : seed.pick(['Director', 'Secretary']),
+      appointedOn: day(seed.int(200, 3000)),
+      ...(resigned ? { resignedOn: day(seed.int(10, 190)) } : {}),
+      active: !resigned,
+      nationality: seed.pick(['British', 'Irish', 'Polish']),
+      occupation: seed.pick(['Director', 'Accountant', 'Engineer']),
+      countryOfResidence: 'England',
+      bornOn: `${seed.int(1955, 1995)}-${String(seed.int(1, 12)).padStart(2, '0')}`,
+      otherAppointments: seed.int(1, 6),
+    };
+  });
+
+  const psc: CompanyPsc[] = Array.from({ length: rng.int(1, 2) }, (_, i) => {
+    const seed = new Seeded(`psc:${companyNumber}:${i}`);
+    return {
+      name: officers[i]?.name ?? 'SMITH, John',
+      kind: 'Individual person with significant control',
+      notifiedOn: day(seed.int(300, 2800)),
+      active: true,
+      natureOfControl: [
+        seed.pick([
+          'Ownership of shares 75 to 100 percent',
+          'Ownership of shares 50 to 75 percent',
+          'Voting rights 25 to 50 percent',
+        ]),
+      ],
+      nationality: 'British',
+      countryOfResidence: 'England',
+    };
+  });
+
+  const filings: CompanyFiling[] = Array.from({ length: 8 }, (_, i) => {
+    const seed = new Seeded(`filing:${companyNumber}:${i}`);
+    const category = seed.pick(['accounts', 'confirmation-statement', 'officers', 'address']);
+    return {
+      date: day(i * seed.int(40, 120) + 15),
+      category: category.replace(/-/g, ' ').replace(/^./, (c) => c.toUpperCase()),
+      description: seed.pick([
+        'Accounts for a small company made up to 31 March',
+        'Confirmation statement made with no updates',
+        'Appointment of a director',
+        'Registered office address changed',
+      ]),
+      pages: seed.int(1, 12),
+    };
+  });
+
+  const charges: CompanyCharge[] = rng.bool(0.4)
+    ? [
+        {
+          chargeNumber: 1,
+          status: 'Outstanding',
+          outstanding: true,
+          createdOn: day(rng.int(400, 2000)),
+          deliveredOn: day(rng.int(390, 1990)),
+          personsEntitled: [rng.pick(['LLOYDS BANK PLC', 'BARCLAYS BANK PLC', 'HSBC UK BANK PLC'])],
+          classification: 'A registered charge',
+          particulars: 'Fixed and floating charge over the undertaking and all property and assets.',
+        },
+      ]
+    : [];
+
+  const insolvency: CompanyInsolvencyCase[] =
+    status === 'liquidation'
+      ? [
+          {
+            type: 'Creditors voluntary liquidation',
+            dates: [{ label: 'Wound up on', date: day(rng.int(20, 300)) }],
+            practitioners: [
+              {
+                name: 'BEGBIES TRAYNOR (CENTRAL) LLP',
+                role: 'Liquidator',
+                appointedOn: day(rng.int(20, 300)),
+                address: '340 Deansgate, Manchester, M3 4LY',
+              },
+            ],
+            notes: [],
+          },
+        ]
+      : [];
+
+  return {
+    companyNumber,
+    name: `${rng.pick(COMPANY_WORDS)} ${rng.pick(COMPANY_TRADES)} ${rng.pick(COMPANY_SUFFIXES)}`.toUpperCase(),
+    status,
+    concerning: status !== 'active',
+    type: 'ltd',
+    incorporatedOn,
+    ...(status === 'dissolved' ? { dissolvedOn: day(rng.int(10, 380)) } : {}),
+    registeredOffice: '1 Demo Street, Manchester, M1 1AE',
+    sicCodes: [rng.pick(['62020', '43320', '86230', '70229'])],
+    jurisdiction: 'England wales',
+    filingDates: {
+      accountsNextDue: day(-rng.int(30, 300)),
+      accountsLastMadeUpTo: day(rng.int(300, 420)),
+      accountsOverdue: rng.bool(0.2),
+      confirmationStatementNextDue: day(-rng.int(30, 300)),
+      confirmationStatementLastMadeUpTo: day(rng.int(300, 420)),
+      confirmationStatementOverdue: false,
+    },
+    officers,
+    officerCount: officers.length,
+    psc,
+    pscCount: psc.length,
+    filings,
+    charges,
+    ...(charges.length ? { outstandingCharges: charges.filter((c) => c.outstanding).length } : {}),
+    insolvency,
+    unavailable: [],
+    url: 'https://find-and-update.company-information.service.gov.uk/',
+    source: 'fixture:companies-house',
+    checkedAt: new Date().toISOString(),
+  };
 }

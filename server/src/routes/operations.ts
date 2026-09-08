@@ -627,6 +627,16 @@ export function operationsRouter(): Router {
     }),
   );
 
+  router.get(
+    '/tools/companies/:number',
+    handler(async (req) => {
+      const number = String(req.params.number ?? '').trim();
+      if (!number) throw badRequest('Provide a company number.');
+      const result = await ops.companyDetail(number);
+      return { ...result.data, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+    }),
+  );
+
   /* ---- Estate-wide usage ------------------------------------------- */
 
   router.get(

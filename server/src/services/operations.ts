@@ -30,6 +30,7 @@ import type {
   SimEstate,
   StabilityReport,
   UsageReport,
+  CompanyDetail,
 } from '@sw/shared';
 import { config, shouldRunLive } from '../config';
 import { isProviderEnabled, settings } from '../auth/store';
@@ -40,7 +41,11 @@ import * as selfService from '../providers/zen/selfservice';
 import * as bt from '../providers/bt/adapters';
 import * as jola from '../providers/jola/adapters';
 import * as fx from '../providers/fixture/operations';
-import { companiesHouseConfigured, fetchCompaniesAtPostcode } from '../providers/companies/companiesHouse';
+import {
+  companiesHouseConfigured,
+  fetchCompaniesAtPostcode,
+  fetchCompanyDetail,
+} from '../providers/companies/companiesHouse';
 
 /**
  * Operational orchestration.
@@ -605,6 +610,22 @@ export function companies(postcode: string): Promise<Sourced<CompanyContext>> {
     configured: companiesHouseConfigured(),
     live: () => fetchCompaniesAtPostcode(postcode),
     fixture: () => fx.buildFixtureCompanies(postcode),
+  });
+}
+
+/**
+ * The full record for one company.
+ *
+ * Separate from `companies()` on purpose. The list is one search call for a
+ * whole postcode; this is six calls for one company, so it runs only when
+ * someone actually opens one.
+ */
+export function companyDetail(companyNumber: string): Promise<Sourced<CompanyDetail>> {
+  return resolve({
+    key: 'companies-house',
+    configured: companiesHouseConfigured(),
+    live: () => fetchCompanyDetail(companyNumber),
+    fixture: () => fx.buildFixtureCompanyDetail(companyNumber),
   });
 }
 
