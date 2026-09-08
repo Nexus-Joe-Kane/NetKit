@@ -5,13 +5,40 @@ import { notConfigured } from '../../lib/errors';
 import { pickArray, pickBool, pickNumber, pickString } from '../zen/map';
 
 /**
- * Jola Mobile Manager.
+ * Jola SIM Portal.
  *
- * Worth noting that Zen's `/api/cellular/*` endpoints are already
- * Jola-backed, so for SIMs bought through Zen this is redundant — it earns
- * its place only for SIMs held directly with Jola. Endpoint paths are
- * configurable because the Mobile Manager API surface differs by reseller.
+ * This replaces an implementation that could never have worked. It sent a
+ * Bearer token and an `X-API-Key` header to a guessed `/api/sims`, and the
+ * real API uses **HTTP Basic** over a documented path structure -- hence the
+ * 401s. Worse, it expected a flat list of SIMs, and there is no endpoint
+ * that returns one: SIMs are nested under a customer, so the estate has to
+ * be assembled by walking customers first.
+ *
+ * Auth is `Authorization: Basic base64(api_key:secret_key)`, and both halves
+ * are required -- a key on its own is not a credential here.
+ *
+ * Still worth remembering that Zen's `/api/cellular/*` endpoints are already
+ * Jola-backed, so for SIMs bought through Zen this is redundant. It earns its
+ * place for SIMs held directly with Jola.
  */
+
+/** Paging: Jola use skip/take, and every list endpoint accepts them. */
+const PAGE_SIZE = 100;
+
+/**
+ * How many pages to walk before stopping.
+ *
+ * A bound rather than a limit anyone should hit: 50 pages of customers, or
+ * of SIMs within one customer, is far past any estate this tool serves, and
+ * it means a paging field the API renames cannot turn into an endless loop.
+ */
+const MAX_PAGES = 50;
+
+/** Jola report data in megabytes; SimRecord holds bytes. */
+const MB = 1024 * 1024;
+
+const bytesFromMb = (mb?: number): number | undefined =>
+  mb == null || !Number.isFinite(mb) ? undefined : Math.round(mb * MB);
 
 function jolaState(raw?: string): SimState {
   const v = (raw ?? '').toUpperCase();
@@ -23,83 +50,166 @@ function jolaState(raw?: string): SimState {
   return 'unknown';
 }
 
-async function jolaCall<T>(path: string, query: Record<string, string | undefined> = {}): Promise<T | null> {
+/** The Basic credential, built per call so a rotated key takes effect. */
+function authHeader(): string {
+  const { apiKey, secretKey } = config().jola;
+  return `Basic ${Buffer.from(`${apiKey}:${secretKey}`).toString('base64')}`;
+}
+
+async function jolaCall<T>(path: string, query: Record<string, string | number | undefined> = {}): Promise<T | null> {
   const cfg = config();
-  if (!cfg.jola.baseUrl || !cfg.jola.apiKey) {
-    throw notConfigured('Jola is not configured. Set JOLA_BASE_URL and JOLA_API_KEY.');
+  if (!cfg.jola.configured) {
+    throw notConfigured(
+      'Jola is not configured. Set JOLA_API_KEY and JOLA_SECRET_KEY — the API uses HTTP Basic and needs both halves.',
+    );
   }
 
   const url = new URL(`${cfg.jola.baseUrl.replace(/\/$/, '')}/${path.replace(/^\//, '')}`);
   for (const [k, v] of Object.entries(query)) {
-    if (v) url.searchParams.set(k, v);
+    if (v !== undefined && v !== '') url.searchParams.set(k, String(v));
   }
 
   return fetchJson<T>(url.toString(), {
-    headers: {
-      Authorization: `Bearer ${cfg.jola.apiKey}`,
-      'X-API-Key': cfg.jola.apiKey,
-    },
-    label: 'Jola Mobile Manager',
+    headers: { Authorization: authHeader(), Accept: 'application/json' },
+    label: 'Jola SIM Portal',
     timeoutMs: cfg.requestTimeoutMs,
     notFoundAsNull: true,
   });
 }
 
+/**
+ * Jola wrap list responses inconsistently across endpoints -- sometimes a
+ * bare array, sometimes under `items`, `data`, `customers` or `sims`.
+ */
+function rowsFrom(payload: unknown, ...keys: string[]): unknown[] {
+  if (Array.isArray(payload)) return payload;
+  return pickArray(payload, 'items', 'data', 'results', ...keys);
+}
+
+/** Walks a paged list endpoint to the end. */
+async function collect(path: string, ...keys: string[]): Promise<unknown[]> {
+  const out: unknown[] = [];
+  let skip = 0;
+
+  for (let page = 0; page < MAX_PAGES; page += 1) {
+    const payload = await jolaCall<unknown>(path, { skip, take: PAGE_SIZE });
+    const rows = rowsFrom(payload, ...keys);
+    out.push(...rows);
+
+    // A short page is the end of the list, and an empty one certainly is.
+    if (rows.length < PAGE_SIZE) break;
+
+    const total = pickNumber(payload, 'total', 'totalCount', 'Total');
+    if (total != null && out.length >= total) break;
+
+    skip += PAGE_SIZE;
+  }
+
+  return out;
+}
+
+export interface JolaCustomer {
+  id: string;
+  name?: string;
+  totalSims?: number;
+  activeSims?: number;
+}
+
+export function mapJolaCustomer(raw: unknown): JolaCustomer | null {
+  const id = pickString(raw, 'id', 'customerId', 'CustomerId', 'Id');
+  if (!id) return null;
+  return {
+    id,
+    ...(pickString(raw, 'name', 'customerName', 'CustomerName', 'Name')
+      ? { name: pickString(raw, 'name', 'customerName', 'CustomerName', 'Name') }
+      : {}),
+    ...(pickNumber(raw, 'totalSims', 'simCount', 'SimCount') != null
+      ? { totalSims: pickNumber(raw, 'totalSims', 'simCount', 'SimCount') }
+      : {}),
+    ...(pickNumber(raw, 'activeSims', 'activeSimCount', 'ActiveSims') != null
+      ? { activeSims: pickNumber(raw, 'activeSims', 'activeSimCount', 'ActiveSims') }
+      : {}),
+  };
+}
+
 export function mapJolaSim(raw: unknown): SimRecord | null {
-  const iccid = pickString(raw, 'iccid', 'iccId', 'ICCID', 'simSerial');
+  const iccid = pickString(raw, 'iccid', 'ICCID', 'Iccid', 'iccId', 'simSerial');
   if (!iccid) return null;
+
+  // Jola's own field is `MobileNumber`; the rest are kept for resellers who
+  // rename it.
+  const msisdn = pickString(raw, 'MobileNumber', 'msisdn', 'MSISDN', 'Msisdn', 'number', 'phoneNumber');
+  const allowanceMb = pickNumber(raw, 'DataAllowanceMb', 'dataAllowanceMb', 'tariffAllowanceMb', 'DataAllowance', 'tariffAllowance');
+  const usedMb = pickNumber(raw, 'DataMb', 'dataMb', 'DataUsedMb', 'dataUsedMb', 'usageDataMb', 'DataUsed', 'dataUsed');
+
+  // `SimTag` is Jola's label field. Tags are shown as bars only when they
+  // read like one -- a free-text tag is not a barring state, and treating
+  // every tag as a bar would put "Van 3" in the bars column.
+  const tagRaw = pickArray(raw, 'SimTag', 'tags', 'Tags');
+  const tags = tagRaw
+    .map((t) => (typeof t === 'string' ? t : pickString(t, 'name', 'value')))
+    .filter((t): t is string => Boolean(t));
+
+  const bars = pickArray(raw, 'bars', 'barrings')
+    .map((b) => (typeof b === 'string' ? b : pickString(b, 'name', 'type', 'bar')))
+    .filter((b): b is string => Boolean(b));
 
   return {
     iccid,
-    ...(pickString(raw, 'msisdn', 'phoneNumber', 'number') ? { msisdn: pickString(raw, 'msisdn', 'phoneNumber', 'number') } : {}),
+    ...(msisdn ? { msisdn } : {}),
     ...(pickString(raw, 'imsi', 'IMSI') ? { imsi: pickString(raw, 'imsi', 'IMSI') } : {}),
-    state: jolaState(pickString(raw, 'status', 'state', 'simStatus')),
-    ...(pickString(raw, 'network', 'operator', 'carrier') ? { network: pickString(raw, 'network', 'operator', 'carrier') } : {}),
-    ...(pickNumber(raw, 'allowance', 'dataAllowance', 'bundleSize') != null
-      ? { allowanceBytes: pickNumber(raw, 'allowance', 'dataAllowance', 'bundleSize') }
+    state: jolaState(pickString(raw, 'state', 'State', 'status', 'Status', 'simStatus')),
+    ...(pickString(raw, 'operator', 'Operator', 'network', 'Network', 'carrier')
+      ? { network: pickString(raw, 'operator', 'Operator', 'network', 'Network', 'carrier') }
       : {}),
-    ...(pickNumber(raw, 'usage', 'dataUsed', 'usedBytes') != null
-      ? { usedBytes: pickNumber(raw, 'usage', 'dataUsed', 'usedBytes') }
-      : {}),
-    ...(pickArray(raw, 'bars', 'barrings').length
-      ? {
-          bars: pickArray(raw, 'bars', 'barrings')
-            .map((b) => (typeof b === 'string' ? b : pickString(b, 'name', 'type', 'bar')))
-            .filter((b): b is string => Boolean(b)),
-        }
-      : {}),
+    ...(bytesFromMb(allowanceMb) != null ? { allowanceBytes: bytesFromMb(allowanceMb) } : {}),
+    ...(bytesFromMb(usedMb) != null ? { usedBytes: bytesFromMb(usedMb) } : {}),
+    ...(bars.length ? { bars } : tags.length ? { bars: tags } : {}),
     ...(pickBool(raw, 'attached', 'isAttached', 'online') != null
       ? { attached: pickBool(raw, 'attached', 'isAttached', 'online') }
       : {}),
-    ...(pickString(raw, 'lastSeen', 'lastActivity', 'lastSeenAt')
-      ? { lastSeenAt: pickString(raw, 'lastSeen', 'lastActivity', 'lastSeenAt') }
+    ...(pickString(raw, 'lastSeen', 'lastSeenAt', 'lastActivity')
+      ? { lastSeenAt: pickString(raw, 'lastSeen', 'lastSeenAt', 'lastActivity') }
       : {}),
-    ...(pickString(raw, 'apn') ? { apn: pickString(raw, 'apn') } : {}),
-    ...(pickString(raw, 'ipAddress', 'ip') ? { ipAddress: pickString(raw, 'ipAddress', 'ip') } : {}),
-    provider: 'Jola Mobile Manager',
+    ...(pickString(raw, 'apn', 'APN') ? { apn: pickString(raw, 'apn', 'APN') } : {}),
+    ...(pickString(raw, 'ipAddress', 'ip', 'IpAddress') ? { ipAddress: pickString(raw, 'ipAddress', 'ip', 'IpAddress') } : {}),
+    provider: 'Jola SIM Portal',
     source: 'jola',
   };
 }
 
-export async function fetchJolaEstate(): Promise<SimEstate> {
-  const cfg = config();
-  const json = await jolaCall<unknown>(cfg.jola.simsPath);
-  const rows = Array.isArray(json) ? json : pickArray(json, 'sims', 'results', 'data', 'items');
-  const sims = rows.map(mapJolaSim).filter((s): s is SimRecord => s !== null);
+/** Every customer the credential can see. */
+export async function fetchJolaCustomers(): Promise<JolaCustomer[]> {
+  const rows = await collect('/api/v1/customers', 'customers');
+  return rows.map(mapJolaCustomer).filter((c): c is JolaCustomer => c !== null);
+}
 
-  const poolRaw = (json as { pool?: unknown })?.pool;
-  const pool = poolRaw
-    ? {
-        ...(pickString(poolRaw, 'name') ? { name: pickString(poolRaw, 'name') } : {}),
-        ...(pickNumber(poolRaw, 'size', 'sizeBytes') != null ? { sizeBytes: pickNumber(poolRaw, 'size', 'sizeBytes') } : {}),
-        ...(pickNumber(poolRaw, 'usage', 'usedBytes') != null ? { usedBytes: pickNumber(poolRaw, 'usage', 'usedBytes') } : {}),
-        ...(pickNumber(poolRaw, 'simCount', 'count') != null ? { simCount: pickNumber(poolRaw, 'simCount', 'count') } : {}),
-      }
-    : undefined;
+/**
+ * The whole estate, assembled across customers.
+ *
+ * One request per customer plus one for the customer list. That is the shape
+ * of the API rather than a choice -- there is no endpoint returning every SIM
+ * -- so a large reseller account is several calls. The caller caches.
+ */
+export async function fetchJolaEstate(): Promise<SimEstate> {
+  const customers = await fetchJolaCustomers();
+
+  const perCustomer = await Promise.all(
+    customers.map(async (customer) => {
+      const rows = await collect(`/api/v1/customers/${encodeURIComponent(customer.id)}/sims`, 'sims');
+      return rows.map(mapJolaSim).filter((s): s is SimRecord => s !== null);
+    }),
+  );
+
+  // One SIM can only belong to one customer, but a reseller hierarchy can
+  // list the same SIM under a parent and a child.
+  const byIccid = new Map<string, SimRecord>();
+  for (const sim of perCustomer.flat()) {
+    if (!byIccid.has(sim.iccid)) byIccid.set(sim.iccid, sim);
+  }
 
   return {
-    sims,
-    ...(pool && Object.keys(pool).length ? { pool } : {}),
+    sims: [...byIccid.values()],
     checkedAt: new Date().toISOString(),
     sources: ['jola'],
   };
@@ -109,11 +219,14 @@ export async function fetchJolaEstate(): Promise<SimEstate> {
 export async function findJolaSim(identifier: string): Promise<SimRecord | null> {
   const estate = await fetchJolaEstate();
   const needle = identifier.replace(/\s/g, '').toLowerCase();
+  const digits = needle.replace(/\D/g, '');
   return (
     estate.sims.find(
-      (s) => s.iccid.toLowerCase() === needle || (s.msisdn ?? '').replace(/\D/g, '').endsWith(needle.replace(/\D/g, '')),
+      (s) =>
+        s.iccid.toLowerCase() === needle ||
+        (digits.length >= 6 && (s.msisdn ?? '').replace(/\D/g, '').endsWith(digits)),
     ) ?? null
   );
 }
 
-export const __jolaTesting = { jolaState };
+export const __jolaTesting = { jolaState, mapJolaSim, mapJolaCustomer, rowsFrom, bytesFromMb };

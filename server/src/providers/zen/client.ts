@@ -105,14 +105,32 @@ export async function zenCall<T>(path: string, opts: ZenCallOptions): Promise<T 
 
   const token = await tokenFor(opts.scope);
 
-  return fetchJson<T>(url.toString(), {
-    method: opts.method ?? 'GET',
-    headers: { Authorization: `Bearer ${token}`, 'Cache-Control': 'no-cache' },
-    ...(opts.body !== undefined ? { body: opts.body } : {}),
-    label: `Zen ${opts.gateway ?? 'self-service'}`,
-    timeoutMs: cfg.requestTimeoutMs,
-    ...(opts.emptyAsNull ? { notFoundAsNull: true } : {}),
-  });
+  try {
+    return await fetchJson<T>(url.toString(), {
+      method: opts.method ?? 'GET',
+      headers: { Authorization: `Bearer ${token}`, 'Cache-Control': 'no-cache' },
+      ...(opts.body !== undefined ? { body: opts.body } : {}),
+      label: `Zen ${opts.gateway ?? 'self-service'}`,
+      timeoutMs: cfg.requestTimeoutMs,
+      ...(opts.emptyAsNull ? { notFoundAsNull: true } : {}),
+    });
+  } catch (err) {
+    // A bare "Zen assurance responded 401 Unauthorized" is not actionable.
+    // The token minted fine -- Zen granted the scope at the identity server
+    // -- so a 401 or 403 on the call itself means the account is not
+    // entitled to this endpoint, which is a conversation with an account
+    // manager and not something to debug in the code. Say which scope and
+    // which path, because that is what they will ask for.
+    const message = err instanceof Error ? err.message : String(err);
+    if (/responded 40[13]\b/.test(message)) {
+      throw upstream(
+        `${message}. The token for scope "${opts.scope}" was issued, so the credentials ` +
+          `are valid but the account is not entitled to ${path}. Ask your Zen account ` +
+          `manager to enable this endpoint for scope "${opts.scope}".`,
+      );
+    }
+    throw err;
+  }
 }
 
 /** Verifies credentials by minting a token. Used by the admin health check. */

@@ -167,6 +167,37 @@ function faultState(raw: unknown): FaultRecord['state'] {
   return 'unknown';
 }
 
+/**
+ * Does this object actually describe a fault?
+ *
+ * `mapFault` fills in a reference, a status and a summary when the payload
+ * has none, which is right for the raise path -- Zen answer a successful
+ * raise with a thin body and the request itself supplies the rest. It is
+ * wrong for a list: an object that is not a fault came through it and
+ * emerged as a fault referenced `fault-1`, category Other, state Unknown,
+ * and the portal reported one open fault that does not exist.
+ *
+ * So a row has to carry at least one piece of fault identity before it is
+ * accepted. Nothing recognisable means nothing is shown.
+ */
+export function looksLikeFault(raw: unknown): boolean {
+  if (raw === null || typeof raw !== 'object') return false;
+  return Boolean(
+    pickString(raw, 'faultReference', 'reference', 'id') ??
+      pickString(raw, 'summary', 'description', 'faultDescription', 'title') ??
+      pickString(raw, 'status', 'faultStatus', 'state') ??
+      pickString(raw, 'category', 'faultType', 'type', 'faultCategory') ??
+      pickString(raw, 'zenReference', 'serviceReference', 'service') ??
+      pickDate(raw, 'raisedDate', 'createdDate', 'reportedDate'),
+  );
+}
+
+/** Maps a list row, discarding anything that is not a fault. */
+function mapFaultRows(json: unknown, ...keys: string[]): FaultRecord[] {
+  const rows = pickArray(json, 'faults', 'results', 'data', 'items', ...keys);
+  return rows.filter(looksLikeFault).map(mapFault);
+}
+
 export function mapFault(raw: unknown, index: number): FaultRecord {
   const updates = pickArray(raw, 'updates', 'notes', 'history')
     .map((u) => {
@@ -232,7 +263,7 @@ export function mapFault(raw: unknown, index: number): FaultRecord {
 
 export async function fetchOpenFaults(): Promise<FaultRecord[]> {
   const json = await zenCall<unknown>('/api/faults/open', { ...ASSURANCE, scope: 'indirect-faults', emptyAsNull: true });
-  return pickArray(json, 'faults', 'results', 'data', 'items').map(mapFault);
+  return mapFaultRows(json);
 }
 
 export async function fetchRecentlyClosedFaults(): Promise<FaultRecord[]> {
@@ -241,7 +272,7 @@ export async function fetchRecentlyClosedFaults(): Promise<FaultRecord[]> {
     scope: 'indirect-faults',
     emptyAsNull: true,
   });
-  return pickArray(json, 'faults', 'results', 'data', 'items').map(mapFault);
+  return mapFaultRows(json);
 }
 
 export async function fetchFaultsForService(zenReference: string): Promise<FaultRecord[]> {
@@ -251,8 +282,11 @@ export async function fetchFaultsForService(zenReference: string): Promise<Fault
     emptyAsNull: true,
   });
   if (!json) return [];
-  const rows = pickArray(json, 'faults', 'results', 'data', 'items');
-  return (rows.length ? rows : [json]).map(mapFault);
+  const rows = mapFaultRows(json);
+  if (rows.length) return rows;
+  // Zen answer this endpoint with the fault itself rather than a list when
+  // there is exactly one -- but only if it really is a fault.
+  return looksLikeFault(json) ? [mapFault(json, 0)] : [];
 }
 
 /**
