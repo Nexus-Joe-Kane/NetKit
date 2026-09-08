@@ -10,6 +10,10 @@ every line already in place.
 
 ![Type anything](docs/screenshots/broadband.png)
 
+**Deploying it?** → **[docs/GO-LIVE.md](docs/GO-LIVE.md)** — one page, in
+order, from an empty Plesk subscription to a working portal. Part 1 needs no
+credentials at all.
+
 ---
 
 ## What it does
