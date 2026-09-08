@@ -77,13 +77,28 @@ export async function verifyResend(to: string): Promise<SendResult> {
 }
 
 /**
+ * The house font stack for email.
+ *
+ * Poppins first, exactly as the app and the printed report. Mail clients are
+ * not browsers: Apple Mail, iOS Mail and Thunderbird will fetch the webfont
+ * below and render real Poppins; Outlook on Windows ignores remote fonts
+ * entirely and falls back down this list. That is as close to "Poppins
+ * everywhere" as email allows, and the fallbacks are chosen to be the
+ * geometric-ish faces already on the machine rather than a serif surprise.
+ */
+export const EMAIL_FONT = `'Poppins','Segoe UI',Inter,Helvetica,Arial,sans-serif`;
+
+/**
  * Brand email layout — the client-facing system from the brand guide: cyan to
  * lilac masthead, near-black headings, grey field panel.
  */
 export function emailLayout(title: string, bodyHtml: string): string {
   return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#F6F7F8;font-family:'Segoe UI',Inter,Helvetica,Arial,sans-serif;color:#3C444E;">
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>body,td,th,p,div,span,h1,h2,h3,li{font-family:${EMAIL_FONT};}</style></head>
+<body style="margin:0;padding:0;background:#F6F7F8;font-family:${EMAIL_FONT};color:#3C444E;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F6F7F8;padding:24px 12px;">
     <tr><td align="center">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#FFFFFF;border:1px solid #E4E6E8;border-radius:10px;overflow:hidden;">
@@ -153,7 +168,7 @@ export function escalationEmail(input: {
        <p style="margin:18px 0;padding:14px 16px;background:#F6F7F8;border:1px solid #E4E6E8;border-radius:8px;">
          <strong style="color:#101317;">What it provides</strong><br>${escapeHtml(input.capability)}<br><br>
          <strong style="color:#101317;">Last error</strong><br>
-         <span style="font-family:Consolas,monospace;font-size:12px;">${escapeHtml(input.lastError ?? 'not recorded')}</span>
+         <span style="font-family:${EMAIL_FONT};font-size:12px;letter-spacing:0.02em;">${escapeHtml(input.lastError ?? 'not recorded')}</span>
        </p>
 
        <p>Lookups are still working — that integration is being skipped and the next provider in the chain is
@@ -195,7 +210,7 @@ export function twoFactorEmail(code: string): { subject: string; html: string; t
       'Your sign-in code',
       `<p>Use this code to finish signing in to SupportWizard NetKit:</p>
        <p style="margin:20px 0;padding:16px;background:#F6F7F8;border:1px solid #E4E6E8;border-radius:8px;text-align:center;
-                 font-family:Consolas,monospace;font-size:30px;letter-spacing:0.18em;color:#101317;font-weight:700;">${code}</p>
+                 font-family:${EMAIL_FONT};font-size:30px;letter-spacing:0.18em;color:#101317;font-weight:700;">${code}</p>
        <p style="color:#66707A;font-size:13px;">The code expires in 10 minutes and can only be used once.
        If you didn't try to sign in, someone may have your password — change it and tell an administrator.</p>`,
     ),
@@ -224,7 +239,7 @@ export function watchChangeEmail(input: {
        Something has changed at a premises you are watching.
      </p>
      <p style="margin:0 0 6px;font-size:15px;font-weight:600;color:#101317;">${escapeHtml(input.address)}</p>
-     <p style="margin:0 0 18px;font-size:12px;color:#66707A;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">
+     <p style="margin:0 0 18px;font-size:12px;color:#66707A;font-family:${EMAIL_FONT};letter-spacing:0.04em;">
        UPRN ${escapeHtml(input.uprn)}
      </p>
      <ul style="margin:0 0 18px;padding-left:20px;font-size:14px;line-height:1.7;">

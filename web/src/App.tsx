@@ -497,7 +497,12 @@ function SiteReportView({
           <LinesPanel lines={report.lines} nearbyLines={report.nearbyLines ?? []} />
         )}
 
-        {tab === 'companies' && <CompaniesPanel postcode={report.address.postcode} />}
+        {tab === 'companies' && (
+          <CompaniesPanel
+            postcode={report.address.postcode}
+            {...(report.uprn ? { uprn: report.uprn } : {})}
+          />
+        )}
       </TabPanel>
 
       <div style={{ marginTop: 18 }}>

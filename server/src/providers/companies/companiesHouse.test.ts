@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { __companiesHouseTesting } from './companiesHouse';
+import { __companiesHouseTesting, officeParts } from './companiesHouse';
 
 const { mapCompany } = __companiesHouseTesting;
 
@@ -295,4 +295,62 @@ test('a run of dissolved companies is surfaced, live and troubled first', () => 
 test('an appointment missing its company is discarded', () => {
   assert.deepEqual(mapAppointments({ items: [{ officer_role: 'director' }] }, '1'), []);
   assert.deepEqual(mapAppointments(null, '1'), []);
+});
+
+/* ---- Registered office parsing ------------------------------------- */
+
+test('a numbered office is split into number and street', () => {
+  const parts = officeParts({ premises: '45', address_line_1: 'Brockley Rise', locality: 'London', postal_code: 'SE23 1JG' });
+  assert.equal(parts?.buildingNumber, '45');
+  assert.equal(parts?.thoroughfare, 'Brockley Rise');
+});
+
+test('a number typed into line 1 is still found', () => {
+  const parts = officeParts({ address_line_1: '45 Brockley Rise', locality: 'London', postal_code: 'SE23 1JG' });
+  assert.equal(parts?.buildingNumber, '45');
+  assert.equal(parts?.thoroughfare, 'Brockley Rise');
+});
+
+test('a flat number is a sub-building, not a building number', () => {
+  // "Flat 3, 45" must not read as building number 3, or the match lands on
+  // the wrong doorstep entirely.
+  const parts = officeParts({ premises: 'Flat 3, 45', address_line_1: 'High Street', postal_code: 'M1 1AE' });
+  assert.match(parts?.subBuilding ?? '', /flat\s*3/i);
+  assert.equal(parts?.buildingNumber, '45');
+});
+
+test('a named building is kept as a name rather than invented as a number', () => {
+  const parts = officeParts({ premises: 'Willow House', address_line_1: 'High Street', postal_code: 'M1 1AE' });
+  assert.equal(parts?.buildingName, 'Willow House');
+  assert.equal(parts?.buildingNumber, undefined);
+});
+
+test('an office with nothing usable yields nothing rather than a bad guess', () => {
+  assert.equal(officeParts(undefined), undefined);
+  assert.equal(officeParts({}), undefined);
+});
+
+test('a strike-off qualifier survives the search mapper', () => {
+  const record = __companiesHouseTesting.mapCompany(
+    {
+      company_number: '01234567',
+      company_name: 'Test Ltd',
+      company_status: 'active',
+      company_status_detail: 'active-proposal-to-strike-off',
+      registered_office_address: { premises: '45', address_line_1: 'Brockley Rise', postal_code: 'SE23 1JG' },
+    },
+    'SE23 1JG',
+  );
+  assert.equal(record?.statusDetail, 'active-proposal-to-strike-off');
+  assert.equal(record?.closed, undefined, 'a strike-off notice is not the same as being closed');
+  assert.equal(record?.office?.buildingNumber, '45');
+});
+
+test('a dissolved company is marked closed', () => {
+  const record = __companiesHouseTesting.mapCompany(
+    { company_number: '1', company_name: 'Gone Ltd', company_status: 'dissolved' },
+    'SE23 1JG',
+  );
+  assert.equal(record?.closed, true);
+  assert.equal(record?.concerning, true);
 });

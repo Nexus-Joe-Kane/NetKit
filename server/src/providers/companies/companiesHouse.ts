@@ -10,7 +10,9 @@ import type {
   CompanyRecord,
   CompanyDisqualification,
   OfficerAppointment,
+  AddressRecord,
 } from '@sw/shared';
+import { isClosedStatus, samePremises } from '@sw/shared';
 import { config } from '../../config';
 import { fetchJson } from '../../lib/http';
 import { TtlCache } from '../../lib/cache';
@@ -42,6 +44,7 @@ interface ChCompany {
   company_name?: string;
   title?: string;
   company_status?: string;
+  company_status_detail?: string;
   company_type?: string;
   date_of_creation?: string;
   date_of_cessation?: string;
@@ -110,16 +113,104 @@ function mapCompany(raw: ChCompany, postcode: string): CompanyRecord | null {
     companyNumber,
     name,
     status,
+    ...(clean(raw.company_status_detail) ? { statusDetail: clean(raw.company_status_detail) } : {}),
     concerning: CONCERNING.some((c) => status.toLowerCase().includes(c)),
+    ...(isClosedStatus(status) ? { closed: true } : {}),
     ...(clean(raw.company_type) ? { type: clean(raw.company_type) } : {}),
     ...(clean(raw.date_of_creation) ? { incorporatedOn: clean(raw.date_of_creation) } : {}),
     ...(clean(raw.date_of_cessation) ? { dissolvedOn: clean(raw.date_of_cessation) } : {}),
     ...(addressOf(address) ? { registeredOffice: addressOf(address) } : {}),
+    ...(officeParts(address) ? { office: officeParts(address) } : {}),
+    // Postcode only at this stage. `registeredHere` is narrowed to the
+    // actual premises by `filterToPremises` once there is an address to
+    // compare against, and dropped where it does not match.
     ...(samePostcode(address?.postal_code ?? undefined, postcode) ? { registeredHere: true } : {}),
     ...(raw.sic_codes?.length ? { sicCodes: raw.sic_codes } : {}),
     ...(overdue.length ? { overdue } : {}),
     url: `https://find-and-update.company-information.service.gov.uk/company/${encodeURIComponent(companyNumber)}`,
     source: 'companies-house',
+  };
+}
+
+/**
+ * Breaks the registered office into the parts a premises match needs.
+ *
+ * Companies House give the office as loose lines with a `premises` field that
+ * holds "45", "Flat 3, 45" or "Willow House" depending on who typed it, so
+ * this has to guess a little. It guesses in the direction of not matching:
+ * anything it cannot parse simply does not become a building number, and the
+ * company then shows under the postcode rather than at the address.
+ */
+export function officeParts(a?: ChAddress): NonNullable<CompanyRecord['office']> | undefined {
+  if (!a) return undefined;
+
+  const premises = clean(a.premises);
+  const line1 = clean(a.address_line_1);
+  const line2 = clean(a.address_line_2);
+
+  // A sub-building lives wherever it was typed: "Flat 3, 45" in premises, or
+  // "Unit 4" on its own line.
+  const unitPattern = /\b(flat|apartment|apt|unit|suite|room|floor|studio|office|f)\b[\s.]*([0-9a-z-]+)/i;
+  const unitFrom = (v?: string): string | undefined => {
+    const m = v ? unitPattern.exec(v) : null;
+    return m ? `${m[1]} ${m[2]}`.trim() : undefined;
+  };
+  const subBuilding = unitFrom(premises) ?? unitFrom(line1) ?? unitFrom(line2);
+
+  // The building number is a bare number, in premises or leading line 1 —
+  // but never the digits out of "Flat 3".
+  // Stripping the unit out of "Flat 3, 45" leaves ", 45", so leading and
+  // trailing punctuation goes too — otherwise the number is never found and
+  // the leftover comma becomes a building "name".
+  const withoutUnit = (v?: string): string =>
+    (v ?? '')
+      .replace(unitPattern, ' ')
+      .replace(/^[\s,.;-]+|[\s,.;-]+$/g, '')
+      .trim();
+  const numberIn = (v?: string): string | undefined =>
+    /^(\d+[A-Za-z]?)(?:[\s,]|$)/.exec(withoutUnit(v))?.[1];
+  const buildingNumber = numberIn(premises) ?? numberIn(line1);
+
+  // Whatever is left of premises once a unit and a number are out of it is a
+  // building name: "Willow House", "The Old Dairy".
+  const nameCandidate = withoutUnit(premises).replace(/^\d+[A-Za-z]?[\s,]*/, '').trim();
+  const buildingName = nameCandidate.length > 1 ? nameCandidate : undefined;
+
+  // The street is the first line that is not the premises and not a unit.
+  const streetCandidate = premises && numberIn(premises) ? line1 : withoutUnit(line1).replace(/^\d+[A-Za-z]?[\s,]*/, '').trim() || line2;
+  const thoroughfare = streetCandidate && streetCandidate.length > 1 ? streetCandidate : undefined;
+
+  const parts = {
+    ...(buildingNumber ? { buildingNumber } : {}),
+    ...(buildingName ? { buildingName } : {}),
+    ...(subBuilding ? { subBuilding } : {}),
+    ...(thoroughfare ? { thoroughfare } : {}),
+    ...(clean(a.locality) ? { postTown: clean(a.locality) } : {}),
+    ...(clean(a.postal_code) ? { postcode: clean(a.postal_code) } : {}),
+  };
+  return Object.keys(parts).length ? parts : undefined;
+}
+
+/** The office as something `samePremises` can compare. */
+function officeAsAddress(company: CompanyRecord, postcode: string): AddressRecord | null {
+  const office = company.office;
+  if (!office) return null;
+  return {
+    singleLine: company.registeredOffice ?? company.name,
+    lines: [],
+    postTown: office.postTown ?? '',
+    postcode: office.postcode ?? postcode,
+    // The company's own name, because where neither side has a building
+    // number a shared word between "Willow London Estate Agents" and the
+    // organisation on the AddressBase record is the only thing left to go on.
+    organisation: company.name,
+    // Nothing reads this on a synthetic record; `samePremises` needs the
+    // shape, not the provenance.
+    source: 'cache',
+    ...(office.buildingNumber ? { buildingNumber: office.buildingNumber } : {}),
+    ...(office.buildingName ? { buildingName: office.buildingName } : {}),
+    ...(office.subBuilding ? { subBuilding: office.subBuilding } : {}),
+    ...(office.thoroughfare ? { thoroughfare: office.thoroughfare } : {}),
   };
 }
 
@@ -157,6 +248,118 @@ export async function fetchCompaniesAtPostcode(postcode: string): Promise<Compan
   const result: CompanyContext = { postcode, companies, source: 'companies-house' };
   cache.set(key, result);
   return result;
+}
+
+/**
+ * How many companies to enrich with a profile fetch.
+ *
+ * The list comes from advanced search, which does not carry the accounts
+ * dates, the status qualifier or the insolvency history — so the facts that
+ * decide whether to warn somebody are not in it. Those come one request per
+ * company, which is why this only ever runs over the companies at the
+ * selected premises: a postcode in central London can hold forty, an address
+ * holds one or two.
+ */
+const ENRICH_AT_PREMISES = 8;
+
+interface ChProfileFlags {
+  company_status?: string;
+  company_status_detail?: string;
+  date_of_cessation?: string;
+  has_insolvency_history?: boolean;
+  registered_office_is_in_dispute?: boolean;
+  accounts?: { overdue?: boolean; next_due?: string };
+  confirmation_statement?: { overdue?: boolean; next_due?: string };
+}
+
+/**
+ * Adds the risk fields to one company from its profile.
+ *
+ * Returns the record unchanged on any failure, without `riskChecked`, so the
+ * UI can say "not checked" rather than showing a company as clean because a
+ * request timed out. Silence and "fine" must never look the same here.
+ */
+async function withRisk(company: CompanyRecord): Promise<CompanyRecord> {
+  const cfg = config().companiesHouse;
+  const basic = Buffer.from(`${cfg.apiKey}:`).toString('base64');
+
+  const profile = await fetchJson<ChProfileFlags>(
+    `${cfg.baseUrl}/company/${encodeURIComponent(company.companyNumber)}`,
+    {
+      label: 'companies-house',
+      headers: { Authorization: `Basic ${basic}` },
+      timeoutMs: Math.min(config().requestTimeoutMs, 8000),
+      retries: 1,
+      notFoundAsNull: true,
+    },
+  ).catch(() => null);
+
+  if (!profile) return company;
+
+  const status = clean(profile.company_status) ?? company.status;
+  const statusDetail = clean(profile.company_status_detail) ?? company.statusDetail;
+
+  return {
+    ...company,
+    status,
+    ...(statusDetail ? { statusDetail } : {}),
+    concerning: CONCERNING.some((c) => status.toLowerCase().includes(c)),
+    ...(isClosedStatus(status) ? { closed: true } : {}),
+    ...(clean(profile.date_of_cessation) ? { dissolvedOn: clean(profile.date_of_cessation) } : {}),
+    ...(profile.accounts?.overdue != null ? { accountsOverdue: profile.accounts.overdue } : {}),
+    ...(clean(profile.accounts?.next_due) ? { accountsNextDue: clean(profile.accounts?.next_due) } : {}),
+    ...(profile.confirmation_statement?.overdue != null
+      ? { confirmationStatementOverdue: profile.confirmation_statement.overdue }
+      : {}),
+    ...(clean(profile.confirmation_statement?.next_due)
+      ? { confirmationStatementNextDue: clean(profile.confirmation_statement?.next_due) }
+      : {}),
+    ...(profile.has_insolvency_history ? { insolvencyHistory: true } : {}),
+    ...(profile.registered_office_is_in_dispute ? { registeredOfficeInDispute: true } : {}),
+    riskChecked: true,
+  };
+}
+
+/**
+ * Narrows a postcode's companies to the premises actually being looked at,
+ * and finds out which of those are in trouble.
+ *
+ * Two separate jobs, together because the second is only affordable after the
+ * first. `registeredHere` arrives from the search meaning "same postcode",
+ * which is not what it claims and not what an operator wants: Willow London's
+ * postcode holds dozens of companies and most of them are nothing to do with
+ * the address on the screen. After this it means the premises.
+ *
+ * Nothing is thrown away. The companies elsewhere in the postcode come back
+ * too, unenriched, for the panel to offer behind a toggle.
+ */
+export async function withPremisesDetail(
+  context: CompanyContext,
+  premises: AddressRecord,
+): Promise<CompanyContext> {
+  const scored = context.companies.map((company) => {
+    const office = officeAsAddress(company, context.postcode);
+    const here = office ? samePremises(premises, office) : false;
+    return { company: { ...company, ...(here ? { registeredHere: true } : { registeredHere: false }) }, here };
+  });
+
+  const here = scored.filter((s) => s.here).map((s) => s.company);
+  const elsewhere = scored.filter((s) => !s.here).map((s) => s.company);
+
+  // The profile fetches go out together: eight requests in parallel against a
+  // free API with a 600-per-five-minutes limit is well inside it, and doing
+  // them in series would put a visible pause on the tab.
+  const enriched = await Promise.all(here.slice(0, ENRICH_AT_PREMISES).map(withRisk));
+  const rest = here.slice(ENRICH_AT_PREMISES);
+
+  const companies = [...enriched, ...rest, ...elsewhere];
+
+  return {
+    ...context,
+    companies,
+    atPremises: here.length,
+    premises: premises.singleLine,
+  };
 }
 
 /** Drops the cache, for the recovery supervisor. */
@@ -521,11 +724,20 @@ export async function fetchCompanyDetail(companyNumber: string): Promise<Company
     .map((n) => clean(n.name))
     .filter((n): n is string => Boolean(n));
 
+  // A Gazette strike-off notice is a `GAZ1` filing. Worth reading out of the
+  // filing history as well as off the status, because the status qualifier is
+  // occasionally absent on a company the notice has already been filed for.
+  const gazetteStrikeOff = filings.some((f) => /^GAZ1/i.test(f.type ?? ''));
+
   const detail: CompanyDetail = {
     companyNumber: clean(profile.company_number) ?? number,
     name: clean(profile.company_name) ?? clean(profile.title) ?? number,
     status,
+    ...(clean(profile.company_status_detail) ? { statusDetail: clean(profile.company_status_detail) } : {}),
     concerning: CONCERNING.some((c) => status.toLowerCase().includes(c)),
+    ...(isClosedStatus(status) ? { closed: true } : {}),
+    ...(profile.has_insolvency_history ? { insolvencyHistory: true } : {}),
+    ...(gazetteStrikeOff ? { strikeOffProposed: true } : {}),
     ...(clean(profile.company_type) ? { type: clean(profile.company_type) } : {}),
     ...(clean(profile.date_of_creation) ? { incorporatedOn: clean(profile.date_of_creation) } : {}),
     ...(clean(profile.date_of_cessation) ? { dissolvedOn: clean(profile.date_of_cessation) } : {}),

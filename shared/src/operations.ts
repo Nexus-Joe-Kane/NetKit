@@ -568,17 +568,67 @@ export interface CompanyRecord {
   name: string;
   /** Companies House status, e.g. `active`, `liquidation`, `dissolved`. */
   status: string;
+  /**
+   * The qualifier under the status, e.g. `active-proposal-to-strike-off`.
+   *
+   * This is where a Gazette strike-off notice shows up: the status stays
+   * `active` and only this field says the company is on its way out.
+   */
+  statusDetail?: string;
   /** True for statuses that mean "do not take an order from this company". */
   concerning: boolean;
+  /**
+   * True when the company has ceased to exist — dissolved, removed, closed.
+   *
+   * Separate from `concerning` because the two need opposite treatment: a
+   * company in liquidation is the most important row on the panel, and one
+   * dissolved in 2019 is clutter. Only this kind is hidden by default.
+   */
+  closed?: boolean;
   type?: string;
   incorporatedOn?: string;
   dissolvedOn?: string;
   registeredOffice?: string;
-  /** True when the registered office is the premises being looked at. */
+  /**
+   * The registered office broken into the parts a premises match needs.
+   *
+   * Kept because comparing the joined one-line office against an AddressBase
+   * record never works: Companies House put "Flat 3" in one field, "45" in
+   * another and sometimes both in the first. These are what
+   * `samePremises` actually reads.
+   */
+  office?: {
+    buildingNumber?: string;
+    buildingName?: string;
+    subBuilding?: string;
+    thoroughfare?: string;
+    postTown?: string;
+    postcode?: string;
+  };
+  /**
+   * True when the registered office is the premises being looked at — the
+   * actual premises, matched building and sub-building, not merely the same
+   * postcode.
+   */
   registeredHere?: boolean;
   sicCodes?: string[];
   /** Set when Companies House flags overdue accounts or a confirmation statement. */
   overdue?: string[];
+  /* ---- Risk, from the company profile ------------------------------ *
+   * Present only on companies enriched with a profile fetch, which is the
+   * ones at the premises being looked at. Undefined means "not checked",
+   * never "fine".
+   */
+  accountsOverdue?: boolean;
+  accountsNextDue?: string;
+  confirmationStatementOverdue?: boolean;
+  confirmationStatementNextDue?: string;
+  insolvencyHistory?: boolean;
+  registeredOfficeInDispute?: boolean;
+  /** Set from a `GAZ1` filing when the status alone does not say it. */
+  strikeOffProposed?: boolean;
+  /** True once the risk fields above have actually been looked up. */
+  riskChecked?: boolean;
   url?: string;
   source: string;
 }
@@ -586,6 +636,13 @@ export interface CompanyRecord {
 export interface CompanyContext {
   postcode: string;
   companies: CompanyRecord[];
+  /**
+   * How many of `companies` are registered at the selected premises rather
+   * than merely in the postcode. The panel leads with those.
+   */
+  atPremises?: number;
+  /** The premises the match was made against, for the panel to name. */
+  premises?: string;
   source: string;
 }
 

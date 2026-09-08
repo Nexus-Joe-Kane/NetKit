@@ -311,8 +311,15 @@ export const api = {
 
   /* ---- Company context --------------------------------------------- */
 
-  companies: (postcode: string) =>
-    request<Sourced & CompanyContext>(`/api/tools/companies?postcode=${encodeURIComponent(postcode)}`),
+  /**
+   * Companies at a postcode. Pass the UPRN to narrow it to the premises on
+   * screen, which is what the panel does — a central London postcode holds
+   * dozens of companies and most of them are nothing to do with the address.
+   */
+  companies: (postcode: string, uprn?: string) =>
+    request<Sourced & CompanyContext>(
+      `/api/tools/companies?postcode=${encodeURIComponent(postcode)}${uprn ? `&uprn=${encodeURIComponent(uprn)}` : ''}`,
+    ),
   /** The full register record for one company. Fetched only when opened. */
   companyDetail: (companyNumber: string) =>
     request<Sourced & CompanyDetail>(`/api/tools/companies/${encodeURIComponent(companyNumber)}`),
