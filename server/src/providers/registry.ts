@@ -5,6 +5,7 @@ import { createFixtureAddressProvider } from './address/fixture';
 import { createOsPlacesProvider } from './address/osPlaces';
 import { createFixtureAvailabilityProvider } from './availability/fixture';
 import { createFixtureSignalProvider } from './signal/fixture';
+import { createOfcomSignalProvider } from './signal/ofcom';
 import { createFixtureLineProvider } from './lines/fixture';
 import { createZenAddressProvider, createZenAvailabilityProvider, createZenLineProvider } from './zen/adapters';
 import type { AddressProvider, AvailabilityProvider, LineProvider, ProviderMeta, SignalProvider } from './types';
@@ -52,6 +53,12 @@ export function providers(): Registry {
   // and is the only provider that can resolve a bare UPRN.
   if (shouldRunLive(cfg.osPlaces.configured) && isProviderEnabled('os-places')) {
     address.push(createOsPlacesProvider());
+  }
+
+  // Ofcom's published prediction beats a model, so it leads the chain.
+  const ofcom = createOfcomSignalProvider();
+  if (shouldRunLive(ofcom.configured) && isProviderEnabled('ofcom-coverage')) {
+    signal.push(ofcom);
   }
 
   // Fixtures sit last so the portal always has something to show.

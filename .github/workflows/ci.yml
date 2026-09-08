@@ -28,6 +28,39 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Self-test and Ofcom dataset
+        # The unit tests check the code; this checks a running deployment,
+        # including that the Ofcom header interpreter indexes the sample.
+        env:
+          NODE_ENV: production
+          PORT: 3124
+          SESSION_SECRET: ci-only-secret-not-used-anywhere
+          DATA_DIR: ${{ runner.temp }}/netkit-selftest
+          DATA_MODE: auto
+          ADMIN_PASSWORD: ci-only-Passw0rd-not-used
+          OFCOM_DATASET_PATH: docs/samples/ofcom-coverage-sample.csv
+          SELFTEST_ON_BOOT: 'true'
+          SUPERVISOR_ENABLED: 'false'
+        run: |
+          node app.js > /tmp/ci-netkit.log 2>&1 & APP=$!
+          for i in $(seq 1 60); do
+            curl -sf -o /dev/null "http://localhost:3124/healthz" && break
+            sleep 0.5
+          done
+          sleep 3
+          cat /tmp/ci-netkit.log
+          # The boot self-test must pass, and Ofcom must have indexed rows.
+          grep -q 'self-test passed' /tmp/ci-netkit.log
+          COOKIE=$(mktemp)
+          curl -sf -c "$COOKIE" -X POST "http://localhost:3124/api/auth/login" \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"joe@supportwizard.net","password":"ci-only-Passw0rd-not-used"}' > /dev/null
+          curl -sf -b "$COOKIE" -X POST "http://localhost:3124/api/admin/selftest" \
+            | tee /tmp/ci-selftest.json | grep -q '"outcome":"pass"'
+          curl -sf -b "$COOKIE" "http://localhost:3124/api/admin/status" \
+            | grep -q 'ofcom-coverage'
+          kill $APP
+
       - name: Check the Passenger entry point starts
         # Guards the Plesk deployment path: app.js must boot, serve the SPA
         # and answer /healthz with nothing but a session secret configured.

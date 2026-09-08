@@ -84,6 +84,11 @@ export async function lookupPostcodeMeta(postcode: string): Promise<PostcodeMeta
   }
 }
 
+/** Drops the cache. Used by the recovery supervisor. */
+export function clearPostcodeCache(): void {
+  cache.clear();
+}
+
 /** Autocomplete partial postcodes, used by the search box typeahead. */
 export async function autocompletePostcode(partial: string): Promise<string[]> {
   const cfg = config();

@@ -23,6 +23,7 @@ import type {
 } from '@sw/shared';
 import { config, shouldRunLive } from '../config';
 import { isProviderEnabled } from '../auth/store';
+import { circuitReason, reportLiveFailure, reportLiveSuccess, shouldAttempt } from '../admin/supervisor';
 import * as assurance from '../providers/zen/assurance';
 import * as selfService from '../providers/zen/selfservice';
 import * as bt from '../providers/bt/adapters';
@@ -41,7 +42,7 @@ import * as fx from '../providers/fixture/operations';
 export interface Sourced<T> {
   data: T;
   mode: 'live' | 'mock';
-  /** Set when a live call failed and fixtures were used instead. */
+  /** Set when a live call failed, or was skipped, and fixtures were used. */
   error?: string;
 }
 
@@ -69,10 +70,22 @@ async function resolve<T>({ key, configured, live, fixture }: Attempt<T>): Promi
     return { data: fixture(), mode: 'mock' };
   }
 
+  // The circuit breaker: while it is open, skip the live call entirely rather
+  // than making every request wait for the same timeout. The supervisor lets
+  // one probe through once the backoff expires.
+  if (!shouldAttempt(key)) {
+    const reason = circuitReason(key) ?? `${key} is temporarily paused after repeated failures.`;
+    if (mode === 'live') throw new Error(reason);
+    return { data: fixture(), mode: 'mock', error: reason };
+  }
+
   try {
-    return { data: await live(), mode: 'live' };
+    const data = await live();
+    reportLiveSuccess(key);
+    return { data, mode: 'live' };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    reportLiveFailure(key, message);
     if (mode === 'live') throw err;
     // Degrade to fixtures but keep the reason, so the UI can say why.
     return { data: fixture(), mode: 'mock', error: message };

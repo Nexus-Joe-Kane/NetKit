@@ -3,6 +3,7 @@ import { zenPing } from '../providers/zen/client';
 import { zenAvailabilityQuota } from '../providers/zen/adapters';
 import { isProviderEnabled, settings } from '../auth/store';
 import { fetchJson } from '../lib/http';
+import { datasetStatus } from '../providers/signal/ofcom';
 
 /**
  * Service status for the admin portal.
@@ -18,7 +19,7 @@ export interface ServiceStatus {
   /** Stable key used by the toggle endpoint. */
   key: string
   name: string;
-  vendor: 'Zen' | 'BT' | 'Jola' | 'Ordnance Survey' | 'postcodes.io' | 'Resend' | 'Internal';
+  vendor: 'Zen' | 'BT' | 'Jola' | 'Ofcom' | 'Ordnance Survey' | 'postcodes.io' | 'Resend' | 'Internal';
   /** What this integration gives the portal. */
   capability: string;
   state: ServiceState;
@@ -123,6 +124,40 @@ function probes(): Probe[] {
         return res?.result
           ? { state: 'ok' as const, detail: 'Reachable.' }
           : { state: 'degraded' as const, detail: 'Reachable but returned no result.' };
+      },
+    },
+
+    // ---- Ofcom ----------------------------------------------------------
+    {
+      key: 'ofcom-coverage',
+      name: 'Ofcom mobile coverage',
+      vendor: 'Ofcom',
+      capability:
+        'Published per-operator coverage for voice, 4G and 5G, indoor and outdoor. Free Connected Nations open data — no account',
+      docsUrl: 'https://www.ofcom.org.uk/research-and-data/multi-sector-research/infrastructure-research',
+      configured: () => Boolean(cfg.ofcom.datasetPath || cfg.ofcom.apiBaseUrl),
+      run: async () => {
+        if (cfg.ofcom.apiBaseUrl && !cfg.ofcom.datasetPath) {
+          return { state: 'ok' as const, detail: `Configured against ${cfg.ofcom.apiBaseUrl}.` };
+        }
+        const status = datasetStatus();
+        if (!status.loaded) {
+          return {
+            state: 'down' as const,
+            detail: `Dataset not readable at ${status.path ?? cfg.ofcom.datasetPath}. Download the Connected Nations postcode file and point OFCOM_DATASET_PATH at it.`,
+          };
+        }
+        if (!status.columnsUnderstood) {
+          return {
+            state: 'degraded' as const,
+            detail: `Dataset loaded (${status.rows} postcodes) but no operator columns were recognised — the header format may have changed.`,
+          };
+        }
+        return {
+          state: 'ok' as const,
+          detail: `${status.rows?.toLocaleString('en-GB')} postcodes indexed from ${status.columnsUnderstood} recognised columns.`,
+          meta: { path: status.path, loadedAt: status.loadedAt, columnsUnderstood: status.columnsUnderstood },
+        };
       },
     },
 
@@ -248,60 +283,68 @@ function btProbes(): Probe[] {
   }));
 }
 
-/** Runs every probe in parallel and returns the full status board. */
-export async function serviceStatuses(): Promise<ServiceStatus[]> {
-  const list = probes();
-  const results = await Promise.all(
-    list.map(async (probe): Promise<ServiceStatus> => {
-      const enabled = isProviderEnabled(probe.key);
-      const configured = probe.configured();
-      const base: ServiceStatus = {
-        key: probe.key,
-        name: probe.name,
-        vendor: probe.vendor,
-        capability: probe.capability,
-        state: 'not_configured',
-        detail: '',
-        enabled,
-        configured,
-        ...(probe.docsUrl ? { docsUrl: probe.docsUrl } : {}),
-        checkedAt: new Date().toISOString(),
-      };
+/** Evaluates one probe. Shared by the full sweep and single re-checks. */
+async function evaluate(probe: Probe): Promise<ServiceStatus> {
+  const enabled = isProviderEnabled(probe.key);
+  const configured = probe.configured();
+  const base: ServiceStatus = {
+    key: probe.key,
+    name: probe.name,
+    vendor: probe.vendor,
+    capability: probe.capability,
+    state: 'not_configured',
+    detail: '',
+    enabled,
+    configured,
+    ...(probe.docsUrl ? { docsUrl: probe.docsUrl } : {}),
+    checkedAt: new Date().toISOString(),
+  };
 
-      if (!enabled) {
-        return { ...base, state: 'disabled', detail: 'Switched off by an administrator.' };
-      }
-      if (!configured) {
-        return { ...base, state: 'not_configured', detail: 'Awaiting credentials.' };
-      }
+  if (!enabled) return { ...base, state: 'disabled', detail: 'Switched off by an administrator.' };
+  if (!configured) return { ...base, state: 'not_configured', detail: 'Awaiting credentials.' };
 
-      const started = Date.now();
-      try {
-        const outcome = await probe.run();
-        return {
-          ...base,
-          state: outcome.state,
-          detail: outcome.detail,
-          latencyMs: Date.now() - started,
-          ...(outcome.meta ? { meta: outcome.meta } : {}),
-        };
-      } catch (err) {
-        return {
-          ...base,
-          state: 'down',
-          detail: err instanceof Error ? err.message : String(err),
-          latencyMs: Date.now() - started,
-        };
-      }
-    }),
-  );
+  const started = Date.now();
+  try {
+    const outcome = await probe.run();
+    return {
+      ...base,
+      state: outcome.state,
+      detail: outcome.detail,
+      latencyMs: Date.now() - started,
+      ...(outcome.meta ? { meta: outcome.meta } : {}),
+    };
+  } catch (err) {
+    return {
+      ...base,
+      state: 'down',
+      detail: err instanceof Error ? err.message : String(err),
+      latencyMs: Date.now() - started,
+    };
+  }
+}
 
-  // Attach the Zen fair-use quota to the availability row, where it belongs.
+/** Attaches the Zen fair-use quota to the availability row, where it belongs. */
+function withQuota(results: ServiceStatus[]): ServiceStatus[] {
   const quota = zenAvailabilityQuota();
   if (quota) {
     const row = results.find((r) => r.key === 'zen-availability');
     if (row) row.meta = { ...(row.meta ?? {}), remainingAvailabilityChecks: quota.remaining, quotaReadAt: quota.at };
   }
-
   return results;
+}
+
+/** Runs every probe in parallel and returns the full status board. */
+export async function serviceStatuses(): Promise<ServiceStatus[]> {
+  return withQuota(await Promise.all(probes().map(evaluate)));
+}
+
+/**
+ * Re-checks a single integration. Recovery uses this rather than a full
+ * sweep: re-probing all seventeen after every recovery action made sweeps
+ * slow enough to overlap and abort one another.
+ */
+export async function probeService(key: string): Promise<ServiceStatus | null> {
+  const probe = probes().find((p) => p.key === key);
+  if (!probe) return null;
+  return withQuota([await evaluate(probe)])[0] ?? null;
 }

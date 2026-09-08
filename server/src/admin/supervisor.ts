@@ -1,0 +1,517 @@
+import { config } from '../config';
+import { audit, isProviderEnabled } from '../auth/store';
+import { probeService, serviceStatuses, type ServiceStatus } from './health';
+import { resetZenTokens } from '../providers/zen/client';
+import { clearZenCaches } from '../providers/zen/adapters';
+import { resetBtTokens } from '../providers/bt/client';
+import { clearPostcodeCache } from '../providers/address/postcodesIo';
+import { clearOsPlacesCache } from '../providers/address/osPlaces';
+import { loadDataset } from '../providers/signal/ofcom';
+import { clearReportCache } from '../services/resolve';
+
+/**
+ * The recovery supervisor.
+ *
+ * Probes every integration on an interval, and when one starts failing it
+ * tries to fix it rather than only reporting it. Three mechanisms:
+ *
+ *   1. A **circuit breaker** stops NetKit hammering a dead upstream. After a
+ *      run of failures the circuit opens and lookups go straight to the
+ *      fallback, which keeps the portal fast instead of making every page
+ *      wait for a timeout.
+ *   2. **Recovery actions** per integration — re-mint an OAuth token, drop a
+ *      poisoned cache, reload a dataset from disk. Most real failures are one
+ *      of those three, and all three are safe to retry.
+ *   3. **Exponential backoff** on reattempts, so a long outage costs almost
+ *      nothing.
+ *
+ * The circuit is deliberately separate from the admin on/off switch: this
+ * supervisor never overrides a human decision, and a human switch is never
+ * quietly undone by automation.
+ */
+
+export type HealthState =
+  | 'healthy'
+  | 'degraded'
+  | 'failing'
+  | 'circuit_open'
+  | 'recovering'
+  | 'not_configured'
+  | 'disabled';
+
+export interface RecoveryAttempt {
+  at: string;
+  action: string;
+  outcome: 'recovered' | 'still_failing' | 'error';
+  detail?: string;
+}
+
+export interface IntegrationHealth {
+  key: string;
+  name: string;
+  vendor: string;
+  state: HealthState;
+  consecutiveFailures: number
+  consecutiveSuccesses: number;
+  lastCheckedAt?: string;
+  lastOkAt?: string;
+  lastError?: string;
+  latencyMs?: number;
+  /** Circuit breaker state. */
+  circuit: { open: boolean; openedAt?: string; nextAttemptAt?: string; backoffSeconds: number };
+  /** What recovery has been tried, newest first. */
+  recoveries: RecoveryAttempt[];
+  /** Rolling probe history, newest last, for an availability figure. */
+  history: Array<{ at: string; ok: boolean; ms: number }>;
+  /** Percentage of probes in the window that succeeded. */
+  availability?: number;
+}
+
+/** Consecutive failures before recovery is attempted. */
+const FAILURES_TO_RECOVER = 2;
+/** Consecutive failures before the circuit opens. */
+const FAILURES_TO_OPEN = 3;
+/** Successes needed while half-open before the circuit closes. */
+const SUCCESSES_TO_CLOSE = 1;
+const BACKOFF_LADDER_SECONDS = [30, 60, 120, 300, 900];
+const HISTORY_LENGTH = 60;
+
+const state = new Map<string, IntegrationHealth>();
+let timer: NodeJS.Timeout | null = null;
+let running = false;
+let lastSweepAt: string | null = null;
+let sweepCount = 0;
+
+/* ------------------------------------------------------------------ *
+ * Recovery actions
+ * ------------------------------------------------------------------ */
+
+interface RecoveryAction {
+  name: string;
+  run: () => void | Promise<void>;
+}
+
+/**
+ * What to try for a given integration, in order. Every action here is
+ * idempotent and safe to run against a healthy system — that matters,
+ * because recovery runs unattended.
+ */
+function recoveryActionsFor(key: string): RecoveryAction[] {
+  if (key.startsWith('zen-')) {
+    return [
+      {
+        // By far the most common real cause: a token that expired, was
+        // revoked, or was minted before a scope was granted.
+        name: 'Re-mint the Zen OAuth token',
+        run: () => resetZenTokens(),
+      },
+      {
+        name: 'Drop cached Zen results',
+        run: () => {
+          clearZenCaches();
+          clearReportCache();
+        },
+      },
+    ];
+  }
+
+  if (key.startsWith('bt-')) {
+    return [{ name: 'Re-mint the BT access token', run: () => resetBtTokens() }];
+  }
+
+  if (key === 'os-places') {
+    return [{ name: 'Drop cached OS Places results', run: () => clearOsPlacesCache() }];
+  }
+
+  if (key === 'postcodes-io') {
+    return [{ name: 'Drop cached postcode geography', run: () => clearPostcodeCache() }];
+  }
+
+  if (key === 'ofcom-coverage') {
+    return [
+      {
+        // A dataset that was mid-write when first read, or has since been
+        // replaced with a new Ofcom release.
+        name: 'Reload the Ofcom dataset from disk',
+        run: () => {
+          loadDataset(true);
+        },
+      },
+    ];
+  }
+
+  if (key === 'resend') {
+    // Nothing safe to retry: re-sending a test email unattended would spam
+    // the admin's inbox every sweep.
+    return [];
+  }
+
+  return [{ name: 'Drop cached lookup results', run: () => clearReportCache() }];
+}
+
+/* ------------------------------------------------------------------ *
+ * State transitions
+ * ------------------------------------------------------------------ */
+
+const backoffFor = (failures: number): number =>
+  BACKOFF_LADDER_SECONDS[Math.min(failures - FAILURES_TO_OPEN, BACKOFF_LADDER_SECONDS.length - 1)] ??
+  BACKOFF_LADDER_SECONDS[BACKOFF_LADDER_SECONDS.length - 1]!;
+
+function blank(status: ServiceStatus): IntegrationHealth {
+  return {
+    key: status.key,
+    name: status.name,
+    vendor: status.vendor,
+    state: 'healthy',
+    consecutiveFailures: 0,
+    consecutiveSuccesses: 0,
+    circuit: { open: false, backoffSeconds: 0 },
+    recoveries: [],
+    history: [],
+  };
+}
+
+/** Maps a probe result onto a health state, respecting the circuit. */
+function stateFrom(status: ServiceStatus, health: IntegrationHealth): HealthState {
+  if (status.state === 'disabled') return 'disabled';
+  if (status.state === 'not_configured') return 'not_configured';
+  if (health.circuit.open) return 'circuit_open';
+  if (status.state === 'ok') return 'healthy';
+  if (status.state === 'degraded') return 'degraded';
+  return 'failing';
+}
+
+function record(health: IntegrationHealth, ok: boolean, ms: number): void {
+  health.history.push({ at: new Date().toISOString(), ok, ms });
+  if (health.history.length > HISTORY_LENGTH) health.history.shift();
+  const considered = health.history.filter((h) => h.ok !== undefined);
+  health.availability = considered.length
+    ? Math.round((considered.filter((h) => h.ok).length / considered.length) * 100)
+    : undefined;
+}
+
+/* ------------------------------------------------------------------ *
+ * A single sweep
+ * ------------------------------------------------------------------ */
+
+export interface SweepResult {
+  at: string;
+  checked: number;
+  healthy: number;
+  failing: number;
+  recovered: string[];
+  circuitsOpened: string[];
+  circuitsClosed: string[];
+  /** True when a sweep was already in flight and this one stood down. */
+  skipped?: boolean;
+}
+
+/**
+ * Probes everything once, then attempts recovery on anything failing.
+ * Safe to call concurrently — overlapping sweeps are skipped rather than
+ * queued, because a slow upstream should not build a backlog of probes.
+ */
+export async function sweep(): Promise<SweepResult> {
+  if (running) {
+    return {
+      at: new Date().toISOString(),
+      checked: 0,
+      healthy: 0,
+      failing: 0,
+      recovered: [],
+      circuitsOpened: [],
+      circuitsClosed: [],
+      skipped: true,
+    };
+  }
+  running = true;
+
+  const result: SweepResult = {
+    at: new Date().toISOString(),
+    checked: 0,
+    healthy: 0,
+    failing: 0,
+    recovered: [],
+    circuitsOpened: [],
+    circuitsClosed: [],
+  };
+
+  try {
+    const statuses = await serviceStatuses();
+    result.checked = statuses.length;
+
+    for (const status of statuses) {
+      const health = state.get(status.key) ?? blank(status);
+      state.set(status.key, health);
+      health.name = status.name;
+      health.vendor = status.vendor;
+      health.lastCheckedAt = status.checkedAt;
+      if (status.latencyMs != null) health.latencyMs = status.latencyMs;
+
+      // Nothing to supervise for an unconfigured or switched-off integration.
+      if (status.state === 'not_configured' || status.state === 'disabled') {
+        health.state = status.state === 'disabled' ? 'disabled' : 'not_configured';
+        health.consecutiveFailures = 0;
+        health.circuit = { open: false, backoffSeconds: 0 };
+        continue;
+      }
+
+      const ok = status.state === 'ok';
+      record(health, ok, status.latencyMs ?? 0);
+
+      if (ok) {
+        health.consecutiveSuccesses += 1;
+        health.consecutiveFailures = 0;
+        health.lastOkAt = status.checkedAt;
+        delete health.lastError;
+        result.healthy += 1;
+
+        // Close a circuit once it has proved itself.
+        if (health.circuit.open && health.consecutiveSuccesses >= SUCCESSES_TO_CLOSE) {
+          health.circuit = { open: false, backoffSeconds: 0 };
+          result.circuitsClosed.push(status.key);
+          audit({
+            action: 'supervisor.circuit_closed',
+            detail: { key: status.key, name: status.name },
+          });
+        }
+        health.state = 'healthy';
+        continue;
+      }
+
+      // ---- Failing --------------------------------------------------
+      health.consecutiveSuccesses = 0;
+      health.consecutiveFailures += 1;
+      health.lastError = status.detail;
+      result.failing += 1;
+      health.state = status.state === 'degraded' ? 'degraded' : 'failing';
+
+      // A degraded integration is still answering, so it is not worth
+      // opening a circuit or re-minting anything over.
+      if (status.state === 'degraded') continue;
+
+      // One failure is a blip and not worth re-minting tokens over; from the
+      // second, try to fix it — which gives recovery a chance before the
+      // breaker trips at the third.
+      if (health.consecutiveFailures >= FAILURES_TO_RECOVER) {
+        const recovered = await attemptRecovery(health);
+        if (recovered) {
+          result.recovered.push(status.key);
+          result.healthy += 1;
+          result.failing -= 1;
+          continue;
+        }
+      }
+
+      if (health.consecutiveFailures >= FAILURES_TO_OPEN && !health.circuit.open) {
+        const backoffSeconds = backoffFor(health.consecutiveFailures);
+        health.circuit = {
+          open: true,
+          openedAt: new Date().toISOString(),
+          nextAttemptAt: new Date(Date.now() + backoffSeconds * 1000).toISOString(),
+          backoffSeconds,
+        };
+        health.state = 'circuit_open';
+        result.circuitsOpened.push(status.key);
+        audit({
+          action: 'supervisor.circuit_opened',
+          detail: {
+            key: status.key,
+            name: status.name,
+            failures: health.consecutiveFailures,
+            backoffSeconds,
+            error: status.detail,
+          },
+        });
+      } else if (health.circuit.open) {
+        // Still failing while open — extend the backoff.
+        const backoffSeconds = backoffFor(health.consecutiveFailures);
+        health.circuit.backoffSeconds = backoffSeconds;
+        health.circuit.nextAttemptAt = new Date(Date.now() + backoffSeconds * 1000).toISOString();
+        health.state = 'circuit_open';
+      }
+    }
+
+    lastSweepAt = result.at;
+    sweepCount += 1;
+  } finally {
+    running = false;
+  }
+
+  return result;
+}
+
+/**
+ * Runs each recovery action in turn, re-probing after each. Stops at the
+ * first one that works, so a healthy system is disturbed as little as
+ * possible.
+ */
+async function attemptRecovery(health: IntegrationHealth): Promise<boolean> {
+  const actions = recoveryActionsFor(health.key);
+  if (!actions.length) return false;
+
+  health.state = 'recovering';
+
+  for (const action of actions) {
+    const attempt: RecoveryAttempt = { at: new Date().toISOString(), action: action.name, outcome: 'still_failing' };
+
+    try {
+      await action.run();
+      // Re-probe just this integration to see whether the action helped.
+      const after = await probeService(health.key);
+
+      if (after?.state === 'ok') {
+        attempt.outcome = 'recovered';
+        health.recoveries.unshift(attempt);
+        health.recoveries = health.recoveries.slice(0, 10);
+        health.consecutiveFailures = 0;
+        health.consecutiveSuccesses = 1;
+        health.lastOkAt = new Date().toISOString();
+        delete health.lastError;
+        health.state = 'healthy';
+        if (health.circuit.open) health.circuit = { open: false, backoffSeconds: 0 };
+
+        audit({
+          action: 'supervisor.recovered',
+          detail: { key: health.key, name: health.name, action: action.name },
+        });
+        return true;
+      }
+
+      attempt.detail = after?.detail;
+    } catch (err) {
+      attempt.outcome = 'error';
+      attempt.detail = err instanceof Error ? err.message : String(err);
+    }
+
+    health.recoveries.unshift(attempt);
+    health.recoveries = health.recoveries.slice(0, 10);
+  }
+
+  health.state = health.circuit.open ? 'circuit_open' : 'failing';
+  return false;
+}
+
+/* ------------------------------------------------------------------ *
+ * Circuit gate, consulted by the orchestration layer
+ * ------------------------------------------------------------------ */
+
+/**
+ * Whether a live call should be attempted. A closed circuit means yes; an
+ * open one means no until the backoff expires, at which point one probe is
+ * allowed through (half-open).
+ */
+export function shouldAttempt(key: string): boolean {
+  const health = state.get(key);
+  if (!health?.circuit.open) return true;
+  if (!health.circuit.nextAttemptAt) return true;
+  return new Date(health.circuit.nextAttemptAt).getTime() <= Date.now();
+}
+
+/** Why a call was skipped, for the UI. */
+export function circuitReason(key: string): string | undefined {
+  const health = state.get(key);
+  if (!health?.circuit.open) return undefined;
+  return `${health.name} has failed ${health.consecutiveFailures} checks in a row, so calls are paused until ${
+    health.circuit.nextAttemptAt ? new Date(health.circuit.nextAttemptAt).toLocaleTimeString('en-GB') : 'the next sweep'
+  }. Last error: ${health.lastError ?? 'unknown'}`;
+}
+
+/** Records a failure seen by a real request, not just a probe. */
+export function reportLiveFailure(key: string, message: string): void {
+  const health = state.get(key);
+  if (!health) return;
+  health.consecutiveFailures += 1;
+  health.consecutiveSuccesses = 0;
+  health.lastError = message;
+  if (health.consecutiveFailures >= FAILURES_TO_OPEN && !health.circuit.open) {
+    const backoffSeconds = backoffFor(health.consecutiveFailures);
+    health.circuit = {
+      open: true,
+      openedAt: new Date().toISOString(),
+      nextAttemptAt: new Date(Date.now() + backoffSeconds * 1000).toISOString(),
+      backoffSeconds,
+    };
+    health.state = 'circuit_open';
+    audit({ action: 'supervisor.circuit_opened', detail: { key, viaLiveRequest: true, error: message } });
+  }
+}
+
+/** Records a success seen by a real request. */
+export function reportLiveSuccess(key: string): void {
+  const health = state.get(key);
+  if (!health) return;
+  health.consecutiveFailures = 0;
+  health.consecutiveSuccesses += 1;
+  health.lastOkAt = new Date().toISOString();
+  if (health.circuit.open) {
+    health.circuit = { open: false, backoffSeconds: 0 };
+    health.state = 'healthy';
+    audit({ action: 'supervisor.circuit_closed', detail: { key, viaLiveRequest: true } });
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Lifecycle
+ * ------------------------------------------------------------------ */
+
+export function supervisorState(): {
+  enabled: boolean;
+  intervalSeconds: number;
+  lastSweepAt: string | null;
+  sweeps: number;
+  integrations: IntegrationHealth[];
+} {
+  const cfg = config();
+  return {
+    enabled: cfg.supervisor.enabled,
+    intervalSeconds: cfg.supervisor.intervalSeconds,
+    lastSweepAt,
+    sweeps: sweepCount,
+    integrations: [...state.values()].sort((a, b) => {
+      // Anything needing attention floats to the top.
+      const rank = (h: IntegrationHealth) =>
+        h.state === 'circuit_open' || h.state === 'failing' ? 0 : h.state === 'degraded' ? 1 : h.state === 'healthy' ? 2 : 3;
+      return rank(a) - rank(b) || a.name.localeCompare(b.name);
+    }),
+  };
+}
+
+/** Starts the interval. Idempotent. */
+export function startSupervisor(): void {
+  const cfg = config();
+  if (!cfg.supervisor.enabled || timer) return;
+
+  // An immediate first sweep, so the board is populated rather than empty
+  // until the first interval elapses.
+  void sweep().catch(() => undefined);
+
+  timer = setInterval(() => {
+    void sweep().catch(() => undefined);
+  }, cfg.supervisor.intervalSeconds * 1000);
+  // Never hold the process open on this alone.
+  timer.unref();
+}
+
+export function stopSupervisor(): void {
+  if (timer) {
+    clearInterval(timer);
+    timer = null;
+  }
+}
+
+/** Test hook. */
+export function resetSupervisor(): void {
+  stopSupervisor();
+  state.clear();
+  lastSweepAt = null;
+  sweepCount = 0;
+}
+
+export const __supervisorTesting = {
+  backoffFor,
+  recoveryActionsFor,
+  FAILURES_TO_RECOVER,
+  FAILURES_TO_OPEN,
+  BACKOFF_LADDER_SECONDS,
+};

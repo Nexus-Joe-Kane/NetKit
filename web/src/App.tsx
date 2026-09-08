@@ -17,6 +17,7 @@ import { ForcePasswordChange, Login } from './components/Login';
 import { Alert, Card, Chip, Empty, Label, Spinner } from './components/ui';
 import { Tabs, TabPanel, type TabDef } from './components/Tabs';
 import { Modal } from './components/overlay';
+import { siteReportToText } from './lib/reportText';
 
 /**
  * Application shell.
@@ -342,6 +343,8 @@ function SiteReportView({
 }): ReactElement {
   const [siblingsOpen, setSiblingsOpen] = useState(false);
   const [siblingFilter, setSiblingFilter] = useState('');
+  const [textOpen, setTextOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const degraded = Object.entries(report.status).filter(([, s]) => !s.ok);
   const usingDemoData = Object.values(report.status).some((s) => s.mode === 'mock');
@@ -391,6 +394,16 @@ function SiteReportView({
                 {siblings.length} more at this postcode
               </button>
             )}
+            <button
+              className="btn btn--ghost btn--small"
+              onClick={() => {
+                setCopied(false);
+                setTextOpen(true);
+              }}
+              title="Plain text for pasting into a ticket or email"
+            >
+              Copy as text
+            </button>
             <button className="btn btn--ghost btn--small" onClick={() => window.print()}>
               Print
             </button>
@@ -453,6 +466,50 @@ function SiteReportView({
           {report.query.kind}
         </Label>
       </div>
+
+      {/* ---- Plain text for a ticket ------------------------------------ */}
+      <Modal
+        open={textOpen}
+        onClose={() => setTextOpen(false)}
+        eyebrow="For pasting elsewhere"
+        title="Site report as text"
+        subtitle="Plain text with no formatting, so it survives a helpdesk, an email reply or a message."
+        width="wide"
+        footer={
+          <>
+            <span className="grow muted" style={{ fontSize: 11.5 }}>
+              {siteReportToText(report).split('\n').length} lines
+            </span>
+            <button
+              type="button"
+              className={`btn ${copied ? 'btn--ghost' : 'btn--primary'}`}
+              onClick={async () => {
+                const text = siteReportToText(report);
+                try {
+                  await navigator.clipboard.writeText(text);
+                } catch {
+                  // Clipboard permission can be refused; fall back to a
+                  // hidden textarea so the button still works.
+                  const el = document.createElement('textarea');
+                  el.value = text;
+                  el.style.position = 'fixed';
+                  el.style.opacity = '0';
+                  document.body.appendChild(el);
+                  el.select();
+                  document.execCommand('copy');
+                  document.body.removeChild(el);
+                }
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2500);
+              }}
+            >
+              {copied ? 'Copied to clipboard' : 'Copy to clipboard'}
+            </button>
+          </>
+        }
+      >
+        <pre className="report-text">{siteReportToText(report)}</pre>
+      </Modal>
 
       {/* ---- Other premises at this postcode ---------------------------- */}
       <Modal

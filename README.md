@@ -20,15 +20,18 @@ every line already in place.
 | **Address + UPRN, always** | Every screen leads with the identity box: full formatted address and UPRN, both one click to copy. Everything is searchable by all three. |
 | **Broadband availability** | Every access technology at the premises — FTTP, SOGEA, G.fast, FTTC, ADSL2+, Annex M, IPStream — with RAG status, Range A and Range B speed estimates, product codes and orderability, plus alt-net and cable coverage for completeness. |
 | **Openreach engineering detail** | Exchange and TLC, MDF site, PCP cabinet, copper loop length and attenuation, spare pairs, distribution point, FTTP build state, CBT, ONT serial and spare ports, FTTP-on-Demand excess construction charges, and All-IP stop-sell posture. |
-| **Mobile signal** | EE, Vodafone, O2 and Three, indoor *and* outdoor, for voice, 4G and 5G, with bands, nearest mast distance and the MVNOs riding each network. |
 | **Lines** | CLI, access line ID, service ID, ONT serial, RADIUS state and session, IP allocations, sync and SNR, DLM profile, CPE, contract dates, open faults and appointments. Ceased lines included, so an archived service still turns up. |
+| **Mobile signal** | EE, Vodafone, O2 and Three, indoor *and* outdoor, for voice, 4G and 5G. Live from Ofcom's Connected Nations open data when a dataset is configured — free, no account — and modelled otherwise, labelled either way. |
 | **Line diagnostics** | Run a line test and read the last one — copper electrical, xDSL, TAM stack walk, known-network, or a fibre service test, offered by what the technology actually supports. Plus 30-day drop history, RADIUS authentication attempts, DLM profile options and usage against cap. |
 | **Network status** | Major service outages and planned engineering work, with per-service correlation — so "is it just us?" is answered before a fault is raised. |
 | **Faults** | The open book, closed history, full update timeline, and raising a fault with the tests-carried-out detail providers require to avoid a chargeable no-fault-found visit. |
 | **Orders** | In-flight orders, the WIP report, search by Zen or customer reference, and cancellation behind a type-to-confirm guard. |
 | **SIMs** | The mobile estate — shared pool with overage, per-SIM allowance, bars, and attach state. Zen's cellular endpoints are Jola-backed, so this covers business SIMs without a separate Jola key. |
 | **Tools** | Number porting checker, "is this phone on the network" (EE via BT), IMEI and handset lookup, Ethernet/leased-line quotes, footfall and catchment, call records, reverse DNS. |
-| **Admin portal** | Live status probe of all 17 integrations, per-integration on/off switches, user management, and an append-only audit log. |
+| **Admin portal** | Live status probe of all 18 integrations, per-integration on/off switches, user management, and an append-only audit log. |
+| **Auto recovery** | The supervisor probes every integration on an interval and *fixes* what it can — re-mint an expired token, drop a poisoned cache, reload a dataset. A run of failures opens a circuit breaker so lookups skip the dead upstream instead of waiting for its timeout, with exponential backoff on reattempts. Every recovery is audited. |
+| **Self-test** | A full functional pass over the whole portal against whatever providers are actually configured. Answers "does this deployment work right now, with these credentials" — as distinct from the unit tests, which answer "is the code correct". Runs at startup and on demand. Read-only: it never raises a fault or places an order. |
+| **Copy as text** | Any site report as clean plain text for pasting into a ticket, an email or a message. No formatting to survive. |
 
 Sign-in is email and password, with optional email two-factor authentication
 that only becomes available once a Resend delivery test has actually passed.
@@ -135,9 +138,20 @@ are written against, including exact endpoint paths, scopes and field names.
 ## Testing
 
 ```bash
-npm test          # 29 tests: identifier classification, address formatting,
-                  # Zen response mapping, password hashing and policy
+npm test          # 51 tests: identifier classification, address formatting,
+                  # Zen/BT/Jola response mapping, the Ofcom header
+                  # interpreter, the circuit breaker and backoff ladder,
+                  # password hashing and policy
 npm run typecheck # strict TypeScript across all three packages
+```
+
+The unit tests answer *is the code correct*. The **self-test** in the admin
+portal answers a different question — *does this deployment work right now,
+with these credentials* — and runs automatically at startup:
+
+```
+[netkit] self-test passed — 22 passed, 0 failed, 1 warnings, 0 skipped in 1166ms
+[netkit]   warn Configuration / Data mode: mock — every panel is showing demo data
 ```
 
 ---

@@ -1752,3 +1752,49 @@ table.data td.num {
 @media print {
   .nav { display: none; }
 }
+
+/* ------------------------------------------------------------------ *
+ * Plain-text report preview
+ * ------------------------------------------------------------------ */
+
+.report-text {
+  margin: 0;
+  padding: 14px 16px;
+  background: var(--sw-panel);
+  border: 1px solid var(--sw-hairline);
+  border-radius: 7px;
+  font-family: var(--sw-font-mono);
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--sw-ink);
+  white-space: pre;
+  overflow-x: auto;
+  max-height: 52vh;
+  overflow-y: auto;
+  /* Selecting the whole block should be one gesture. */
+  user-select: all;
+}
+
+/* ------------------------------------------------------------------ *
+ * Probe history strip
+ * ------------------------------------------------------------------ */
+
+.probe-strip {
+  display: flex;
+  gap: 2px;
+  align-items: stretch;
+  height: 22px;
+}
+
+.probe-strip__tick {
+  flex: 1;
+  min-width: 2px;
+  background: var(--sw-ok);
+  border-radius: 2px;
+  opacity: 0.85;
+}
+
+.probe-strip__tick--bad {
+  background: var(--sw-crimson);
+  opacity: 1;
+}

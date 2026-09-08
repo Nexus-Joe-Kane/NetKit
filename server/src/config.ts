@@ -149,6 +149,18 @@ export interface AppConfig {
   bt: BtConfig;
   jola: JolaConfig;
   /**
+   * Ofcom mobile coverage. The Connected Nations postcode dataset is the
+   * dependable route — free, no account. An API base URL is an optional
+   * override for accounts that have a live endpoint.
+   */
+  ofcom: { datasetPath: string; apiBaseUrl: string; apiKey: string };
+  /**
+   * The recovery supervisor: probes every integration on an interval and
+   * tries to fix what it can. On by default — an internal tool that quietly
+   * serves demo data because a token expired is worse than one that notices.
+   */
+  supervisor: { enabled: boolean; intervalSeconds: number; selfTestOnBoot: boolean };
+  /**
    * Placing real orders is off unless explicitly enabled. Ordering spends
    * money and books engineer appointments, so it needs a deliberate switch
    * rather than inheriting the credentials that read data.
@@ -190,6 +202,18 @@ export function config(): AppConfig {
     zen: loadZen(),
     bt: loadBt(),
     allowOrdering: bool('ZEN_ALLOW_ORDERING', false),
+    ofcom: {
+      datasetPath: str('OFCOM_DATASET_PATH'),
+      apiBaseUrl: str('OFCOM_API_BASE_URL'),
+      apiKey: str('OFCOM_API_KEY'),
+    },
+    supervisor: {
+      enabled: bool('SUPERVISOR_ENABLED', true),
+      // Five minutes is frequent enough to catch a token expiry before a
+      // user does, and rare enough to be invisible to the upstreams.
+      intervalSeconds: Math.max(60, num('SUPERVISOR_INTERVAL_SECONDS', 300)),
+      selfTestOnBoot: bool('SELFTEST_ON_BOOT', true),
+    },
     jola: {
       baseUrl: str('JOLA_BASE_URL'),
       apiKey: str('JOLA_API_KEY'),

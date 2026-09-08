@@ -11,6 +11,7 @@ import {
 import { Alert, Card, Cell, Chip, CopyButton, Label, Spinner, Switch, formatDateTime, type ChipTone } from './ui';
 import { Tabs, TabPanel, type TabDef } from './Tabs';
 import { Modal, useConfirm } from './overlay';
+import { RecoveryPage } from '../pages/Recovery';
 
 /**
  * Admin portal: service status, integration toggles, users and the audit log.
@@ -37,13 +38,14 @@ const STATE_LABEL: Record<ServiceState, string> = {
   disabled: 'Switched off',
 };
 
-type Tab = 'status' | 'users' | 'audit';
+type Tab = 'status' | 'recovery' | 'users' | 'audit';
 
 export function AdminPortal({ me }: { me: PublicUser }): ReactElement {
   const [tab, setTab] = useState<Tab>('status');
 
   const tabs: Array<TabDef<Tab>> = [
     { id: 'status', label: 'Service status' },
+    { id: 'recovery', label: 'Recovery & self-test' },
     { id: 'users', label: 'Users' },
     { id: 'audit', label: 'Audit log' },
   ];
@@ -53,6 +55,7 @@ export function AdminPortal({ me }: { me: PublicUser }): ReactElement {
       <Tabs tabs={tabs} active={tab} onChange={setTab} variant="primary" label="Admin sections" />
       <TabPanel>
         {tab === 'status' && <StatusBoard />}
+        {tab === 'recovery' && <RecoveryPage />}
         {tab === 'users' && <UsersBoard me={me} />}
         {tab === 'audit' && <AuditBoard />}
       </TabPanel>

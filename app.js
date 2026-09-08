@@ -26,6 +26,8 @@ if (!fs.existsSync(distApp)) {
 const { createApp } = require(distApp);
 const { ensureAdminSeed } = require(path.join(__dirname, 'server', 'dist', 'auth', 'seed.js'));
 const { config } = require(path.join(__dirname, 'server', 'dist', 'config.js'));
+const { selfTestOnBoot } = require(path.join(__dirname, 'server', 'dist', 'admin', 'selftest.js'));
+const { startSupervisor, stopSupervisor } = require(path.join(__dirname, 'server', 'dist', 'admin', 'supervisor.js'));
 
 async function start() {
   await ensureAdminSeed();
@@ -34,13 +36,18 @@ async function start() {
   const app = createApp();
   const port = process.env.PORT || cfg.port || 3000;
 
-  const server = app.listen(port, () => {
+  const server = app.listen(port, async () => {
     console.log(`[netkit] SupportWizard NetKit v${cfg.version} ready on port ${port} (${cfg.env}, data mode: ${cfg.dataMode})`);
+    // Prove this deployment works before anyone relies on it, then keep
+    // watching for anything that breaks later and try to fix it.
+    await selfTestOnBoot();
+    startSupervisor();
   });
 
   // Plesk restarts the app by signalling it — drain in-flight requests first.
   for (const signal of ['SIGTERM', 'SIGINT']) {
     process.on(signal, () => {
+      stopSupervisor();
       server.close(() => process.exit(0));
       setTimeout(() => process.exit(0), 8000).unref();
     });

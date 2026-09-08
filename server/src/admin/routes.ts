@@ -20,6 +20,8 @@ import {
   updateUser,
 } from '../auth/store';
 import { serviceStatuses } from './health';
+import { runSelfTest } from './selftest';
+import { sweep, supervisorState } from './supervisor';
 import { config } from '../config';
 
 /**
@@ -84,6 +86,54 @@ export function adminRouter(): Router {
         },
         resend: settings().resend,
       });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /* ---- Supervisor and self-test ------------------------------------ */
+
+  router.get('/supervisor', (_req, res) => {
+    send(res, supervisorState());
+  });
+
+  /** Forces a sweep now rather than waiting for the interval. */
+  router.post('/supervisor/sweep', async (req, res, next) => {
+    try {
+      const result = await sweep();
+      audit({
+        actorId: req.user!.id,
+        actorEmail: req.user!.email,
+        action: 'supervisor.manual_sweep',
+        detail: result.skipped
+          ? { skipped: true, reason: 'a sweep was already in flight' }
+          : {
+              checked: result.checked,
+              healthy: result.healthy,
+              failing: result.failing,
+              recovered: result.recovered,
+              circuitsOpened: result.circuitsOpened,
+              circuitsClosed: result.circuitsClosed,
+            },
+        ip: req.ip,
+      });
+      send(res, { sweep: result, state: supervisorState() });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post('/selftest', async (req, res, next) => {
+    try {
+      const report = await runSelfTest();
+      audit({
+        actorId: req.user!.id,
+        actorEmail: req.user!.email,
+        action: 'selftest.manual_run',
+        detail: { outcome: report.outcome, ...report.counts },
+        ip: req.ip,
+      });
+      send(res, report);
     } catch (err) {
       next(err);
     }

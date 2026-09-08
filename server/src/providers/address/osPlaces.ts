@@ -75,6 +75,11 @@ function titleCase(v: string): string {
 
 const cache = new TtlCache<AddressRecord[]>(60 * 60 * 1000, 2000);
 
+/** Drops the cache. Used by the recovery supervisor. */
+export function clearOsPlacesCache(): void {
+  cache.clear();
+}
+
 export function createOsPlacesProvider(): AddressProvider {
   const cfg = config();
 

@@ -27,6 +27,17 @@ const serviceCache = new TtlCache<LineRecord[]>(5 * 60 * 1000, 1000);
 
 let lastQuota: { remaining: unknown; at: string } | null = null;
 
+/**
+ * Drops every cached Zen result. Used by the recovery supervisor: a run of
+ * failures may have poisoned a cache with a bad or partial response, and
+ * serving that indefinitely is worse than re-fetching.
+ */
+export function clearZenCaches(): void {
+  addressCache.clear();
+  availabilityCache.clear();
+  serviceCache.clear();
+}
+
 /** Latest fair-use quota Zen reported, surfaced in the admin portal. */
 export function zenAvailabilityQuota(): { remaining: unknown; at: string } | null {
   return lastQuota;

@@ -71,19 +71,23 @@ three BT products. That is it.
 
 These are the highest value-per-effort items left.
 
-### 3.1 Ofcom Connected Nations — makes mobile signal real ⭐
+### 3.1 Ofcom Connected Nations — ✅ **done**
 
-The single most valuable addition. Right now coverage is modelled from a
-seeded environment; it is coherent and honest about being demo data, but it is
-not measurement. Ofcom publish predicted coverage per operator for voice, 4G
-and 5G, indoor and outdoor, as open data at postcode level.
+Coverage is no longer modelled when a dataset is present. Download the
+Connected Nations postcode-level mobile file, point `OFCOM_DATASET_PATH` at
+it, and the panel serves Ofcom's published prediction with `source:
+ofcom:dataset`.
 
-Wiring it would turn the signal panel from "plausible" into "defensible" —
-which matters the moment you quote a customer on 4G backup or tell them a site
-needs Wi-Fi calling. The `SignalProvider` interface already exists; this is
-one adapter.
+Column names have changed between Ofcom releases, so the header is
+*interpreted* rather than hard-coded — each column is tokenised and matched
+for operator, service and placement. `docs/samples/` has a small sample and
+the detail. The admin board reports how many postcodes were indexed and how
+many columns were understood, so a format change surfaces as a degraded
+integration rather than silently empty data.
 
-**Free. No account. I'd do this first.**
+One thing I could not verify: whether Ofcom also expose a live per-postcode
+API. I hit a tool limit before confirming it, so `OFCOM_API_BASE_URL` exists
+as an override but the dataset is the route I actually tested.
 
 ### 3.2 Companies House API — business context on a site
 
@@ -171,12 +175,39 @@ pasting a hundred postcodes in a row. I would add a per-user daily
 availability budget, visible in the admin portal, before this goes to a wider
 team.
 
-### 5.4 Health checks in the admin portal are on-demand only
+### 5.4 Health checks — ✅ **done, and it now repairs as well as reports**
 
-They run when the page loads. If Zen goes down at 3am nobody knows until
-someone opens the portal. A scheduled probe writing to the audit log, and an
-email when a previously-healthy integration starts failing, would close that.
-Resend is already wired, so it is a small job.
+Rather than emailing on breakage, the supervisor tries to fix it. Every five
+minutes it probes all eighteen integrations and, on the second consecutive
+failure, runs the recovery actions for that integration before the circuit
+breaker would trip:
+
+| Integration | Recovery attempted |
+| --- | --- |
+| Zen (any scope) | Re-mint the OAuth token, then drop cached Zen results |
+| BT (any product) | Re-mint the access token |
+| Ofcom | Reload the dataset from disk |
+| OS Places, postcodes.io | Drop the cache |
+| Resend | *Nothing* — re-sending a test email unattended would spam the admin's inbox every sweep |
+
+A token that expired, was revoked, or was minted before a scope was granted is
+by far the most common real failure, and re-minting fixes it without anyone
+noticing. Verified end to end against a stand-in token endpoint that failed
+twice and then succeeded: the supervisor detected it, re-minted, confirmed
+recovery and logged `supervisor.recovered`.
+
+If recovery does not work, the **circuit breaker** opens after three
+failures. Lookups then skip that upstream and go straight to the fallback
+rather than waiting for its timeout — a site report stayed at 93 ms with Zen
+pointed at a black hole. Reattempts back off 30s → 1m → 2m → 5m → 15m and
+hold there.
+
+The breaker is deliberately separate from the admin on/off switch: automation
+never overrides a human decision, and a human switch is never quietly undone.
+
+Still worth adding if you want it: an email when an integration has been
+failing for, say, an hour despite recovery. That is the case where a human
+genuinely does need to know.
 
 ### 5.5 The session cookie is 12 hours with no refresh
 
@@ -195,9 +226,12 @@ Ordered by how often I think they would get used.
    outages and line stability on one screen.
 3. **A "what changed" digest.** Daily email: new faults, orders that slipped,
    SIMs over allowance, integrations that broke. Resend is already connected.
-4. **Copy-as-text for a whole site report.** Support paste site detail into
-   tickets and emails constantly. One button producing a clean plain-text
-   summary would get used every day. Cheap to build.
+4. ~~**Copy-as-text for a whole site report.**~~ ✅ **done.** "Copy as text" on
+   any site report produces about 90 lines of aligned plain text — address and
+   UPRN, best available, orderable options, Openreach detail, coverage per
+   network, every line with its identifiers and sync — with no formatting to
+   survive a helpdesk, an email reply or a message. It also states plainly
+   where demo data was used.
 5. **Export to CSV** on the orders, faults, SIMs and CDR tables.
 6. **A customer-facing site report.** The brand guide has a whole
    *client-facing* document system that NetKit does not use — it only uses the
@@ -256,16 +290,18 @@ Nothing here is alarming, but worth writing down.
 
 ## 9. If I could only do three more things
 
-1. **Wire Ofcom Connected Nations** (§3.1). Free, and it turns the weakest
-   panel into a defensible one.
-2. **Copy-as-text for a site report** (§6.4). Tiny, and it would get used
-   every single day.
-3. **Scheduled health probes with an email when an integration breaks**
-   (§5.4). The difference between finding out at 3am and finding out from a
-   customer.
+The original three are done — Ofcom coverage, copy-as-text, and automated
+testing with recovery. The next three I would pick:
 
-Everything else can wait for the credentials to land and for real use to show
-what is actually missing.
+1. **Get the credentials in and run the self-test.** Everything is built and
+   mapped, but no mapping survives contact with a real response untouched.
+   The self-test will tell you in one click which integrations actually work
+   and which enum I mapped to `unknown`.
+2. **Escalate a persistent failure to a human** (§5.4). Recovery handles the
+   transient cases; an integration still failing an hour later is one a person
+   needs to know about.
+3. **Recent lookups per user** (§6.1). Small, and support staff check the same
+   site repeatedly all day.
 
 ---
 

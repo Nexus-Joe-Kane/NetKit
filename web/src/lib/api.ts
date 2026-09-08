@@ -262,6 +262,9 @@ export const api = {
     request<{ deleted: boolean }>(`/api/admin/users/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   revokeSessions: (id: string) => post<{ revoked: boolean }>(`/api/admin/users/${encodeURIComponent(id)}/revoke-sessions`),
   audit: (limit = 200) => request<{ entries: AuditEntry[] }>(`/api/admin/audit?limit=${limit}`),
+  supervisor: () => request<SupervisorState>('/api/admin/supervisor'),
+  sweepNow: () => post<{ sweep: SweepResult; state: SupervisorState }>('/api/admin/supervisor/sweep'),
+  selfTest: () => post<SelfTestReport>('/api/admin/selftest'),
 };
 
 export type ServiceState = 'ok' | 'degraded' | 'down' | 'not_configured' | 'disabled';
@@ -269,6 +272,7 @@ export type ServiceState = 'ok' | 'degraded' | 'down' | 'not_configured' | 'disa
 export interface ServiceStatus {
   key: string;
   name: string;
+  /** Zen, BT, Jola, Ofcom, Ordnance Survey, postcodes.io, Resend, Internal. */
   vendor: string;
   capability: string;
   state: ServiceState;
@@ -292,6 +296,80 @@ export interface AdminStatus {
     sessionSecretSet: boolean;
   };
   resend: { verified: boolean; verifiedAt?: string; lastError?: string; lastTestTo?: string };
+}
+
+export type HealthState =
+  | 'healthy'
+  | 'degraded'
+  | 'failing'
+  | 'circuit_open'
+  | 'recovering'
+  | 'not_configured'
+  | 'disabled';
+
+export interface RecoveryAttempt {
+  at: string;
+  action: string;
+  outcome: 'recovered' | 'still_failing' | 'error';
+  detail?: string;
+}
+
+export interface IntegrationHealth {
+  key: string;
+  name: string;
+  vendor: string;
+  state: HealthState;
+  consecutiveFailures: number;
+  consecutiveSuccesses: number;
+  lastCheckedAt?: string;
+  lastOkAt?: string;
+  lastError?: string;
+  latencyMs?: number;
+  circuit: { open: boolean; openedAt?: string; nextAttemptAt?: string; backoffSeconds: number };
+  recoveries: RecoveryAttempt[];
+  history: Array<{ at: string; ok: boolean; ms: number }>;
+  availability?: number;
+}
+
+export interface SupervisorState {
+  enabled: boolean;
+  intervalSeconds: number;
+  lastSweepAt: string | null;
+  sweeps: number;
+  integrations: IntegrationHealth[];
+}
+
+export interface SweepResult {
+  at: string;
+  checked: number;
+  healthy: number;
+  failing: number;
+  recovered: string[];
+  circuitsOpened: string[];
+  circuitsClosed: string[];
+  skipped?: boolean;
+}
+
+export type CheckStatus = 'pass' | 'fail' | 'warn' | 'skip';
+
+export interface Check {
+  id: string;
+  group: string;
+  name: string;
+  status: CheckStatus;
+  detail: string;
+  durationMs: number;
+  mode?: 'live' | 'mock';
+}
+
+export interface SelfTestReport {
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  outcome: 'pass' | 'fail';
+  counts: Record<CheckStatus, number>;
+  checks: Check[];
+  environment: { dataMode: string; nodeEnv: string; version: string };
 }
 
 export interface AuditEntry {
