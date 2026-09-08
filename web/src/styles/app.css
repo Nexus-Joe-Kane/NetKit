@@ -1811,21 +1811,72 @@ table.data td.num {
 }
 
 /* ------------------------------------------------------------------ *
+ * Print picker
+ * ------------------------------------------------------------------ */
+
+.print-picker {
+  display: grid;
+  gap: 6px;
+  margin-top: 5px;
+}
+
+.print-picker__item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 9px 11px;
+  border: 1px solid var(--sw-hairline);
+  border-radius: 9px;
+  background: var(--sw-white);
+  cursor: pointer;
+}
+
+.print-picker__item:hover { border-color: var(--sw-cell-rule); }
+
+.print-picker__item--empty {
+  opacity: 0.55;
+  cursor: default;
+  background: var(--sw-panel);
+}
+
+.print-picker__item input { margin-top: 2px; }
+
+.print-picker__label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: var(--sw-weight-medium);
+  color: var(--sw-ink);
+}
+
+.print-picker__hint {
+  display: block;
+  font-size: 11.5px;
+  color: var(--sw-muted);
+  margin-top: 2px;
+  line-height: 1.4;
+}
+
+/* ------------------------------------------------------------------ *
  * Printable report
  *
  * Printing used to capture whichever tab was open, which cannot produce a
  * complete picture of a premises because the other panels are not mounted.
- * `PrintableReport` renders every section from the report data and is shown
- * only here; the interactive report is hidden so the two never double up.
+ * `PrintableReport` renders the chosen sections from the report data and is
+ * shown only here; the interactive report is hidden so the two never double
+ * up.
+ *
+ * Branded on purpose: these are handed to customers and attached to quotes,
+ * so the letterhead carries the lockup and the crimson rule. Browsers strip
+ * backgrounds when printing unless told otherwise, hence
+ * `print-color-adjust` on the few elements whose colour carries meaning.
  * ------------------------------------------------------------------ */
 
 .print-only { display: none; }
 
 @media print {
   .print-only { display: block; }
-
-  /* The tabbed report, the identity box and the summary strip are all
-     reproduced inside the printable version. */
   .report-interactive { display: none !important; }
 
   .print-report {
@@ -1834,36 +1885,78 @@ table.data td.num {
     color: #000;
   }
 
+  /* ---- Letterhead ------------------------------------------------- */
+
+  .print-report__brand {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12pt;
+    padding-bottom: 6pt;
+    border-bottom: 2.5pt solid var(--sw-crimson);
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .print-report__logo {
+    height: 30pt;
+    width: auto;
+  }
+
+  .print-report__service {
+    font-size: 8pt;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--sw-navy);
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .print-report__head { margin-top: 10pt; }
+
   .print-report h1 {
     font-size: 15pt;
     margin: 0 0 8pt;
+    color: var(--sw-navy);
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
   .print-report h2 {
-    font-size: 12pt;
+    font-size: 11.5pt;
     margin: 14pt 0 5pt;
-    padding-bottom: 2pt;
-    border-bottom: 0.5pt solid #000;
+    padding-bottom: 2.5pt;
+    border-bottom: 0.75pt solid var(--sw-navy);
+    color: var(--sw-navy);
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
   .print-report h3 {
-    font-size: 10.5pt;
+    font-size: 10pt;
     margin: 9pt 0 3pt;
   }
 
   .print-report section { break-inside: avoid; }
 
   .print-report__head dl {
-    display: flex;
-    gap: 18pt;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4pt 16pt;
     margin: 0 0 4pt;
+    padding: 6pt 8pt;
+    background: var(--sw-panel);
+    border-left: 2pt solid var(--sw-badge-1);
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
   .print-report__head dt {
-    font-size: 7.5pt;
+    font-size: 7pt;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.07em;
     margin: 0;
+    color: #555;
   }
 
   .print-report__head dd {
@@ -1875,7 +1968,8 @@ table.data td.num {
 
   .print-report__note {
     margin: 3pt 0 0;
-    font-size: 9pt;
+    font-size: 8.5pt;
+    color: #333;
   }
 
   .print-report table {
@@ -1892,10 +1986,14 @@ table.data td.num {
     vertical-align: top;
   }
 
-  .print-report th {
-    font-size: 8pt;
+  .print-report thead th {
+    font-size: 7.5pt;
     text-transform: uppercase;
     letter-spacing: 0.05em;
+    border-bottom: 0.75pt solid var(--sw-navy);
+    color: var(--sw-navy);
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
   .print-report ul {
@@ -1903,15 +2001,75 @@ table.data td.num {
     padding-left: 14pt;
   }
 
+  /* Openreach facts. Pairs rather than a table: it is a handful of values,
+     not a list, and it should reflow rather than hold empty columns. */
+  .print-report__facts {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 3pt 14pt;
+    margin: 3pt 0 0;
+  }
+
+  .print-report__facts dt {
+    font-size: 7pt;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #555;
+    margin: 0;
+  }
+
+  .print-report__facts dd {
+    margin: 0;
+    font-weight: 600;
+  }
+
+  .print-report[data-density='roomy'] .print-report__facts { grid-template-columns: repeat(2, 1fr); }
+  .print-report[data-density='tight'] .print-report__facts { grid-template-columns: repeat(4, 1fr); gap: 2pt 10pt; }
+
   .print-report__foot {
     margin-top: 16pt;
     padding-top: 4pt;
-    border-top: 0.5pt solid #000;
-    font-size: 8.5pt;
+    border-top: 2pt solid var(--sw-crimson);
+    font-size: 8pt;
+    color: #333;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
+
+  .print-report__foot p { margin: 0 0 1pt; }
+
+  /* ---- Density ----------------------------------------------------- *
+   * The page adapts to how much was ticked. One or two sections get room
+   * to breathe rather than sitting in a sea of white; six get packed so
+   * they still land on one sheet.
+   * ------------------------------------------------------------------ */
+
+  .print-report[data-density='roomy'] {
+    font-size: 12pt;
+    line-height: 1.55;
+  }
+
+  .print-report[data-density='roomy'] h1 { font-size: 19pt; }
+  .print-report[data-density='roomy'] h2 { font-size: 13.5pt; margin-top: 18pt; }
+  .print-report[data-density='roomy'] .print-report__head dl { padding: 9pt 11pt; gap: 6pt 20pt; }
+  .print-report[data-density='roomy'] th,
+  .print-report[data-density='roomy'] td { padding: 4pt 6pt 4pt 0; }
+
+  .print-report[data-density='tight'] {
+    font-size: 9.5pt;
+    line-height: 1.34;
+  }
+
+  .print-report[data-density='tight'] h1 { font-size: 13pt; margin-bottom: 5pt; }
+  .print-report[data-density='tight'] h2 { font-size: 10.5pt; margin: 10pt 0 3pt; }
+  .print-report[data-density='tight'] h3 { font-size: 9.5pt; margin: 6pt 0 2pt; }
+  .print-report[data-density='tight'] th,
+  .print-report[data-density='tight'] td { padding: 1.5pt 3pt 1.5pt 0; }
+  .print-report[data-density='tight'] .print-report__head dl { padding: 4pt 6pt; }
+  .print-report[data-density='tight'] .print-report__foot { margin-top: 10pt; }
 
   @page {
     size: A4;
-    margin: 14mm;
+    margin: 13mm;
   }
 }
