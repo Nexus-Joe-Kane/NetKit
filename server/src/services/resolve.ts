@@ -19,6 +19,7 @@ import { config } from '../config';
 import { TtlCache } from '../lib/cache';
 import { badRequest, notFound } from '../lib/errors';
 import { firstResult, providers } from '../providers/registry';
+import { predictedSpeedsFor } from '../providers/coverage/ofcomBroadband';
 
 /**
  * The resolver.
@@ -271,13 +272,16 @@ async function availabilityFor(
   const started = Date.now();
   // Wholesale and alt-net are fetched together: they are independent
   // upstreams and one should never wait on the other.
-  const [result, supplemental] = await Promise.all([
+  const [result, supplemental, predicted] = await Promise.all([
     firstResult(
       providers().availability,
       (p) => p.forAddress(address),
       (v) => v.offers.length > 0 || Boolean(v.openreach),
     ),
     supplementalOffersFor(address),
+    // The regulator's own prediction. Independent of both chains, and never
+    // allowed to fail the section — it is context, not the answer.
+    predictedSpeedsFor(address).catch(() => null),
   ]);
 
   if (result.value === null) {
@@ -292,6 +296,7 @@ async function availabilityFor(
         address,
         offers: coverageOnly,
         ...(coverageHeadline ? { headline: coverageHeadline } : {}),
+        ...(predicted ? { predicted } : {}),
         checkedAt: new Date().toISOString(),
         sources: supplemental.sources,
       },
@@ -308,7 +313,8 @@ async function availabilityFor(
     ...result.value,
     offers: merged,
     ...(headline ? { headline } : {}),
-    sources: [...result.value.sources, ...supplemental.sources],
+    ...(predicted ? { predicted } : {}),
+    sources: [...result.value.sources, ...supplemental.sources, ...(predicted ? ['ofcom:broadband-api'] : [])],
   };
   return { value, status: ok(result.mode, Date.now() - started) };
 }

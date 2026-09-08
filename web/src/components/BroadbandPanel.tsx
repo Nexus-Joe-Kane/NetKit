@@ -136,6 +136,19 @@ export function BroadbandPanel({ data }: { data: BroadbandAvailability }): React
                 Ref {availabilityRef}
               </Chip>
             )}
+            {data.predicted && (
+              <Chip
+                tone="idle"
+                title={
+                  data.predicted.premisesMatched
+                    ? 'Ofcom predict this for this exact premises. An independent figure — not a provider quote, and it names no operator.'
+                    : `Ofcom have no record of this exact premises, so this is the best predicted across the ${data.predicted.premisesInPostcode ?? 0} premises in the postcode.`
+                }
+              >
+                Ofcom predict {formatMbps(data.predicted.maxDownMbps ?? 0)}
+                {!data.predicted.premisesMatched ? ' (postcode)' : ''}
+              </Chip>
+            )}
             {data.remainingChecks != null && (
               <Chip
                 tone={data.remainingChecks < 25 ? 'warn' : 'idle'}
@@ -166,7 +179,26 @@ export function BroadbandPanel({ data }: { data: BroadbandAvailability }): React
                   </span>
                 </div>
               )}
-              <div style={{ marginTop: rows.length > 0 ? 14 : 0 }}>
+              {data.predicted && (
+                <div style={{ marginTop: rows.length > 0 ? 14 : 0 }}>
+                  <Label>What Ofcom predict for this premises</Label>
+                  <p className="muted" style={{ fontSize: 12.5, margin: '4px 0 8px', maxWidth: 640 }}>
+                    The regulator's own model, {data.predicted.premisesMatched ? 'for this exact UPRN' : 'averaged across the postcode because Ofcom have no record of this UPRN'}.
+                    It names no operator — Ofcom withhold that as commercially confidential — so it answers what is
+                    possible here, never who from. Useful as a second opinion when a wholesale estimate looks wrong.
+                  </p>
+                  <div className="kv">
+                    <Cell label="Max predicted down" value={data.predicted.maxDownMbps != null ? formatMbps(data.predicted.maxDownMbps) : undefined} mono />
+                    <Cell label="Max predicted up" value={data.predicted.maxUpMbps != null ? formatMbps(data.predicted.maxUpMbps) : undefined} mono />
+                    <Cell label="Superfast (30 Mb+)" value={data.predicted.superfastDownMbps != null ? formatMbps(data.predicted.superfastDownMbps) : undefined} mono />
+                    <Cell label="Ultrafast (300 Mb+)" value={data.predicted.ultrafastDownMbps != null ? formatMbps(data.predicted.ultrafastDownMbps) : undefined} mono />
+                    <Cell label="Matched" value={data.predicted.premisesMatched ? 'This exact premises' : 'Postcode only'} />
+                    <Cell label="Premises in postcode" value={data.predicted.premisesInPostcode} mono />
+                  </div>
+                </div>
+              )}
+
+              <div style={{ marginTop: 16 }}>
                 <ExternalCheckers postcode={data.address.postcode} />
               </div>
             </div>

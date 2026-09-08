@@ -141,6 +141,14 @@ export function siteReportToText(report: SiteReport): string {
       }
     }
 
+    if (broadband.predicted) {
+      const p = broadband.predicted;
+      out.push('', 'OFCOM PREDICTION (independent — names no operator)', rule());
+      out.push(`  Max down:        ${mbps(p.maxDownMbps) ?? '—'}`);
+      out.push(`  Max up:          ${mbps(p.maxUpMbps) ?? '—'}`);
+      out.push(`  Matched:         ${p.premisesMatched ? 'this exact premises' : `postcode only (${p.premisesInPostcode ?? 0} premises)`}`);
+    }
+
     if (coverageOnly.length) {
       out.push('', 'OTHER NETWORKS IN THE AREA — NOT CHECKED FOR THIS ADDRESS', rule());
       for (const offer of coverageOnly) {

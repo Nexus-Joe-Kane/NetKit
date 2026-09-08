@@ -292,6 +292,31 @@ export interface OpenreachDetail {
   flags: Array<{ level: 'info' | 'warn' | 'critical'; label: string; detail?: string }>;
 }
 
+/**
+ * Ofcom's predicted speeds for one premises.
+ *
+ * An independent regulator figure, deliberately kept apart from the offers
+ * table for two reasons. It names **no operator** — Ofcom withhold the
+ * per-provider split as commercially confidential — so it can never be a
+ * row you might order. And it is a *prediction* from their model, not a
+ * provider's quote, so it is most useful as a sanity check: when the
+ * wholesale estimate and the regulator disagree sharply, that is worth
+ * knowing before promising anything.
+ */
+export interface PredictedSpeeds {
+  /** Best predicted speeds from any technology at the premises. */
+  maxDownMbps?: number;
+  maxUpMbps?: number;
+  /** Superfast (30 Mb+) and ultrafast (300 Mb+) tiers, where predicted. */
+  superfastDownMbps?: number;
+  ultrafastDownMbps?: number;
+  /** True when the figures are for this exact UPRN, not a postcode average. */
+  premisesMatched: boolean;
+  /** How many premises the postcode returned, for context on an average. */
+  premisesInPostcode?: number;
+  source: string;
+}
+
 export interface BroadbandAvailability {
   uprn?: string;
   address: AddressRecord;
@@ -305,6 +330,8 @@ export interface BroadbandAvailability {
   availabilityReference?: string;
   /** Fair-use checks left on the account, where the provider reports it. */
   remainingChecks?: number;
+  /** The regulator's own prediction for this premises, where available. */
+  predicted?: PredictedSpeeds;
   /** Best available technology, precomputed for the summary strip. */
   headline?: {
     technology: AccessTechnology;

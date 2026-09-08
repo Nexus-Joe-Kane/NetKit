@@ -199,6 +199,35 @@ function probes(): Probe[] {
       'integrations/serviceCatalogue.read',
     ),
 
+    // ---- Ofcom Connected Nations Broadband API --------------------------
+    {
+      key: 'ofcom-broadband',
+      name: 'Ofcom broadband coverage API',
+      vendor: 'Ofcom',
+      capability:
+        'Per-premises predicted speeds by UPRN. Free with a developer account, 50,000 requests a month. Names no operator',
+      docsUrl: 'https://api.ofcom.org.uk/',
+      configured: () => cfg.ofcomBroadband.configured,
+      run: async () => {
+        const started = Date.now();
+        // Ofcom want the postcode uppercase with no spaces.
+        const res = await fetchJson<{ Count?: number }>(`${cfg.ofcomBroadband.baseUrl}/coverage/SW1A1AA`, {
+          label: 'Ofcom broadband API',
+          headers: { 'Ocp-Apim-Subscription-Key': cfg.ofcomBroadband.apiKey },
+          timeoutMs: 8000,
+          retries: 0,
+          notFoundAsNull: true,
+        });
+        return {
+          state: res ? ('ok' as const) : ('degraded' as const),
+          detail: res
+            ? `Reachable and authenticated (${res.Count ?? 0} premises at the probe postcode).`
+            : 'Reachable but returned nothing for the probe postcode — check the Broadband Coverage product is subscribed.',
+          meta: { probeMs: Date.now() - started },
+        };
+      },
+    },
+
     // ---- thinkbroadband -------------------------------------------------
     {
       key: 'thinkbroadband',
@@ -295,11 +324,8 @@ function probes(): Probe[] {
       capability:
         'Published per-operator coverage for voice, 4G and 5G, indoor and outdoor. Free Connected Nations open data — no account',
       docsUrl: 'https://www.ofcom.org.uk/research-and-data/multi-sector-research/infrastructure-research',
-      configured: () => Boolean(cfg.ofcom.datasetPath || cfg.ofcom.apiBaseUrl),
+      configured: () => Boolean(cfg.ofcom.datasetPath),
       run: async () => {
-        if (cfg.ofcom.apiBaseUrl && !cfg.ofcom.datasetPath) {
-          return { state: 'ok' as const, detail: `Configured against ${cfg.ofcom.apiBaseUrl}.` };
-        }
         const status = datasetStatus();
         if (!status.loaded) {
           return {

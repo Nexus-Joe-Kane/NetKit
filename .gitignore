@@ -5,7 +5,11 @@ build/
 .env.local
 *.log
 .DS_Store
-coverage/
+# Test coverage output. Anchored to the repo root and the workspace roots
+# on purpose: an unanchored `coverage/` also swallowed
+# `server/src/providers/coverage/`, which is source.
+/coverage/
+/*/coverage/
 .vite/
 *.tsbuildinfo
 dist-test/

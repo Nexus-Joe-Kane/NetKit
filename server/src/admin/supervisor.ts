@@ -10,6 +10,7 @@ import { clearOsPlacesCache } from '../providers/address/osPlaces';
 import { loadDataset } from '../providers/signal/ofcom';
 import { clearReportCache } from '../services/resolve';
 import { clearCompaniesCache } from '../providers/companies/companiesHouse';
+import { clearOfcomBroadbandCache } from '../providers/coverage/ofcomBroadband';
 import { clearThinkbroadbandCache } from '../providers/altnet/thinkbroadband';
 import { resetGiacomTokens } from '../providers/giacom/client';
 import { clearGiacomCaches } from '../providers/giacom/adapters';
@@ -156,6 +157,10 @@ function recoveryActionsFor(key: string): RecoveryAction[] {
 
   if (key === 'postcodes-io') {
     return [{ name: 'Drop cached postcode geography', run: () => clearPostcodeCache() }];
+  }
+
+  if (key === 'ofcom-broadband') {
+    return [{ name: 'Drop cached Ofcom predictions', run: () => clearOfcomBroadbandCache() }];
   }
 
   if (key === 'ofcom-coverage') {
