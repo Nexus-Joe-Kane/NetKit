@@ -29,6 +29,7 @@ import {
 } from '../components/ui';
 import type { CsvColumn } from '../lib/csv';
 import { Modal } from '../components/overlay';
+import { BulkLookup } from '../components/BulkLookup';
 
 /**
  * Tools — the standalone lookups that are not about one site.
@@ -208,10 +209,12 @@ export function ToolsPage(): ReactElement {
     <div className="stack">
       <Card title="Tools" eyebrow="Standalone lookups" index="01" accent={1}>
         <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.6 }}>
-          Lookups that are not about a single site. Anything site-specific — availability, coverage, lines,
-          diagnostics — lives under Lookup instead.
+          Bulk lookup below takes a whole list at once. The rest are lookups that are not about a single
+          site — anything site-specific lives under Lookup instead.
         </p>
       </Card>
+
+      <BulkLookup />
 
       <div className="tool-grid">
         {tools.map((tool) => (
