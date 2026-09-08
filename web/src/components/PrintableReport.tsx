@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react';
-import type { SiteReport } from '@sw/shared';
+import type { PrintSection, SiteReport } from '@sw/shared';
+import { printDensity } from '@sw/shared';
 import { formatMbps } from './ui';
 
 /**
@@ -17,15 +18,35 @@ import { formatMbps } from './ui';
  * photocopied, so nothing here depends on colour to carry meaning, and
  * anything qualified on screen is qualified here in words.
  */
-export function PrintableReport({ report }: { report: SiteReport }): ReactElement {
+export function PrintableReport({
+  report,
+  sections,
+}: {
+  report: SiteReport;
+  /** What was ticked in the print dialog. */
+  sections: Set<PrintSection>;
+}): ReactElement {
   const b = report.broadband;
   const sellable = (b?.offers ?? []).filter((o) => o.serviceability !== 'footprint');
   const footprint = (b?.offers ?? []).filter((o) => o.serviceability === 'footprint');
 
+  const on = (id: PrintSection): boolean => sections.has(id);
+  // Drives the layout. One or two sections get room to breathe; six get
+  // packed tighter, and the short fact blocks pair up two to a row rather
+  // than each taking a full width of white space.
+  const density = printDensity(sections.size);
+  const showBroadband = on('headline') || on('options') || on('footprint') || on('predicted') || on('openreach');
+
   return (
-    <div className="print-only print-report">
+    <div className="print-only print-report" data-density={density}>
+      <header className="print-report__brand">
+        <img className="print-report__logo" src="/brand/supportwizard-lockup.png" alt="Support Wizard" />
+        <span className="print-report__service">NetKit · Site report</span>
+      </header>
+
       <header className="print-report__head">
         <h1>{report.address.singleLine}</h1>
+        {on('identity') && (
         <dl>
           <div>
             <dt>UPRN</dt>
@@ -43,11 +64,13 @@ export function PrintableReport({ report }: { report: SiteReport }): ReactElemen
             </dd>
           </div>
         </dl>
+        )}
       </header>
 
+      {showBroadband && (
       <section>
         <h2>Broadband</h2>
-        {b?.headline ? (
+        {on('headline') && (b?.headline ? (
           <p className="print-report__lead">
             Best available: <strong>{b.headline.technology}</strong> from {b.headline.operatorLabel}
             {b.headline.downMbps != null && (
@@ -61,9 +84,9 @@ export function PrintableReport({ report }: { report: SiteReport }): ReactElemen
           </p>
         ) : (
           <p className="print-report__lead">No availability was returned for this premises.</p>
-        )}
+        ))}
 
-        {sellable.length > 0 && (
+        {on('options') && sellable.length > 0 && (
           <table>
             <thead>
               <tr>
@@ -94,7 +117,7 @@ export function PrintableReport({ report }: { report: SiteReport }): ReactElemen
           </table>
         )}
 
-        {footprint.length > 0 && (
+        {on('footprint') && footprint.length > 0 && (
           <>
             <h3>Other networks in the area — not checked for this address</h3>
             <p className="print-report__note">
@@ -111,7 +134,7 @@ export function PrintableReport({ report }: { report: SiteReport }): ReactElemen
           </>
         )}
 
-        {b?.predicted && (
+        {on('predicted') && b?.predicted && (
           <>
             <h3>Ofcom prediction — independent, names no operator</h3>
             <p className="print-report__note">
@@ -127,9 +150,11 @@ export function PrintableReport({ report }: { report: SiteReport }): ReactElemen
             </p>
           </>
         )}
+        {on('openreach') && b?.openreach && <OpenreachBlock detail={b.openreach} />}
       </section>
+      )}
 
-      {report.signal && report.signal.operators.length > 0 && (
+      {on('signal') && report.signal && report.signal.operators.length > 0 && (
         <section>
           <h2>Mobile signal</h2>
           <table>
@@ -160,6 +185,7 @@ export function PrintableReport({ report }: { report: SiteReport }): ReactElemen
         </section>
       )}
 
+      {on('lines') && (
       <section>
         <h2>Lines at this premises</h2>
         {report.lines.length === 0 ? (
@@ -191,7 +217,7 @@ export function PrintableReport({ report }: { report: SiteReport }): ReactElemen
           </table>
         )}
 
-        {report.nearbyLines && report.nearbyLines.length > 0 && (
+        {on('nearbyLines') && report.nearbyLines && report.nearbyLines.length > 0 && (
           <>
             <h3>At this postcode but not matched to this premises</h3>
             <ul>
@@ -205,6 +231,7 @@ export function PrintableReport({ report }: { report: SiteReport }): ReactElemen
           </>
         )}
       </section>
+      )}
 
       <footer className="print-report__foot">
         <p>
@@ -214,5 +241,77 @@ export function PrintableReport({ report }: { report: SiteReport }): ReactElemen
         <p>SupportWizard Internal · Confidential</p>
       </footer>
     </div>
+  );
+}
+
+/**
+ * The Openreach facts an engineer or a survey actually uses.
+ *
+ * This section was offered in the print picker before it existed, which is
+ * the worst of both: a tick that silently does nothing. Laid out as pairs
+ * rather than a table because it is a handful of facts, not a list, and only
+ * the ones present are shown -- an empty "Cabinet: —" row is noise on paper.
+ */
+function OpenreachBlock({ detail }: { detail: NonNullable<SiteReport['broadband']>['openreach'] }): ReactElement | null {
+  if (!detail) return null;
+
+  const facts: Array<[string, string]> = [];
+  const add = (label: string, value?: string | number | null): void => {
+    if (value === undefined || value === null || value === '') return;
+    facts.push([label, String(value)]);
+  };
+
+  add('Exchange', detail.exchange?.name);
+  add('Exchange code', detail.exchange?.code ?? detail.exchange?.tlc);
+  add('Exchange status', detail.exchange?.status);
+  add(
+    'Distance to exchange',
+    detail.exchange?.distanceMetres != null ? `${detail.exchange.distanceMetres} m` : undefined,
+  );
+  add('WLR withdrawal', detail.exchange?.wlrWithdrawalDate);
+  add('Stop sell', detail.exchange?.stopSellDate);
+  add('Cabinet', detail.cabinet?.id);
+  add('Cabinet technology', detail.cabinet?.technology);
+  add('Cabinet status', detail.cabinet?.status);
+  add(
+    'Distance to cabinet',
+    detail.cabinet?.distanceMetres != null ? `${detail.cabinet.distanceMetres} m` : undefined,
+  );
+  add('FTTP build', detail.fttp?.buildStatus);
+  add('FTTP ready for service', detail.fttp?.rfsDate);
+  add('CBT', detail.fttp?.cbtId);
+  add('CBT spare capacity', detail.fttp?.cbtSpareCapacity);
+  add('ONT fitted', detail.fttp?.ontPresent === undefined ? undefined : detail.fttp.ontPresent ? 'Yes' : 'No');
+  add('ONT serial', detail.fttp?.ontSerial);
+  add('Openreach address key', detail.addressKey ?? detail.alk);
+
+  const flags = (detail.flags ?? []).filter((f) => f.level === 'critical' || f.level === 'warn');
+
+  if (!facts.length && !flags.length) return null;
+
+  return (
+    <>
+      <h3>Openreach</h3>
+      {facts.length > 0 && (
+        <dl className="print-report__facts">
+          {facts.map(([label, value]) => (
+            <div key={label}>
+              <dt>{label}</dt>
+              <dd>{value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {flags.length > 0 && (
+        <ul>
+          {flags.map((flag, i) => (
+            <li key={`${flag.level}:${i}`}>
+              <strong>{flag.level === 'critical' ? 'Critical' : 'Note'}:</strong> {flag.label}
+              {flag.detail ? ` — ${flag.detail}` : ''}
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
   );
 }

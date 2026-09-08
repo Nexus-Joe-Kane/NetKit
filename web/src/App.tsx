@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ReactElement } from 'react';
-import type { AddressSuggestion, SearchResponse, SiteReport } from '@sw/shared';
+import type { AddressSuggestion, SearchResponse, SiteReport, PrintSection } from '@sw/shared';
 import { ApiClientError, api, type PublicUser, type SessionState } from './lib/api';
 import { SearchBar } from './components/SearchBar';
 import { IdentityBox } from './components/IdentityBox';
@@ -20,6 +20,8 @@ import { Tabs, TabPanel, type TabDef } from './components/Tabs';
 import { Modal } from './components/overlay';
 import { siteReportToText } from './lib/reportText';
 import { PrintableReport } from './components/PrintableReport';
+import { PrintDialog } from './components/PrintDialog';
+import { loadSections } from './lib/printStorage';
 
 /**
  * Application shell.
@@ -360,6 +362,15 @@ function SiteReportView({
   setTab: (tab: ReportTab) => void;
 }): ReactElement {
   const [siblingsOpen, setSiblingsOpen] = useState(false);
+  const [printOpen, setPrintOpen] = useState(false);
+  /**
+   * What the printable report renders.
+   *
+   * Seeded from the remembered choice so a browser print triggered by
+   * Ctrl-P, which never opens the dialog, still produces the shape this
+   * person last asked for rather than an empty page.
+   */
+  const [printSections, setPrintSections] = useState<Set<PrintSection>>(() => loadSections());
   const [siblingFilter, setSiblingFilter] = useState('');
   const [textOpen, setTextOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -423,8 +434,8 @@ function SiteReportView({
             </button>
             <button
               className="btn btn--ghost btn--small"
-              onClick={() => window.print()}
-              title="Prints every section, not just the tab on screen"
+              onClick={() => setPrintOpen(true)}
+              title="Choose which sections go on the page"
             >
               Print
             </button>
@@ -495,7 +506,14 @@ function SiteReportView({
       </div>
 
       {/* Print takes this instead of the open tab. Hidden on screen. */}
-      <PrintableReport report={report} />
+      <PrintableReport report={report} sections={printSections} />
+
+      <PrintDialog
+        report={report}
+        open={printOpen}
+        onClose={() => setPrintOpen(false)}
+        onApply={setPrintSections}
+      />
 
       {/* ---- Plain text for a ticket ------------------------------------ */}
       <Modal
