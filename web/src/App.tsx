@@ -19,6 +19,7 @@ import { Alert, Card, Chip, Empty, Label, Spinner } from './components/ui';
 import { Tabs, TabPanel, type TabDef } from './components/Tabs';
 import { Modal } from './components/overlay';
 import { siteReportToText } from './lib/reportText';
+import { PrintableReport } from './components/PrintableReport';
 
 /**
  * Application shell.
@@ -396,6 +397,10 @@ function SiteReportView({
 
   return (
     <>
+      {/* Everything on screen. Print hides this and uses PrintableReport,
+          which is the only way to get every section on paper: the tabs mount
+          one panel at a time. */}
+      <div className="report-interactive">
       <IdentityBox
         address={report.address}
         {...(report.uprn ? { uprn: report.uprn } : {})}
@@ -416,7 +421,11 @@ function SiteReportView({
             >
               Copy as text
             </button>
-            <button className="btn btn--ghost btn--small" onClick={() => window.print()}>
+            <button
+              className="btn btn--ghost btn--small"
+              onClick={() => window.print()}
+              title="Prints every section, not just the tab on screen"
+            >
               Print
             </button>
           </div>
@@ -482,6 +491,11 @@ function SiteReportView({
           {report.query.kind}
         </Label>
       </div>
+
+      </div>
+
+      {/* Print takes this instead of the open tab. Hidden on screen. */}
+      <PrintableReport report={report} />
 
       {/* ---- Plain text for a ticket ------------------------------------ */}
       <Modal
