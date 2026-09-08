@@ -178,7 +178,13 @@ export function NetworkStatusPage(): ReactElement {
             <div className="headline__big" style={{ fontSize: 20 }}>
               {mode === 'live' ? 'Live' : 'Demo'}
             </div>
-            <div className="headline__sub">{mode === 'live' ? 'Zen Assurance' : 'awaiting credentials'}</div>
+            <div className="headline__sub">
+              {mode === 'live'
+                ? 'Zen Assurance'
+                : providerError
+                  ? 'credentials rejected'
+                  : 'awaiting credentials'}
+            </div>
           </div>
         </div>
       </section>

@@ -383,22 +383,35 @@ function probes(): Probe[] {
       vendor: 'Jola',
       capability: 'Business SIM estate — usage, bars, bolt-ons. Note Zen’s cellular endpoints are already Jola-backed',
       docsUrl: 'https://developers.mobilemanager.co.uk/Help',
-      configured: () => Boolean(cfg.jola.apiKey && cfg.jola.baseUrl),
+      configured: () => cfg.jola.configured,
       run: async () => {
-        const res = await fetchJson<unknown>(`${cfg.jola.baseUrl.replace(/\/$/, '')}/${cfg.jola.healthPath.replace(/^\//, '')}`, {
-          headers: { Authorization: `Bearer ${cfg.jola.apiKey}` },
-          label: 'Jola',
-          timeoutMs: 8000,
-          retries: 0,
-          notFoundAsNull: true,
-        });
-        // An empty answer is a real answer here. The probe lists the SIM
-        // estate, and an account with no SIMs on it returns nothing --
-        // which used to raise a Degraded alert that no action could clear.
-        // Only an unreachable or rejecting endpoint is a problem.
-        return res !== null
-          ? { state: 'ok' as const, detail: 'Reachable and authenticated.' }
-          : { state: 'ok' as const, detail: 'Reachable and authenticated. No SIMs on the account.' };
+        // The documented list endpoint, asked for one row. Jola use HTTP
+        // Basic: a Bearer token here is what produced 401s before.
+        const res = await fetchJson<unknown>(
+          `${cfg.jola.baseUrl.replace(/\/$/, '')}/api/v1/customers?skip=0&take=1`,
+          {
+            headers: {
+              Authorization: `Basic ${Buffer.from(`${cfg.jola.apiKey}:${cfg.jola.secretKey}`).toString('base64')}`,
+              Accept: 'application/json',
+            },
+            label: 'Jola',
+            timeoutMs: 8000,
+            retries: 0,
+            notFoundAsNull: true,
+          },
+        );
+
+        // An empty answer is a real answer. An account with no customers on
+        // it returns nothing, and that used to raise a Degraded alert no
+        // action could clear.
+        const rows = Array.isArray(res) ? res.length : res === null ? 0 : 1;
+        return {
+          state: 'ok' as const,
+          detail:
+            rows > 0
+              ? 'Reachable and authenticated.'
+              : 'Reachable and authenticated. No customers on the account.',
+        };
       },
     },
 

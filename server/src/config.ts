@@ -104,10 +104,11 @@ export interface BtConfig {
 
 export interface JolaConfig {
   baseUrl: string;
+  /** Basic-auth username half. */
   apiKey: string;
-  healthPath: string;
-  /** Endpoint listing the SIM estate — differs by reseller. */
-  simsPath: string;
+  /** Basic-auth password half. Both halves are required. */
+  secretKey: string;
+  configured: boolean;
 }
 
 function loadBt(): BtConfig {
@@ -422,10 +423,13 @@ export function config(): AppConfig {
       escalateAfterMinutes: Math.max(5, num('SUPERVISOR_ESCALATE_AFTER_MINUTES', 60)),
     },
     jola: {
-      baseUrl: str('JOLA_BASE_URL'),
+      // Jola's SIM Portal. The path structure is fixed and documented, so
+      // unlike the guessed endpoints this replaced there is nothing to
+      // configure beyond the host.
+      baseUrl: str('JOLA_BASE_URL', 'https://simportal-api.azurewebsites.net'),
       apiKey: str('JOLA_API_KEY'),
-      healthPath: str('JOLA_HEALTH_PATH', '/api/sims'),
-      simsPath: str('JOLA_SIMS_PATH', '/api/sims'),
+      secretKey: str('JOLA_SECRET_KEY'),
+      configured: Boolean(str('JOLA_API_KEY') && str('JOLA_SECRET_KEY')),
     },
     osPlaces: {
       apiKey: osKey,

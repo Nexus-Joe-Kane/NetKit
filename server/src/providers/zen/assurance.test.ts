@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { __assuranceTesting, testFamilyFor } from './assurance';
+import { __assuranceTesting, testFamilyFor, looksLikeFault, mapFault } from './assurance';
 import { __selfServiceTesting } from './selfservice';
 import { toMsisdn, isLikelyLondon } from '../bt/adapters';
 import { __jolaTesting } from '../jola/adapters';
@@ -122,4 +122,42 @@ test('London postcode areas are recognised for the BT coverage warning', () => {
   assert.equal(isLikelyLondon('M1 1AE'), false);
   assert.equal(isLikelyLondon('LS1 4DY'), false);
   assert.equal(isLikelyLondon('G2 1DY'), false);
+});
+
+test('an unrecognised payload does not become a phantom fault', () => {
+  // The live symptom: the Faults page reported 1 open fault, referenced
+  // "fault-1", service "–", category Other, state Unknown, summary "Fault".
+  // Every one of those is mapFault's fallback, so nothing had mapped -- a
+  // wrapper object had been run through the fault mapper.
+  assert.equal(looksLikeFault({ totalCount: 0, pageSize: 50 }), false);
+  assert.equal(looksLikeFault({}), false);
+  assert.equal(looksLikeFault(null), false);
+  assert.equal(looksLikeFault([]), false);
+  assert.equal(looksLikeFault('nope'), false);
+});
+
+test('a real fault is recognised from any one identifying field', () => {
+  assert.ok(looksLikeFault({ faultReference: 'FLT12345678' }));
+  assert.ok(looksLikeFault({ summary: 'No sync since 03:00' }));
+  assert.ok(looksLikeFault({ status: 'Engineer assigned' }));
+  assert.ok(looksLikeFault({ faultCategory: 'BROADBAND' }));
+  assert.ok(looksLikeFault({ zenReference: 'ZEN1234567' }));
+  assert.ok(looksLikeFault({ raisedDate: '2026-09-08' }));
+});
+
+test('a fault that maps properly keeps its real values', () => {
+  const fault = mapFault(
+    {
+      faultReference: 'FLT99887766',
+      zenReference: 'ZEN1234567',
+      faultCategory: 'BROADBAND',
+      summary: 'Intermittent dropouts',
+      status: 'Engineer assigned',
+      raisedDate: '2026-09-01',
+    },
+    0,
+  );
+  assert.equal(fault.reference, 'FLT99887766');
+  assert.equal(fault.summary, 'Intermittent dropouts');
+  assert.notEqual(fault.status, 'Unknown');
 });
