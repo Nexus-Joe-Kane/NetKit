@@ -28,6 +28,8 @@ import type {
   RdnsRecord,
   ServiceHistory,
   SimEstate,
+  SimProviderResult,
+  SimRecord,
   StabilityReport,
   UsageReport,
   CompanyDetail,
@@ -40,7 +42,7 @@ import * as assurance from '../providers/zen/assurance';
 import * as selfService from '../providers/zen/selfservice';
 import * as bt from '../providers/bt/adapters';
 import * as jola from '../providers/jola/adapters';
-import { notConfigured } from '../lib/errors';
+import { notConfigured, upstream } from '../lib/errors';
 import {
   companiesHouseConfigured,
   withPremisesDetail,
@@ -401,23 +403,92 @@ export function ethernetQuotes(address: AddressRecord): Promise<Sourced<Ethernet
   });
 }
 
-export function simEstate(): Promise<Sourced<SimEstate>> {
-  // Zen's cellular endpoints are Jola-backed, so Zen is tried first and a
-  // direct Jola integration is only needed for SIMs held outside Zen.
-  return resolve({
-    key: 'zen-broadbandconnection',
-    configured: zenReady('indirect-broadbandconnection'),
-    live: async () => {
-      const zenEstate = await selfService.fetchSimEstate();
-      if (zenEstate.sims.length > 0) return zenEstate;
-      // Nothing at Zen — try Jola directly if it is configured.
-      if (jolaReady() && isProviderEnabled('jola-mobile-manager')) {
-        const jolaEstate = await jola.fetchJolaEstate();
-        return { ...jolaEstate, sources: [...zenEstate.sources, ...jolaEstate.sources] };
-      }
-      return zenEstate;
-    },
-  });
+/**
+ * Every SIM, from every mobile account we hold.
+ *
+ * Zen and Jola are separate accounts. This used to treat Jola as a fallback
+ * behind Zen -- try Zen, and only ask Jola if Zen came back empty -- which is
+ * wrong in both directions: a Zen outage hid the Jola estate entirely, and a
+ * Zen estate with rows in it hid Jola's even when Jola held most of the SIMs.
+ *
+ * Both are asked, in parallel, always. Rows are merged and deduped by ICCID,
+ * and each vendor's outcome is reported separately so one being down reads as
+ * one being down rather than as an empty estate.
+ */
+export async function simEstate(): Promise<Sourced<SimEstate>> {
+  const zenConfigured = zenReady('indirect-broadbandconnection') && isProviderEnabled('zen-broadbandconnection');
+  const jolaConfigured = jolaReady() && isProviderEnabled('jola-mobile-manager');
+
+  if (!zenConfigured && !jolaConfigured) {
+    throw notConfigured(
+      'No mobile account is connected. Set the Jola keys, or grant the Zen ' +
+        'broadbandconnection scope. Admin portal → Service status says which.',
+    );
+  }
+
+  const attempt = async (
+    key: string,
+    name: string,
+    configured: boolean,
+    run: () => Promise<SimEstate>,
+  ): Promise<{ result: SimProviderResult; estate: SimEstate | null }> => {
+    if (!configured) {
+      return { result: { name, count: 0, configured: false }, estate: null };
+    }
+    if (!shouldAttempt(key)) {
+      const reason = circuitReason(key) ?? `${name} is temporarily paused after repeated failures.`;
+      return { result: { name, count: 0, configured: true, error: reason }, estate: null };
+    }
+    try {
+      const estate = await run();
+      reportLiveSuccess(key);
+      return { result: { name, count: estate.sims.length, configured: true }, estate };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      reportLiveFailure(key, message);
+      return { result: { name, count: 0, configured: true, error: message }, estate: null };
+    }
+  };
+
+  const [zen, jolaResult] = await Promise.all([
+    attempt('zen-broadbandconnection', 'Zen', zenConfigured, () => selfService.fetchSimEstate()),
+    attempt('jola-mobile-manager', 'Jola Mobile Manager', jolaConfigured, () => jola.fetchJolaEstate()),
+  ]);
+
+  const estates = [zen.estate, jolaResult.estate].filter((e): e is SimEstate => e !== null);
+
+  // Every vendor that was asked failed. That is an outage, not an empty
+  // estate, and it must not come back as a page of zeroes.
+  if (estates.length === 0) {
+    const errors = [zen.result, jolaResult.result]
+      .filter((r) => r.error)
+      .map((r) => `${r.name}: ${r.error}`);
+    throw upstream(errors.join(' · ') || 'No mobile provider returned a result.');
+  }
+
+  // Deduped by ICCID, first vendor wins. The same SIM can appear twice where
+  // one is bought through the other.
+  const byIccid = new Map<string, SimRecord>();
+  for (const estate of estates) {
+    for (const sim of estate.sims) {
+      const key = (sim.iccid || sim.msisdn || '').replace(/\s+/g, '');
+      if (!key || byIccid.has(key)) continue;
+      byIccid.set(key, sim);
+    }
+  }
+
+  const data: SimEstate = {
+    sims: [...byIccid.values()],
+    // Only one vendor reports a shared pool; taking the first that does is
+    // right, because adding two vendors' pools together would be a number
+    // that exists nowhere.
+    ...(estates.find((e) => e.pool)?.pool ? { pool: estates.find((e) => e.pool)!.pool } : {}),
+    providers: [zen.result, jolaResult.result],
+    checkedAt: new Date().toISOString(),
+    sources: [...new Set(estates.flatMap((e) => e.sources))],
+  };
+
+  return { data, mode: 'live' };
 }
 
 export function networkConnectivity(phoneNumber: string): Promise<Sourced<NetworkConnectivityCheck>> {

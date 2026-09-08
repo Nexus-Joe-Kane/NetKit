@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
-import type { SimEstate, SimRecord, SimState } from '@sw/shared';
+import type { SimEstate, SimProviderResult, SimRecord, SimState } from '@sw/shared';
+import { useTabRoute } from '../lib/route';
 import { ApiClientError, api } from '../lib/api';
 import {
   Alert,
@@ -40,9 +41,14 @@ import { Modal } from '../components/overlay';
 /**
  * The mobile SIM estate.
  *
- * Zen's cellular endpoints are Jola-backed, so this covers business SIMs
- * bought through Zen without a separate Jola integration. The thing worth
- * seeing first is pool overage, because that is what costs money.
+ * Two separate accounts, shown as one estate: SIMs held directly with Jola
+ * Mobile Manager, and SIMs bought through Zen. They are merged and deduped
+ * by ICCID rather than one standing in for the other, and each vendor's
+ * outcome is reported on its own -- one being down is one being down, not an
+ * empty estate.
+ *
+ * The thing worth seeing first is pool overage, because that is what costs
+ * money.
  */
 
 const STATE_TONE: Record<SimState, ChipTone> = {
@@ -55,6 +61,8 @@ const STATE_TONE: Record<SimState, ChipTone> = {
 };
 
 type Tab = 'all' | 'active' | 'overage' | 'suspended';
+
+const TABS = ['all', 'active', 'overage', 'suspended'] as const;
 
 /** Share of allowance used, as a percentage. */
 function usedPercent(sim: SimRecord): number | null {
@@ -69,7 +77,9 @@ export function SimsPage(): ReactElement {
   const [providerError, setProviderError] = useState<string | undefined>();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<Tab>('all');
+  // The open tab lives in the URL, so a refresh or a pasted link comes back
+  // to the same one.
+  const [tab, setTab] = useTabRoute<Tab>('sims', TABS, 'all');
   const [filter, setFilter] = useState('');
   const [detail, setDetail] = useState<SimRecord | null>(null);
 
@@ -77,7 +87,13 @@ export function SimsPage(): ReactElement {
     void (async () => {
       try {
         const result = await api.sims();
-        setEstate({ sims: result.sims, ...(result.pool ? { pool: result.pool } : {}), checkedAt: result.checkedAt, sources: result.sources });
+        setEstate({
+          sims: result.sims,
+          ...(result.pool ? { pool: result.pool } : {}),
+          ...(result.providers ? { providers: result.providers } : {}),
+          checkedAt: result.checkedAt,
+          sources: result.sources,
+        });
         setMode(result.mode);
         setProviderError(result.providerError);
       } catch (err) {
@@ -143,6 +159,19 @@ export function SimsPage(): ReactElement {
           <span>This is incomplete — the live call failed: {providerError}</span>
         </Alert>
       )}
+
+      {/* One vendor failing must not read as an empty estate, so each is
+          named with what it actually said. */}
+      {(estate?.providers ?? [])
+        .filter((p) => p.error)
+        .map((p) => (
+          <Alert key={p.name} tone="warn">
+            <span>
+              <strong>{p.name}</strong> did not answer: {p.error}. The SIMs below are everything the other
+              accounts returned.
+            </span>
+          </Alert>
+        ))}
 
       <section className="card card--accent-1">
         <div className="headline">
@@ -217,7 +246,7 @@ export function SimsPage(): ReactElement {
 
       <Card
         title="SIMs"
-        eyebrow="Zen (Jola-backed)"
+        eyebrow={estateEyebrow(estate?.providers)}
         index="03"
         accent={2}
         flush
@@ -256,6 +285,7 @@ export function SimsPage(): ReactElement {
                     <th>Number</th>
                     <th>State</th>
                     <th>Network</th>
+                    <th>Account</th>
                     <th style={{ minWidth: 160 }}>Data used</th>
                     <th>Last seen</th>
                   </tr>
@@ -278,6 +308,7 @@ export function SimsPage(): ReactElement {
                           )}
                         </td>
                         <td>{sim.network ?? '—'}</td>
+                        <td style={{ fontSize: 12 }}>{vendorLabel(sim.provider)}</td>
                         <td>
                           {pct != null ? (
                             <>
@@ -369,4 +400,25 @@ export function SimsPage(): ReactElement {
       </Modal>
     </div>
   );
+}
+
+/**
+ * Which account a SIM came from.
+ *
+ * `provider` carries the internal key; this is the name somebody would use
+ * out loud, because "jola-mobile-manager" in a table column is not an answer
+ * to "whose SIM is this".
+ */
+function vendorLabel(provider?: string): string {
+  const key = (provider ?? '').toLowerCase();
+  if (key.includes('jola')) return 'Jola';
+  if (key.includes('zen')) return 'Zen';
+  return provider ?? '—';
+}
+
+/** Names the accounts the estate is actually made of. */
+function estateEyebrow(providers?: SimProviderResult[]): string {
+  const answered = (providers ?? []).filter((p) => p.configured && !p.error).map((p) => vendorLabel(p.name));
+  if (answered.length === 0) return 'Mobile estate';
+  return answered.join(' + ');
 }

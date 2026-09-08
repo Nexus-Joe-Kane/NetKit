@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react';
 import type { OrderRecord, OrderState } from '@sw/shared';
+import { useTabRoute } from '../lib/route';
 import { ApiClientError, api } from '../lib/api';
 import {
   Alert,
@@ -52,6 +53,8 @@ const STATE_LABEL: Record<OrderState, string> = {
 
 type Tab = 'status' | 'wip' | 'search';
 
+const TABS = ['status', 'wip', 'search'] as const;
+
 /** Everything a chased order needs, in the order someone would read it. */
 const ORDER_COLUMNS: Array<CsvColumn<OrderRecord>> = [
   { header: 'Zen reference', value: (o) => o.zenReference },
@@ -80,7 +83,9 @@ const ORDER_COLUMNS: Array<CsvColumn<OrderRecord>> = [
 ];
 
 export function OrdersPage(): ReactElement {
-  const [tab, setTab] = useState<Tab>('status');
+  // The open tab lives in the URL, so a refresh or a pasted link comes back
+  // to the same one.
+  const [tab, setTab] = useTabRoute<Tab>('orders', TABS, 'status');
   const [orders, setOrders] = useState<OrderRecord[]>([]);
   const [query, setQuery] = useState('');
   const [mode, setMode] = useState<'live'>('live');

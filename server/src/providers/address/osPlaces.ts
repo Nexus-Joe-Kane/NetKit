@@ -3,6 +3,7 @@ import {
   formatPostcode,
   premisesTypeFor,
   rankAddresses,
+  rankAddressMatches,
   sortAddresses,
   type AddressRecord,
 } from '@sw/shared';
@@ -197,6 +198,15 @@ function dedupeByUprn(rows: Array<{ DPA?: OsDpa; LPI?: OsLpi }>): AddressRecord[
 
 const cache = new TtlCache<AddressRecord[]>(60 * 60 * 1000, 2000);
 
+/**
+ * How deep to page a free-text search before giving up.
+ *
+ * Three hundred rows is enough to reach the premises behind a common name --
+ * "Maru" and "Megans" both have well over a hundred namesakes nationally --
+ * and few enough that a hopeless query costs three requests rather than ten.
+ */
+const MAX_SEARCH_PAGES = 3;
+
 /** Drops the cache. Used by the recovery supervisor. */
 export function clearOsPlacesCache(): void {
   cache.clear();
@@ -253,18 +263,55 @@ export function createOsPlacesProvider(): AddressProvider {
     },
 
     /**
-     * Over-fetches on purpose.
+     * Over-fetches, and pages when it has to.
      *
-     * The ranking below can discard most of what OS returns -- that is the
-     * point of it -- so asking for exactly `limit` rows would leave a short
-     * list after filtering. OS caps `maxresults` at 100.
+     * Two separate problems, both of which showed up as the same symptom --
+     * `maru mayfair` listing a Maru in Carlisle and one in Dover.
+     *
+     * The first is that ranking discards most of what OS returns, so asking
+     * for exactly `limit` rows leaves a short list after filtering. OS caps
+     * `maxresults` at 100, so the first page is always the full 100.
+     *
+     * The second is that OS orders `/find` by its own relevance, and for a
+     * name plus a locality the premises that satisfies *both* words can sit
+     * past the first hundred behind ninety-nine that satisfy only the name.
+     * No amount of re-ranking a page that does not contain the answer will
+     * produce it. So when nothing on the page accounts for every word typed,
+     * the next page is fetched -- and only then, which means the extra
+     * requests happen exactly in the case that was broken and never in the
+     * common one.
      */
     async search(query, limit) {
       const key = `q:${query}:${limit}`;
       return cache.wrap(key, async () => {
-        const wanted = Math.min(100, Math.max(40, limit * 6));
-        const candidates = await call('/find', { query, maxresults: String(wanted) });
-        return rankAddresses(candidates, query, limit);
+        const perPage = 100;
+        const collected: AddressRecord[] = [];
+        const seen = new Set<string>();
+
+        for (let page = 0; page < MAX_SEARCH_PAGES; page += 1) {
+          const rows = await call('/find', {
+            query,
+            maxresults: String(perPage),
+            ...(page > 0 ? { offset: String(page * perPage) } : {}),
+          });
+
+          for (const row of rows) {
+            // Pages overlap in practice, and the same premises can arrive
+            // from both datasets.
+            const id = row.uprn ?? row.singleLine.toUpperCase();
+            if (seen.has(id)) continue;
+            seen.add(id);
+            collected.push(row);
+          }
+
+          // A short page is the end of the results.
+          if (rows.length < perPage) break;
+          // Something accounts for every word typed. Further pages can only
+          // be worse matches.
+          if (rankAddressMatches(collected, query).some((m) => m.complete)) break;
+        }
+
+        return rankAddresses(collected, query, limit);
       });
     },
   };

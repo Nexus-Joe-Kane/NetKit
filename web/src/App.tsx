@@ -21,6 +21,7 @@ import { Modal } from './components/overlay';
 import { siteReportToText } from './lib/reportText';
 import { PrintableReport } from './components/PrintableReport';
 import { PrintDialog } from './components/PrintDialog';
+import { go, readRoute, toHash, useRoute } from './lib/route';
 import { WatchButton } from './components/WatchPanel';
 import { loadSections } from './lib/printStorage';
 
@@ -98,10 +99,35 @@ function Portal({
   user: PublicUser;
   onSignOut: () => void;
 }): ReactElement {
-  const [view, setView] = useState<View>('lookup');
+  /*
+   * The URL is the state.
+   *
+   * Which page, which premises and which tab of the report all live in the
+   * hash, so a refresh comes back where it was, the back button steps back
+   * one tab rather than out of the app, and a link to what is on screen can
+   * be pasted into a ticket.
+   */
+  const route = useRoute();
+  const view: View = ((): View => {
+    if (route.view === 'site') return 'lookup';
+    const known: View[] = ['lookup', 'network', 'faults', 'orders', 'sims', 'tools', 'admin'];
+    return known.find((v) => v === route.view) ?? 'lookup';
+  })();
+  const setView = (next: View): void => go(toHash(next));
+
   const [result, setResult] = useState<SearchResponse | null>(null);
   const [report, setReport] = useState<SiteReport | null>(null);
-  const [tab, setTab] = useState<ReportTab>('broadband');
+
+  const REPORT_TABS: ReportTab[] = ['broadband', 'openreach', 'signal', 'lines', 'companies'];
+  const routedTab = REPORT_TABS.find((t) => t === route.b);
+  const [fallbackTab, setFallbackTab] = useState<ReportTab>('broadband');
+  const tab: ReportTab = routedTab ?? fallbackTab;
+  const setTab = (next: ReportTab): void => {
+    setFallbackTab(next);
+    // Only a premises has tabs in its URL; without one there is nothing to
+    // hang the tab off, so it stays in memory.
+    if (report?.uprn) go(toHash('site', report.uprn, next));
+  };
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [initialQuery, setInitialQuery] = useState('');
@@ -114,13 +140,21 @@ function Portal({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerFilter, setPickerFilter] = useState('');
 
-  /** Deep link: `#/site/<uprn>` loads a premises straight away. */
+  /**
+   * `#/site/<uprn>` loads that premises — on first paint, and again whenever
+   * the address bar changes to a different one.
+   *
+   * Keyed on the UPRN rather than the whole route, so switching tabs inside a
+   * report does not refetch it, and the back button out of a report into a
+   * different one does.
+   */
+  const routedUprn = route.view === 'site' ? route.a : '';
   useEffect(() => {
-    const match = window.location.hash.match(/^#\/site\/(\d{1,12})$/);
-    if (match?.[1]) void loadSite(match[1]);
-    // Only on first mount — later navigation is driven by the search box.
+    if (!routedUprn) return;
+    if (report?.uprn === routedUprn) return;
+    void loadSite(routedUprn);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [routedUprn]);
 
   const runSearch = async (query: string) => {
     setBusy(true);
@@ -134,8 +168,9 @@ function Portal({
       setPickerOpen((response.suggestions?.length ?? 0) > 1 && !response.report);
       // Searching a CLI or line ID means you want the line; anything else
       // starts on availability.
-      setTab(response.lines?.length ? 'lines' : 'broadband');
-      if (response.report?.uprn) window.location.hash = `#/site/${response.report.uprn}`;
+      const opening: ReportTab = response.lines?.length ? 'lines' : 'broadband';
+      setFallbackTab(opening);
+      if (response.report?.uprn) go(toHash('site', response.report.uprn, opening));
     } catch (err) {
       setResult(null);
       setReport(null);
@@ -161,8 +196,11 @@ function Portal({
       setPickerOpen(false);
       setReport(site);
       setResult({ query: site.query, suggestions: [], report: site });
-      setTab('broadband');
-      window.location.hash = `#/site/${uprn}`;
+      // Keep whichever tab the link asked for; only default it when the URL
+      // named none, so `#/site/x/lines` opens on Lines.
+      const asked = REPORT_TABS.find((t) => t === readRoute().b);
+      setFallbackTab(asked ?? 'broadband');
+      go(toHash('site', uprn, asked ?? undefined), true);
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : 'Could not load that premises.');
     } finally {
@@ -241,7 +279,7 @@ function Portal({
         {view === 'faults' && <FaultsPage />}
         {view === 'orders' && <OrdersPage />}
         {view === 'sims' && <SimsPage />}
-        {view === 'tools' && <ToolsPage onOpenSite={(uprn) => { setView('lookup'); void loadSite(uprn); }} />}
+        {view === 'tools' && <ToolsPage onOpenSite={(uprn) => go(toHash('site', uprn))} />}
 
         {view === 'lookup' && (
           <>

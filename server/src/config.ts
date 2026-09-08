@@ -390,13 +390,22 @@ export function config(): AppConfig {
     allowOrdering: bool('ZEN_ALLOW_ORDERING', false),
     quotas: { availabilityPerUserPerDay: Math.max(0, num('AVAILABILITY_DAILY_BUDGET', 250)) },
     openCellId: {
-      apiKey: str('OPENCELLID_API_KEY'),
+      /*
+       * `OPENCELLID` is accepted as well as `OPENCELLID_API_KEY`.
+       *
+       * OpenCelliD call the value a token and the obvious variable name for
+       * it is the bare product name — which is what actually got set on the
+       * server, leaving the panel reading "not connected" with a perfectly
+       * good token sitting next to it. Reading both is one line; making
+       * somebody find that out by staring at a status board is not.
+       */
+      apiKey: str('OPENCELLID_API_KEY') || str('OPENCELLID') || str('OPENCELLID_TOKEN'),
       baseUrl: str('OPENCELLID_BASE_URL', 'https://opencellid.org'),
       // Configurable because it is the one part of this integration taken
       // from public documentation rather than a response we have seen.
       searchPath: str('OPENCELLID_SEARCH_PATH', '/cell/getInArea'),
       radiusMetres: Math.min(20_000, Math.max(500, num('OPENCELLID_RADIUS_METRES', 4000))),
-      configured: Boolean(str('OPENCELLID_API_KEY')),
+      configured: Boolean(str('OPENCELLID_API_KEY') || str('OPENCELLID') || str('OPENCELLID_TOKEN')),
     },
     ofcomBroadband: {
       apiKey: str('OFCOM_BROADBAND_API_KEY'),

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react';
 import type { FaultCategory, FaultRecord } from '@sw/shared';
 import { slaState } from '@sw/shared';
+import { useTabRoute } from '../lib/route';
 import { ApiClientError, api } from '../lib/api';
 import { Alert, Card, Cell, Chip, ExportButtons, Label, Spinner, formatDateTime, type ChipTone } from '../components/ui';
 import type { CsvColumn } from '../lib/csv';
@@ -59,8 +60,12 @@ const FAULT_COLUMNS: Array<CsvColumn<FaultRecord>> = [
 
 type Tab = 'open' | 'closed';
 
+const TABS = ['open', 'closed'] as const;
+
 export function FaultsPage(): ReactElement {
-  const [tab, setTab] = useState<Tab>('open');
+  // The open tab lives in the URL, so a refresh or a pasted link comes back
+  // to the same one.
+  const [tab, setTab] = useTabRoute<Tab>('faults', TABS, 'open');
   const [faults, setFaults] = useState<FaultRecord[]>([]);
   const [mode, setMode] = useState<'live'>('live');
   const [providerError, setProviderError] = useState<string | undefined>();
