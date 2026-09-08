@@ -1809,3 +1809,109 @@ table.data td.num {
   color: var(--sw-muted);
   border-style: dashed;
 }
+
+/* ------------------------------------------------------------------ *
+ * Printable report
+ *
+ * Printing used to capture whichever tab was open, which cannot produce a
+ * complete picture of a premises because the other panels are not mounted.
+ * `PrintableReport` renders every section from the report data and is shown
+ * only here; the interactive report is hidden so the two never double up.
+ * ------------------------------------------------------------------ */
+
+.print-only { display: none; }
+
+@media print {
+  .print-only { display: block; }
+
+  /* The tabbed report, the identity box and the summary strip are all
+     reproduced inside the printable version. */
+  .report-interactive { display: none !important; }
+
+  .print-report {
+    font-size: 10.5pt;
+    line-height: 1.45;
+    color: #000;
+  }
+
+  .print-report h1 {
+    font-size: 15pt;
+    margin: 0 0 8pt;
+  }
+
+  .print-report h2 {
+    font-size: 12pt;
+    margin: 14pt 0 5pt;
+    padding-bottom: 2pt;
+    border-bottom: 0.5pt solid #000;
+  }
+
+  .print-report h3 {
+    font-size: 10.5pt;
+    margin: 9pt 0 3pt;
+  }
+
+  .print-report section { break-inside: avoid; }
+
+  .print-report__head dl {
+    display: flex;
+    gap: 18pt;
+    margin: 0 0 4pt;
+  }
+
+  .print-report__head dt {
+    font-size: 7.5pt;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 0;
+  }
+
+  .print-report__head dd {
+    margin: 0;
+    font-weight: 600;
+  }
+
+  .print-report__lead { margin: 0 0 6pt; }
+
+  .print-report__note {
+    margin: 3pt 0 0;
+    font-size: 9pt;
+  }
+
+  .print-report table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 4pt;
+  }
+
+  .print-report th,
+  .print-report td {
+    text-align: left;
+    padding: 2.5pt 4pt 2.5pt 0;
+    border-bottom: 0.25pt solid #999;
+    vertical-align: top;
+  }
+
+  .print-report th {
+    font-size: 8pt;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .print-report ul {
+    margin: 3pt 0 0;
+    padding-left: 14pt;
+  }
+
+  .print-report__foot {
+    margin-top: 16pt;
+    padding-top: 4pt;
+    border-top: 0.5pt solid #000;
+    font-size: 8.5pt;
+  }
+
+  @page {
+    size: A4;
+    margin: 14mm;
+  }
+}
