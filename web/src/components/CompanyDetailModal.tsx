@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactElement } from 'react';
-import type { CompanyDetail, CompanyRecord, OfficerAppointment } from '@sw/shared';
+import { companyRiskFlags, summariseRisks, type CompanyDetail, type CompanyRecord, type OfficerAppointment } from '@sw/shared';
 import { ApiClientError, api } from '../lib/api';
 import { Alert, Card, Cell, Chip, Empty, Label, Spinner, formatDate } from './ui';
 import { Modal } from './overlay';
@@ -79,6 +79,38 @@ export function CompanyDetailModal({
   // Only a ban still in force matters here; an expired one is history.
   const disqualified = detail?.officers.filter((o) => o.disqualification?.active) ?? [];
 
+  /**
+   * The register's own warnings about this company.
+   *
+   * The full record carries the accounts dates and the status qualifier, so
+   * this is the complete picture — where the list panel could only judge on
+   * what the search returned, this judges on everything. Same function, so a
+   * company flagged in the list is never unflagged here.
+   */
+  const risk = detail
+    ? companyRiskFlags({
+        status: detail.status,
+        ...(detail.statusDetail ? { statusDetail: detail.statusDetail } : {}),
+        ...(detail.dissolvedOn ? { dissolvedOn: detail.dissolvedOn } : {}),
+        ...(detail.strikeOffProposed ? { strikeOffProposed: true } : {}),
+        ...(detail.insolvencyHistory ? { insolvencyHistory: true } : {}),
+        ...(detail.registeredOfficeInDispute ? { registeredOfficeInDispute: true } : {}),
+        // A due date already past says the same thing as the overdue flag,
+        // and is sometimes the only one of the two the register returns.
+        ...(detail.filingDates?.accountsOverdue || isPast(detail.filingDates?.accountsNextDue)
+          ? { accountsOverdue: true }
+          : {}),
+        ...(detail.filingDates?.accountsNextDue ? { accountsNextDue: detail.filingDates.accountsNextDue } : {}),
+        ...(detail.filingDates?.confirmationStatementOverdue ||
+        isPast(detail.filingDates?.confirmationStatementNextDue)
+          ? { confirmationStatementOverdue: true }
+          : {}),
+        ...(detail.filingDates?.confirmationStatementNextDue
+          ? { confirmationStatementNextDue: detail.filingDates.confirmationStatementNextDue }
+          : {}),
+      })
+    : [];
+
   const tabs: Array<TabDef<Tab>> = [
     { id: 'overview', label: 'Overview' },
     { id: 'officers', label: 'Officers', count: detail?.officerCount ?? detail?.officers.length },
@@ -133,17 +165,37 @@ export function CompanyDetailModal({
         <Empty title="Nothing to show">The register returned no record for this company.</Empty>
       ) : (
         <div className="stack stack--tight">
-          {detail.concerning && (
-            <div className="flag flag--critical">
-              <span className="flag__marker" aria-hidden="true" />
-              <span>
-                <strong>{statusLabelOf(detail.status)}</strong>
-                <span className="flag__detail">
-                  {detail.dissolvedOn
-                    ? `Dissolved on ${formatDate(detail.dissolvedOn)}. Anything billed to this company after that date needs looking at.`
-                    : 'This company is not trading normally. Do not commit new spend without checking.'}
+          {/* Everything the register says is wrong with this company, in one
+              block at the top. The same judgement as the list panel's banner,
+              from the same function, so the two can never disagree. */}
+          {risk.length > 0 && (
+            <div className={`warn-board${risk.every((f) => f.severity === 'warning') ? ' warn-board--soft' : ''}`}>
+              <div className="warn-board__head">
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  aria-hidden="true"
+                >
+                  <path d="M12 3 2 20h20L12 3Z" />
+                  <path d="M12 9v5M12 17.5v.5" />
+                </svg>
+                <span>
+                  {detail.name} — {summariseRisks(risk)}
                 </span>
-              </span>
+              </div>
+
+              <ul className="warn-board__reasons">
+                {risk.map((flag) => (
+                  <li key={flag.kind}>
+                    <strong>{flag.label}.</strong> {flag.detail}
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
 

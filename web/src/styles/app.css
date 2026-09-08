@@ -414,7 +414,8 @@
 .identity__value--uprn {
   font-family: var(--sw-font-mono);
   font-size: 16px;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.05em;
+  font-variant-numeric: tabular-nums;
 }
 
 .copy {
@@ -854,6 +855,8 @@ tr.clickable:hover td:first-child {
 .kv__value--mono {
   font-family: var(--sw-font-mono);
   font-size: 13px;
+  letter-spacing: 0.03em;
+  font-variant-numeric: tabular-nums;
 }
 
 .kv__value--absent {
@@ -1401,6 +1404,7 @@ table.data td.num {
   border-radius: 7px;
   font-family: var(--sw-font-mono);
   font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
   line-height: 1.65;
   overflow-x: auto;
   white-space: pre;
@@ -1770,6 +1774,7 @@ table.data td.num {
   border-radius: 7px;
   font-family: var(--sw-font-mono);
   font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
   line-height: 1.6;
   color: var(--sw-ink);
   white-space: pre;

@@ -84,7 +84,17 @@
    */
   --sw-font-heading: 'Poppins', 'Segoe UI', system-ui, -apple-system, sans-serif;
   --sw-font-body: 'Poppins', 'Segoe UI', system-ui, -apple-system, sans-serif;
-  --sw-font-mono: 'Consolas', ui-monospace, 'SF Mono', Menlo, monospace;
+  /*
+   * Reference numbers, UPRNs and CLIs used to be set in Consolas. They are
+   * Poppins now, because the house rule is that every character anywhere in
+   * the tool is Poppins or a weight of it, and a second family for six
+   * columns of digits was the only exception left.
+   *
+   * Poppins has no tabular figures of its own, so the classes that use this
+   * ask for `tabular-nums` and add a little tracking. That keeps a column of
+   * numbers readable and roughly aligned without a monospace face.
+   */
+  --sw-font-mono: 'Poppins', 'Segoe UI', system-ui, -apple-system, sans-serif;
 
   /* Weights. Poppins 400 reads light against data, so body sits at 400 and
      anything that must hold its own steps to 500. */
@@ -234,7 +244,9 @@ button {
 .sw-mono {
   font-family: var(--sw-font-mono);
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.01em;
+  /* A touch more than body tracking, so a run of digits still reads as a
+     reference rather than a word. */
+  letter-spacing: 0.03em;
 }
 
 /* Respect a user's reduced-motion preference throughout. */
@@ -287,4 +299,129 @@ button {
   .watch-row {
     flex-direction: column;
   }
+}
+
+/* ---- The companies warning board ----------------------------------- *
+ * Deliberately the loudest thing on the page. A company proposed for
+ * strike off or sitting on late accounts is the one fact on this tab that
+ * should stop an order, and a chip in a table row was not enough to make
+ * anybody look.
+ */
+.warn-board {
+  border: 2px solid var(--sw-crit-ink);
+  border-left-width: 6px;
+  border-radius: 10px;
+  background: var(--sw-crit-bg);
+  padding: 14px 16px;
+}
+
+.warn-board__head {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-family: var(--sw-font-heading);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--sw-crit-ink);
+}
+
+.warn-board__head svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.warn-board__list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.warn-board__list li {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding-top: 7px;
+  border-top: 1px solid rgba(180, 18, 43, 0.18);
+}
+
+.warn-board__name {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--sw-ink);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.warn-board__name:hover {
+  color: var(--sw-crit-ink);
+}
+
+.warn-board__flags {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.warn-board__foot {
+  margin: 12px 0 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--sw-crit-ink);
+}
+
+/* A row carrying a critical flag, so the table agrees with the board. */
+table.data tr.row--critical > td:first-child {
+  box-shadow: inset 3px 0 0 var(--sw-crit-ink);
+}
+
+.company-filters {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 14px 18px 0;
+}
+
+.company-filter {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.company-filter__text {
+  font-size: 12.5px;
+  color: var(--sw-body);
+}
+
+/* The same board, on a company's own panel: reasons rather than names. */
+.warn-board--soft {
+  border-color: var(--sw-warn-ink);
+  background: var(--sw-warn-bg);
+}
+
+.warn-board--soft .warn-board__head,
+.warn-board--soft .warn-board__reasons {
+  color: var(--sw-warn-ink);
+}
+
+.warn-board__reasons {
+  margin: 10px 0 0;
+  padding-left: 20px;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--sw-crit-ink);
+}
+
+.warn-board__reasons strong {
+  color: inherit;
 }

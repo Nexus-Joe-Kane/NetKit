@@ -619,7 +619,14 @@ export function operationsRouter(): Router {
     handler(async (req) => {
       const postcode = String(req.query.postcode ?? '').trim();
       if (!postcode) throw badRequest('Provide ?postcode=');
-      const result = await ops.companies(formatPostcode(postcode));
+
+      // A UPRN narrows the answer to one doorstep. Optional, because the
+      // register is postcode-indexed and the postcode-wide answer is still
+      // the honest fallback when the premises cannot be resolved.
+      const uprn = String(req.query.uprn ?? '').trim();
+      const premises = uprn ? await addressByUprn(uprn) : null;
+
+      const result = await ops.companies(formatPostcode(postcode), premises ?? undefined);
       return { ...result.data, mode: result.mode };
     }),
   );

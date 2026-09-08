@@ -157,7 +157,15 @@ export interface CompanyDetail {
   companyNumber: string;
   name: string;
   status: string;
+  /** The qualifier under the status, e.g. `active-proposal-to-strike-off`. */
+  statusDetail?: string;
   concerning: boolean;
+  /** True when the register says the company has ceased to exist. */
+  closed?: boolean;
+  /** True when Companies House hold a previous insolvency for the company. */
+  insolvencyHistory?: boolean;
+  /** Set when a Gazette strike-off notice (`GAZ1`) is in the filing history. */
+  strikeOffProposed?: boolean;
   type?: string;
   incorporatedOn?: string;
   dissolvedOn?: string;

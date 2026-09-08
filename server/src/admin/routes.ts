@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { ApiResult } from '@sw/shared';
 import { badRequest, HttpError, notFound } from '../lib/errors';
 import { checkPasswordPolicy, hashPassword, randomToken } from '../auth/passwords';
-import { emailLayout, sendEmail, verifyResend } from '../auth/email';
+import { EMAIL_FONT, emailLayout, sendEmail, verifyResend } from '../auth/email';
 import { requireAdmin } from '../auth/routes';
 import {
   audit,
@@ -300,7 +300,7 @@ export function adminRouter(): Router {
              <p style="margin:18px 0;padding:14px 16px;background:#F6F7F8;border:1px solid #E4E6E8;border-radius:8px;">
                <strong style="color:#101317;">Email</strong><br>${email}<br><br>
                <strong style="color:#101317;">Temporary password</strong><br>
-               <span style="font-family:Consolas,monospace;font-size:15px;letter-spacing:0.04em;">${password}</span>
+               <span style="font-family:${EMAIL_FONT};font-size:15px;letter-spacing:0.06em;font-weight:600;">${password}</span>
              </p>
              <p>You will be asked to set your own password the first time you sign in.</p>`,
           ),

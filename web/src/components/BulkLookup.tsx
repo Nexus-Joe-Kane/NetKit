@@ -81,7 +81,7 @@ export function BulkLookup(): ReactElement {
               value={text}
               onChange={(e) => setText(e.target.value)}
               placeholder={'M1 1AE\nSE23 1JG\n100023253338\n45 Brockley Rise, London'}
-              style={{ width: '100%', marginTop: 5, fontFamily: 'var(--sw-mono, monospace)', fontSize: 12.5 }}
+              style={{ width: '100%', marginTop: 5, fontFamily: 'var(--sw-font-mono)', fontSize: 12.5 }}
               spellCheck={false}
             />
           </div>

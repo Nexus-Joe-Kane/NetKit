@@ -43,6 +43,7 @@ import * as jola from '../providers/jola/adapters';
 import { notConfigured } from '../lib/errors';
 import {
   companiesHouseConfigured,
+  withPremisesDetail,
   fetchCompaniesAtPostcode,
   fetchCompanyDetail,
 } from '../providers/companies/companiesHouse';
@@ -554,11 +555,24 @@ export function estateUsage(period?: string): Promise<Sourced<EstateUsageReport>
  * Company context
  * ------------------------------------------------------------------ */
 
-export function companies(postcode: string): Promise<Sourced<CompanyContext>> {
+/**
+ * Companies at a postcode, narrowed to a premises when one is given.
+ *
+ * The register indexes by postcode and nothing else, so the search is always
+ * postcode-wide. When the caller knows which premises is on screen, the
+ * result is narrowed to it and those companies are enriched with their
+ * accounts dates and status qualifier — the facts that decide whether to warn
+ * somebody. Without a premises the old postcode-wide answer comes back
+ * unchanged.
+ */
+export function companies(postcode: string, premises?: AddressRecord): Promise<Sourced<CompanyContext>> {
   return resolve({
     key: 'companies-house',
     configured: companiesHouseConfigured(),
-    live: () => fetchCompaniesAtPostcode(postcode),
+    live: async () => {
+      const context = await fetchCompaniesAtPostcode(postcode);
+      return premises ? withPremisesDetail(context, premises) : context;
+    },
   });
 }
 
