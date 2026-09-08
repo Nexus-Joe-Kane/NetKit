@@ -149,6 +149,49 @@ Do not unpack a generic `linux-x64` Node tarball over a working install — that
 is precisely what produces the errors above, and it will also break any other
 Node site on the server.
 
+**If Plesk's version dropdown only offers 17.9.1 or lower** (typically 17.9.1,
+16.20.2, 14.21.3, 12.22.12), that list is not a Plesk setting you can change —
+it is every Node package Plesk builds for the server's OS, and it stops there
+on EL7. The OS is the constraint, not Plesk.
+
+Node 17 is not a usable fallback here. Every outbound call in the server —
+Zen, Giacom, BT, Ofcom, Resend — uses the global `fetch`, which arrived in
+Node 18. On 17 it is undefined unless you launch with `--experimental-fetch`,
+and `helmet` also declares Node 18 as its floor. The app would install and
+then throw on the first lookup.
+
+Two routes, in the order worth trying:
+
+1. **Move the domain to a Plesk server on a current OS** — Alma or Rocky 8+,
+   Debian 11+, Ubuntu 22.04+. Node 20 and 22 then appear in that dropdown
+   with no manual work, and Plesk's migration tool moves the domain, mail and
+   databases across. Ask the host: on shared or managed hosting this is
+   usually a request, not a project. This is the fix worth pushing for —
+   CentOS 7 stopped getting security patches in June 2024 and Node 17 in
+   June 2022, which is a poor foundation for a tool holding customer line
+   data, quite apart from this build.
+
+2. **Add a Node 20 built for the old glibc**, if the OS cannot move yet.
+   Take the `glibc-217` variant for the Node 20 line from
+   `unofficial-builds.nodejs.org` (check the release listing — that variant
+   is published for some lines and not others), unpack it into
+   `/opt/plesk/node/20`, and confirm the binary starts:
+
+   ```bash
+   /opt/plesk/node/20/bin/node -v
+   ```
+
+   That must print a version. If it prints another `GLIBC_` error you have
+   the wrong variant. Plesk's Node.js extension lists what it finds under
+   `/opt/plesk/node/`, so it should then appear in the dropdown; if it does
+   not, register it with `plesk sbin nodemng` (check `--help` on your Plesk
+   version for the exact subcommand). Treat this as a stopgap: unofficial
+   builds are not on the host's update path, so nothing patches that Node
+   for you.
+
+Either way, `bash plesk-doctor.sh` confirms the result — the new Node should
+appear as `RUNS`, not `BROKEN`.
+
 ### 6. Check it came up
 
 ```bash
