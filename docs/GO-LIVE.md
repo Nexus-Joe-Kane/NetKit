@@ -325,8 +325,11 @@ any wholesale account is connected.
 **It names no operator** — Ofcom withhold that as commercially confidential —
 so it appears beside the availability table, never as a row in it.
 
-There is **no Ofcom mobile API**: their portal sells the two broadband
-products and nothing else. Mobile coverage stays on the dataset above.
+**The mobile API is not on this portal.** `api.ofcom.org.uk` sells the two
+broadband products and nothing else, so there is no mobile product to request
+with this key. Ofcom's mobile coverage API lives on a separate platform and
+your access request for it is in. Until it comes back, mobile coverage comes
+from the Connected Nations dataset above.
 
 ### OS Places
 
@@ -362,7 +365,7 @@ address validation as a second opinion on the Openreach address key.
 Note: **Giacom publish no fault or diagnostics API**, so line testing and
 fault raising stay Zen-only. Every Giacom line says so on its own record.
 
-### Resend — turns on email 2FA
+### Resend — turns on email 2FA and watch alerts
 
 ```
 RESEND_API_KEY=
@@ -372,7 +375,9 @@ RESEND_FROM_EMAIL=no-reply@supportwizard.net
 Restart, then **Admin portal → Service status → Send test email**. 2FA only
 becomes available once a send has actually succeeded — an unverified key
 would otherwise lock people out of their own accounts. Also enables the
-escalation email when the supervisor cannot repair an integration.
+escalation email when the supervisor cannot repair an integration, and the
+alerts from **Watched premises** — a watch still records what changed without
+a mailer, but nobody gets told, which is most of the point.
 
 ### Companies House — free with registration
 

@@ -21,6 +21,7 @@ import { Modal } from './components/overlay';
 import { siteReportToText } from './lib/reportText';
 import { PrintableReport } from './components/PrintableReport';
 import { PrintDialog } from './components/PrintDialog';
+import { WatchButton } from './components/WatchPanel';
 import { loadSections } from './lib/printStorage';
 
 /**
@@ -240,7 +241,7 @@ function Portal({
         {view === 'faults' && <FaultsPage />}
         {view === 'orders' && <OrdersPage />}
         {view === 'sims' && <SimsPage />}
-        {view === 'tools' && <ToolsPage />}
+        {view === 'tools' && <ToolsPage onOpenSite={(uprn) => { setView('lookup'); void loadSite(uprn); }} />}
 
         {view === 'lookup' && (
           <>
@@ -439,6 +440,9 @@ function SiteReportView({
             >
               Print
             </button>
+            {/* A watch is keyed by UPRN, so a premises without one cannot be
+                re-checked reliably and the button is not offered. */}
+            {report.uprn && <WatchButton uprn={report.uprn} />}
           </div>
         }
       />

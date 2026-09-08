@@ -39,6 +39,7 @@ import type {
   UsageReport,
   CompanyDetail,
   BulkResult,
+  WatchRecord,
 } from '@sw/shared';
 
 /** One premises or identifier this user looked up recently. */
@@ -114,6 +115,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 const post = <T>(path: string, body?: unknown): Promise<T> =>
   request<T>(path, { method: 'POST', ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
+
+const del = <T>(path: string): Promise<T> => request<T>(path, { method: 'DELETE' });
 
 /* ------------------------------------------------------------------ *
  * Session
@@ -311,10 +314,16 @@ export const api = {
   companies: (postcode: string) =>
     request<Sourced & CompanyContext>(`/api/tools/companies?postcode=${encodeURIComponent(postcode)}`),
   /** The full register record for one company. Fetched only when opened. */
-  /** Many premises at once. Costs one unit of the daily budget per row. */
-  bulkLookup: (text: string) => post<BulkResult>('/api/tools/bulk', { text }),
   companyDetail: (companyNumber: string) =>
     request<Sourced & CompanyDetail>(`/api/tools/companies/${encodeURIComponent(companyNumber)}`),
+
+  /* ---- Watched premises -------------------------------------------- */
+
+  /** Many premises at once. Costs one unit of the daily budget per row. */
+  bulkLookup: (text: string) => post<BulkResult>('/api/tools/bulk', { text }),
+  watches: () => request<{ watches: WatchRecord[] }>('/api/watches'),
+  addWatch: (uprn: string) => post<{ watch: WatchRecord }>('/api/watches', { uprn }),
+  removeWatch: (id: string) => del<{ removed: boolean }>(`/api/watches/${encodeURIComponent(id)}`),
 
   /* ---- SIMs -------------------------------------------------------- */
 

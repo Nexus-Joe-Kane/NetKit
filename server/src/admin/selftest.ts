@@ -513,7 +513,7 @@ export async function runSelfTest(): Promise<SelfTestReport> {
     }
     const okCount = statuses.filter((s) => s.state === 'ok').length;
     if (notConfigured.length === statuses.length) {
-      return warn('Nothing is configured — the portal is running entirely on demo data.');
+      return warn('Nothing is configured — no lookup can return anything until a credential is set.');
     }
     return pass(`${okCount} of ${statuses.length} operational, ${notConfigured.length} awaiting credentials.`);
   });

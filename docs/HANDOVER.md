@@ -120,9 +120,9 @@ the symlink comes out. Details and the revert command are in `GO-LIVE.md`.
 | `BT_LOCATION_INSIGHTS_KEY` | Footfall, Greater London only |
 | `RESEND_API_KEY` | Email two-factor, and the escalation email when a provider stays down |
 
-**Admin portal → Service status** lists all 27 probes — 26 integrations plus
-the demo-data engine — with exactly what each is waiting for. That is the
-authoritative view, not this table.
+**Admin portal → Service status** lists all 27 integration probes with
+exactly what each is waiting for. That is the authoritative view, not this
+table.
 
 ### 8. BT's locked wholesale APIs
 
@@ -170,8 +170,8 @@ number rather than approving on the spot.
 
 ## Part 3 — Worth building next
 
-Five of these have shipped since this document was written. What is left, and
-why, is below them.
+Seven of these have shipped since this document was written. What is left,
+and why, is below them.
 
 ### Shipped
 
@@ -190,26 +190,32 @@ why, is below them.
   troubled first — a director of four dissolved companies and one new one is
   the pattern worth seeing before agreeing credit.
 - **Print the whole report.** Printing used to capture only the open tab.
-  There is now an A4 layout covering every section, plain enough to survive
-  black and white.
-
-### Still worth doing
-
-**Watch a premises — one to two days.** Not built. A "build planned 20 Sept
-2027" FTTP row is worth nothing unless somebody remembers to look again. Save
-a premises, and be told when a planned build becomes orderable or an RFS date
-moves. The supervisor already runs on a schedule and Resend is wired for
-email, so the pieces exist; what it needs is a watch store, a comparison
-against a stored snapshot, and the discipline to not send a wrong email —
-which is why it has not been rushed in alongside the others.
+  There is now an A4 layout covering every section, on brand, with a picker
+  for which sections go on the page — and the layout tightens as more are
+  ticked, so a full report still lands on a sensible number of sheets.
+- **Nearest masts, per operator.** Cell sites near the premises with a
+  distance each, from OpenCelliD, three per network. This is the honest
+  counterweight to coverage published per constituency: "the nearest EE site
+  is 4.2 km away across a hill" explains what an area-level figure cannot.
+  Built and tested; it goes live the moment `OPENCELLID_API_KEY` is set, and
+  says what it is waiting for until then.
+- **Watch a premises.** A "build planned 20 Sept 2027" FTTP row is worth
+  nothing unless somebody remembers to look again, and nobody does. There is
+  now a **Watch this premises** button on the site report and a **Watched
+  premises** list under Tools. Each watch is re-checked roughly once a day by
+  the supervisor sweep — oldest first, five per sweep, and never against the
+  budget a person needs for live work — and you are emailed only when
+  something actually moves: a technology arriving or going, an FTTP build
+  status or RFS date changing, the orderable count changing. A speed estimate
+  wobbling by a megabit between two Openreach checks is deliberately not a
+  change, because a watch that emails on noise gets muted within a week.
+  Twenty watches per person, because every one of them is a real availability
+  check on a schedule.
 
 ### Blocked on something from you
 
-**Nearest masts, per operator — one day, needs a token.** OpenCelliD is free
-and gives cell sites by location, which is the honest counterweight to
-coverage published per constituency: "the nearest EE site is 4.2 km away
-across a hill" explains what an area-level figure cannot. It needs a free
-OpenCelliD API token. Get one and I will wire it.
+Nothing on the original list is still unbuilt for want of time. What is left
+is waiting on somebody outside this repository.
 
 **Zen `indirect-changeservice` — half a day, needs the endpoint paths.** The
 scope is in your `ZEN_SCOPES` and no endpoint calls it, because Zen do not
@@ -225,13 +231,13 @@ Teams or Slack alerts, and a dark theme — were dropped as agreed.
 
 ## Part 4 — State of the thing
 
-- **26 integration probes** on the admin status board (27 including the
-  internal demo-data engine), each saying what it is waiting for. Ten vendors:
+- **27 integration probes** on the admin status board, each saying what it is
+  waiting for. Ten vendors:
   Zen, Giacom, BT, Jola, Ofcom, Ordnance Survey, Companies House,
   postcodes.io, thinkbroadband and Resend.
-- **184 tests** (51 shared, 133 server), plus a `check:secrets` guard that
+- **266 tests** (96 shared, 170 server), plus a `check:secrets` guard that
   fails the build if a credential ever lands in `.env.example`.
-- **A self-test on every boot** — 28 checks, read-only, results on the admin
+- **A self-test on every boot** — 29 checks, read-only, results on the admin
   board.
 - **Zero native dependencies**, server compiled to CommonJS for Passenger.
 - **Nightly backup** of `DATA_DIR` at 02:00, 14-day retention, writing outside

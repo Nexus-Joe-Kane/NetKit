@@ -110,6 +110,23 @@ export function emailLayout(title: string, bodyHtml: string): string {
 }
 
 /**
+ * Escapes text going into an HTML email.
+ *
+ * Needed because some of what these emails carry is not ours: a provider's
+ * error string, an address out of AddressBase, a company name off the
+ * register. None of it is likely to contain markup, and "unlikely" is not a
+ * reason to interpolate it raw into HTML that lands in somebody's inbox.
+ */
+export function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
  * Escalation email — an integration has been failing long enough that
  * automatic recovery has demonstrably not fixed it, so a person needs to
  * know. Sent once per incident, not once per sweep.
@@ -128,19 +145,19 @@ export function escalationEmail(input: {
     subject: `NetKit: ${input.name} has been failing for ${minutes} minutes`,
     html: emailLayout(
       'An integration needs attention',
-      `<p><strong style="color:#101317;">${input.name}</strong> has been failing for about
+      `<p><strong style="color:#101317;">${escapeHtml(input.name)}</strong> has been failing for about
        ${minutes} minutes. Automatic recovery has been attempted
        ${input.recoveryAttempts} time${input.recoveryAttempts === 1 ? '' : 's'} and has not fixed it, so it needs a
        person.</p>
 
        <p style="margin:18px 0;padding:14px 16px;background:#F6F7F8;border:1px solid #E4E6E8;border-radius:8px;">
-         <strong style="color:#101317;">What it provides</strong><br>${input.capability}<br><br>
+         <strong style="color:#101317;">What it provides</strong><br>${escapeHtml(input.capability)}<br><br>
          <strong style="color:#101317;">Last error</strong><br>
-         <span style="font-family:Consolas,monospace;font-size:12px;">${input.lastError ?? 'not recorded'}</span>
+         <span style="font-family:Consolas,monospace;font-size:12px;">${escapeHtml(input.lastError ?? 'not recorded')}</span>
        </p>
 
-       <p>Lookups are still working — that integration is being skipped and the next provider in the chain, or demo
-       data, is being used instead. Nothing is down for users, but the data they see is not live.</p>
+       <p>Lookups are still working — that integration is being skipped and the next provider in the chain is
+       being used instead. Nothing is down for users, but that source is missing from what they see.</p>
 
        <p style="color:#66707A;font-size:13px;">Open the admin portal, Recovery &amp; self-test, to see the probe
        history and what recovery has tried. This is sent once per incident, not once per check.</p>`,
@@ -148,7 +165,7 @@ export function escalationEmail(input: {
     text:
       `${input.name} has been failing for about ${minutes} minutes. Recovery has been attempted ` +
       `${input.recoveryAttempts} time(s) without success. Last error: ${input.lastError ?? 'not recorded'}. ` +
-      `Lookups still work — the integration is being skipped and demo data or the next provider is used instead.`,
+      `Lookups still work — the integration is being skipped and the next provider in the chain is used instead.`,
   };
 }
 
@@ -184,4 +201,51 @@ export function twoFactorEmail(code: string): { subject: string; html: string; t
     ),
     text: `Your SupportWizard NetKit sign-in code is ${code}. It expires in 10 minutes.`,
   };
+}
+
+/**
+ * Something changed at a watched premises.
+ *
+ * The changes are already sentences by the time they reach here -- the
+ * comparison that produced them knows what it compared, and rebuilding that
+ * meaning from a diff in an email template would be a second place to get it
+ * wrong.
+ */
+export function watchChangeEmail(input: {
+  address: string;
+  uprn: string;
+  changes: string[];
+}): { subject: string; html: string; text: string } {
+  const subject = `Change at ${input.address}`;
+
+  const html = emailLayout(
+    'A watched premises has changed',
+    `<p style="margin:0 0 14px;font-size:14px;line-height:1.6;">
+       Something has changed at a premises you are watching.
+     </p>
+     <p style="margin:0 0 6px;font-size:15px;font-weight:600;color:#101317;">${escapeHtml(input.address)}</p>
+     <p style="margin:0 0 18px;font-size:12px;color:#66707A;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">
+       UPRN ${escapeHtml(input.uprn)}
+     </p>
+     <ul style="margin:0 0 18px;padding-left:20px;font-size:14px;line-height:1.7;">
+       ${input.changes.map((c) => `<li>${escapeHtml(c)}</li>`).join('')}
+     </ul>
+     <p style="margin:0;font-size:12.5px;color:#66707A;line-height:1.6;">
+       This is a wholesale availability check, not an order. Open the premises in NetKit to see the full picture
+       before promising anything.
+     </p>`,
+  );
+
+  const text = [
+    'A watched premises has changed.',
+    '',
+    input.address,
+    `UPRN ${input.uprn}`,
+    '',
+    ...input.changes.map((c) => `- ${c}`),
+    '',
+    'This is a wholesale availability check, not an order. Open the premises in NetKit before promising anything.',
+  ].join('\n');
+
+  return { subject, html, text };
 }
