@@ -1167,6 +1167,10 @@ table.data td.num {
   cursor: pointer;
   transition: all 0.13s ease;
   white-space: nowrap;
+  /* An `<a class="btn">` is a button that happens to navigate — the browser's
+     default underline made the external checker links read as a different
+     kind of control from every other button on the page. */
+  text-decoration: none;
 }
 
 .btn--primary { background: var(--sw-slate); color: var(--sw-white); }

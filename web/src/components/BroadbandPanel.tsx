@@ -4,6 +4,7 @@ import { Card, Cell, Chip, Label, SpeedBar, formatDate, formatMbps, type ChipTon
 import { Tabs, TabPanel, type TabDef } from './Tabs';
 import { Disclosure, Modal } from './overlay';
 import { OrderFlow } from './OrderFlow';
+import { ExternalCheckers } from './ExternalCheckers';
 
 /**
  * Broadband availability.
@@ -61,9 +62,13 @@ export function BroadbandPanel({ data }: { data: BroadbandAvailability }): React
     { id: 'orderable', label: 'Orderable now', count: buckets.orderable.length },
     { id: 'coming', label: 'Planned', count: buckets.coming.length },
     { id: 'unavailable', label: 'Not available', count: buckets.unavailable.length },
-    ...(buckets.coverage.length
-      ? [{ id: 'coverage' as const, label: 'Other networks nearby', count: buckets.coverage.length }]
-      : []),
+    {
+      id: 'coverage',
+      label: 'Other networks',
+      // Always present. No footprint data is precisely when someone needs
+      // the manual checkers, so hiding the tab then was backwards.
+      ...(buckets.coverage.length ? { count: buckets.coverage.length } : {}),
+    },
   ];
 
   const rows = buckets[filter];
@@ -147,24 +152,40 @@ export function BroadbandPanel({ data }: { data: BroadbandAvailability }): React
         tabs={<Tabs tabs={tabs} active={filter} onChange={setFilter} variant="sub" label="Filter availability" />}
       >
         <TabPanel>
-          {filter === 'coverage' && rows.length > 0 && (
-            <div className="flag flag--warn" style={{ margin: '14px 18px 0' }}>
-              <span className="flag__marker" aria-hidden="true" />
-              <span>
-                <strong>Coverage intelligence, not a serviceability check</strong>
-                <span className="flag__detail">
-                  These networks build in this area. Nobody has checked whether they can serve this exact address, and
-                  none of them are resellable through our wholesale account. Ring the network before you quote.
-                </span>
-              </span>
+          {filter === 'coverage' && (
+            <div style={{ padding: '14px 18px 0' }}>
+              {rows.length > 0 && (
+                <div className="flag flag--warn">
+                  <span className="flag__marker" aria-hidden="true" />
+                  <span>
+                    <strong>Coverage intelligence, not a serviceability check</strong>
+                    <span className="flag__detail">
+                      These networks build in this area. Nobody has checked whether they can serve this exact address,
+                      and none of them are resellable through our wholesale account. Check before you quote.
+                    </span>
+                  </span>
+                </div>
+              )}
+              <div style={{ marginTop: rows.length > 0 ? 14 : 0 }}>
+                <ExternalCheckers postcode={data.address.postcode} />
+              </div>
             </div>
           )}
 
           {rows.length === 0 ? (
-            <div className="empty">
-              <h3>Nothing in this group</h3>
-              <p>Try another tab — the full list is under “All options”.</p>
-            </div>
+            filter === 'coverage' ? (
+              <div style={{ padding: '18px 18px 6px' }}>
+                <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>
+                  No alt-net footprint data for this premises — either nothing was reported here, or no coverage
+                  source is connected. The checkers above answer either way.
+                </p>
+              </div>
+            ) : (
+              <div className="empty">
+                <h3>Nothing in this group</h3>
+                <p>Try another tab — the full list is under “All options”.</p>
+              </div>
+            )
           ) : (
             <div className="table-wrap">
               <table className="data">

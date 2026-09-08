@@ -160,12 +160,32 @@ function probes(): Probe[] {
       'Live and ceased services on the Giacom account, so a premises shows lines from both suppliers',
       'integrations/serviceInventory.read',
     ),
-    giacomScopeProbe(
-      'giacom-qualification',
-      'Giacom — Serviceability',
-      'Per-address availability across BT Wholesale, CityFibre, TalkTalk and Virgin Media Business',
-      'integrations/serviceQualification.submit',
-    ),
+    {
+      // Not a plain scope probe. Giacom document no path for
+      // ServiceQualification, so a tenant without it granted is the normal
+      // case, not a fault — and reporting `down` would drive the supervisor
+      // into recovery, open a circuit and email an admin about a capability
+      // that was never expected to be there. It reads "not connected" until
+      // both the scope and a confirmed path are present.
+      key: 'giacom-qualification',
+      name: 'Giacom — Serviceability',
+      vendor: 'Giacom',
+      capability: 'Per-address availability across BT Wholesale, CityFibre, TalkTalk and Virgin Media Business',
+      docsUrl: 'https://docs.integrations.giacom.com/',
+      configured: () =>
+        config().giacom.configured &&
+        config().giacom.scopes.includes('integrations/serviceQualification.submit') &&
+        Boolean(config().giacom.qualificationPath),
+      run: async () => {
+        const result = await giacomPing('integrations/serviceQualification.submit');
+        return result.ok
+          ? {
+              state: 'ok' as const,
+              detail: `Authenticated, and a path is configured (${config().giacom.qualificationPath}).`,
+            }
+          : { state: 'down' as const, detail: result.detail };
+      },
+    },
     giacomScopeProbe(
       'giacom-address',
       'Giacom — Address matching',

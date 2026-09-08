@@ -186,12 +186,31 @@ function bool(source: unknown, ...keys: string[]): boolean | undefined {
  */
 function statusFrom(raw: unknown): AvailabilityStatus {
   const text = (str(raw, 'status', 'state', 'availability', 'serviceStatus') ?? '').toUpperCase();
+
+  // Negatives are tested first, and by whole phrase. "Out of service" and
+  // "Pre-service" both contain SERVICE, and "In delivery" contains LIVE —
+  // the same substring trap the operator matcher is hardened against, and it
+  // would have reported all three as available.
+  if (
+    text.includes('NOT ') ||
+    text.includes('UNAVAIL') ||
+    text.includes('OUT OF') ||
+    text.includes('PRE-') ||
+    text.includes('NO SERVICE') ||
+    text === 'NO' ||
+    text === 'NONE'
+  ) {
+    return 'not_available';
+  }
   if (text.includes('WAIT') || text.includes('REGISTER') || text.includes('INTEREST')) return 'waiting_list';
   if (text.includes('PLAN') || text.includes('FUTURE') || text.includes('SURVEY')) return 'build_planned';
-  if (text.includes('BUILD') || text.includes('SOON') || text.includes('PROGRESS')) return 'available_soon';
-  if (text.includes('DEMAND') || text.includes('ONDEMAND')) return 'on_demand';
-  if (text.includes('NOT') || text.includes('UNAVAIL')) return 'not_available';
-  if (text.includes('AVAIL') || text.includes('RFS') || text.includes('LIVE') || text.includes('SERVICE')) {
+  if (text.includes('BUILD') || text.includes('SOON') || text.includes('PROGRESS') || text.includes('DELIVER')) {
+    return 'available_soon';
+  }
+  if (text.includes('DEMAND')) return 'on_demand';
+  // `LIVE` and `SERVICE` are matched as whole words, so DELIVERY and
+  // "out of service" cannot reach this branch by accident.
+  if (/\b(AVAILABLE|AVAIL|RFS|LIVE|IN SERVICE|SERVICEABLE|CONNECTED)\b/.test(text)) {
     return 'available';
   }
 

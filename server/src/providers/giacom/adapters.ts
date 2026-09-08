@@ -181,12 +181,15 @@ function mapService(raw: unknown, fallbackAddress?: AddressRecord): LineRecord |
     // which account a line is on, and therefore who to ring about it.
     provider: supplier ? `Giacom (${supplier})` : 'Giacom',
     address: fallbackAddress ?? {
-      singleLine: str(raw, 'address', 'installationAddress') ?? 'Address not returned',
+      // Giacom's inventory carries no UPRN and no address breakdown — TM
+      // Forum keys addresses on the Openreach ALK — so this is deliberately
+      // sparse. An invented `singleLine` would never match the resolved
+      // premises and would only look like real data on screen; the ALK on
+      // `lineAccessId` is what ties the line to an address.
+      singleLine: str(raw, 'address', 'installationAddress') ?? '',
       lines: [],
       postTown: '',
       postcode: formatPostcode(str(raw, 'postcode', 'postCode') ?? ''),
-      // Giacom's inventory carries no UPRN and no full address breakdown, so
-      // this is a stub the caller replaces with the resolved premises.
       source: 'zen',
     },
     ...(str(raw, 'startDate', 'serviceDate', 'activationDate')
@@ -215,7 +218,7 @@ function mapService(raw: unknown, fallbackAddress?: AddressRecord): LineRecord |
 // checking a line they have just ordered must not see a stale answer.
 const serviceCache = new TtlCache<LineRecord[]>(5 * 60 * 1000, 500);
 
-async function servicesBy(params: Record<string, string | undefined>, address?: AddressRecord): Promise<LineRecord[]> {
+async function servicesBy(params: Record<string, string | undefined>): Promise<LineRecord[]> {
   const key = JSON.stringify(params);
   const hit = serviceCache.get(key);
   if (hit) return hit;
@@ -227,7 +230,7 @@ async function servicesBy(params: Record<string, string | undefined>, address?: 
   });
 
   const rows = Array.isArray(json) ? json : arr(json, 'service', 'services', 'results', 'items', 'data');
-  const lines = rows.map((r) => mapService(r, address)).filter((l): l is LineRecord => l !== null);
+  const lines = rows.map((r) => mapService(r)).filter((l): l is LineRecord => l !== null);
   serviceCache.set(key, lines);
   return lines;
 }

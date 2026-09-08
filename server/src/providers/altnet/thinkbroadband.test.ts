@@ -109,6 +109,20 @@ test('build and waiting-list states are not reported as available', () => {
   assert.equal(statusFrom({}), 'unknown');
 });
 
+test('substrings of a negative status never read as available', () => {
+  // Every one of these contains AVAIL, LIVE or SERVICE and would have been
+  // reported as available by a naive substring match.
+  assert.equal(statusFrom({ status: 'In delivery' }), 'available_soon', 'DELIVERY contains LIVE');
+  assert.equal(statusFrom({ status: 'Out of service' }), 'not_available', 'contains SERVICE');
+  assert.equal(statusFrom({ status: 'Pre-service' }), 'not_available', 'contains SERVICE');
+  assert.equal(statusFrom({ status: 'No service' }), 'not_available');
+  assert.equal(statusFrom({ status: 'Not currently available' }), 'not_available', 'contains AVAILABLE');
+  // And the genuine positives still land.
+  assert.equal(statusFrom({ status: 'In service' }), 'available');
+  assert.equal(statusFrom({ status: 'Live' }), 'available');
+  assert.equal(statusFrom({ status: 'Serviceable' }), 'available');
+});
+
 test('technology is read from the feed, and guessed sensibly when absent', () => {
   assert.equal(technologyFrom('cityfibre', { technology: 'XGS-PON' }), 'XGS-PON');
   assert.equal(technologyFrom('cityfibre', { technology: 'FTTP' }), 'FTTP');
