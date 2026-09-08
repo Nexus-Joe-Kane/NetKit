@@ -7,8 +7,17 @@ import { createFixtureAvailabilityProvider } from './availability/fixture';
 import { createFixtureSignalProvider } from './signal/fixture';
 import { createOfcomSignalProvider } from './signal/ofcom';
 import { createFixtureLineProvider } from './lines/fixture';
+import { createFixtureAltnetProvider } from './altnet/fixture';
+import { createThinkbroadbandProvider } from './altnet/thinkbroadband';
 import { createZenAddressProvider, createZenAvailabilityProvider, createZenLineProvider } from './zen/adapters';
-import type { AddressProvider, AvailabilityProvider, LineProvider, ProviderMeta, SignalProvider } from './types';
+import type {
+  AddressProvider,
+  AltnetProvider,
+  AvailabilityProvider,
+  LineProvider,
+  ProviderMeta,
+  SignalProvider,
+} from './types';
 
 /**
  * Provider chains.
@@ -21,6 +30,12 @@ import type { AddressProvider, AvailabilityProvider, LineProvider, ProviderMeta,
 export interface Registry {
   address: AddressProvider[];
   availability: AvailabilityProvider[];
+  /**
+   * Alt-net and cable coverage. Unlike the others this chain is *merged*
+   * rather than first-wins — no single source knows about every alt-net, so
+   * a second answer adds coverage instead of contradicting the first.
+   */
+  altnet: AltnetProvider[];
   signal: SignalProvider[];
   lines: LineProvider[];
   describe(): HealthResponse['providers'];
@@ -37,6 +52,7 @@ export function providers(): Registry {
 
   const address: AddressProvider[] = [];
   const availability: AvailabilityProvider[] = [];
+  const altnet: AltnetProvider[] = [];
   const signal: SignalProvider[] = [];
   const lines: LineProvider[] = [];
 
@@ -55,6 +71,13 @@ export function providers(): Registry {
     address.push(createOsPlacesProvider());
   }
 
+  // thinkbroadband aggregate the alt-nets and cable, which is the one thing
+  // the wholesale chain cannot answer.
+  const tbb = createThinkbroadbandProvider();
+  if (shouldRunLive(tbb.configured) && isProviderEnabled('thinkbroadband')) {
+    altnet.push(tbb);
+  }
+
   // Ofcom's published prediction beats a model, so it leads the chain.
   const ofcom = createOfcomSignalProvider();
   if (shouldRunLive(ofcom.configured) && isProviderEnabled('ofcom-coverage')) {
@@ -65,15 +88,20 @@ export function providers(): Registry {
   if (allowFixtures && isProviderEnabled('fixtures')) {
     address.push(createFixtureAddressProvider());
     availability.push(createFixtureAvailabilityProvider());
+    // Only when nothing live can answer: two sources of alt-net coverage
+    // would merge, and merging demo footprints into real ones would be worse
+    // than showing neither.
+    if (!altnet.length) altnet.push(createFixtureAltnetProvider());
     signal.push(createFixtureSignalProvider());
     lines.push(createFixtureLineProvider());
   }
 
-  const all: ProviderMeta[] = [...address, ...availability, ...signal, ...lines];
+  const all: ProviderMeta[] = [...address, ...availability, ...altnet, ...signal, ...lines];
 
   return {
     address,
     availability,
+    altnet,
     signal,
     lines,
     describe() {

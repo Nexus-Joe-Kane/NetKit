@@ -10,6 +10,7 @@ import { clearOsPlacesCache } from '../providers/address/osPlaces';
 import { loadDataset } from '../providers/signal/ofcom';
 import { clearReportCache } from '../services/resolve';
 import { clearCompaniesCache } from '../providers/companies/companiesHouse';
+import { clearThinkbroadbandCache } from '../providers/altnet/thinkbroadband';
 
 /**
  * The recovery supervisor.
@@ -129,6 +130,10 @@ function recoveryActionsFor(key: string): RecoveryAction[] {
 
   if (key === 'os-places') {
     return [{ name: 'Drop cached OS Places results', run: () => clearOsPlacesCache() }];
+  }
+
+  if (key === 'thinkbroadband') {
+    return [{ name: 'Drop cached alt-net coverage', run: () => clearThinkbroadbandCache() }];
   }
 
   if (key === 'companies-house') {

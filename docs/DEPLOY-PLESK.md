@@ -55,6 +55,7 @@ Two worth knowing about before they surprise you:
 | --- | --- | --- |
 | `ZEN_ALLOW_ORDERING` | `false` | One of the two locks on placing real orders. The other is the admin-portal switch; both must be open. |
 | `AVAILABILITY_DAILY_BUDGET` | `250` | Premises lookups per user per day. Protects the account's shared fair-use quota. `0` removes it. |
+| `THINKBROADBAND_API_KEY` | unset | Alt-net and cable coverage — CityFibre, Virgin Media, Community Fibre, G.Network. Without it the coverage rows are demo footprint data, labelled as unchecked. |
 
 ### Two things that matter
 

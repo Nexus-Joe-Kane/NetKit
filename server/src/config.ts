@@ -185,6 +185,22 @@ export interface AppConfig {
    * a premises — status, incorporation, SIC codes and overdue filings.
    */
   companiesHouse: { apiKey: string; baseUrl: string; configured: boolean };
+  /**
+   * thinkbroadband's availability API — alt-net and cable coverage.
+   *
+   * The only obtainable source that covers CityFibre, Virgin Media,
+   * Community Fibre and G.Network at once, and a data licence rather than a
+   * wholesale agreement. Paths and the auth style are configurable because
+   * thinkbroadband publish the specification to licensees only.
+   */
+  thinkbroadband: {
+    apiKey: string;
+    baseUrl: string;
+    availabilityPath: string;
+    /** Some licences key the query string rather than a header. */
+    apiKeyInQuery: boolean;
+    configured: boolean;
+  };
   osPlaces: { apiKey: string; baseUrl: string; configured: boolean };
   postcodesIo: { baseUrl: string; enabled: boolean };
   signal: { baseUrl: string; apiKey: string; configured: boolean };
@@ -222,6 +238,13 @@ export function config(): AppConfig {
     bt: loadBt(),
     allowOrdering: bool('ZEN_ALLOW_ORDERING', false),
     quotas: { availabilityPerUserPerDay: Math.max(0, num('AVAILABILITY_DAILY_BUDGET', 250)) },
+    thinkbroadband: {
+      apiKey: str('THINKBROADBAND_API_KEY'),
+      baseUrl: str('THINKBROADBAND_BASE_URL', 'https://api.thinkbroadband.com'),
+      availabilityPath: str('THINKBROADBAND_AVAILABILITY_PATH', '/availability'),
+      apiKeyInQuery: bool('THINKBROADBAND_KEY_IN_QUERY', false),
+      configured: Boolean(str('THINKBROADBAND_API_KEY')),
+    },
     companiesHouse: {
       apiKey: str('COMPANIES_HOUSE_API_KEY'),
       baseUrl: str('COMPANIES_HOUSE_BASE_URL', 'https://api.company-information.service.gov.uk'),

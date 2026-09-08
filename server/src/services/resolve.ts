@@ -1,10 +1,13 @@
 import {
   formatPostcode,
   identify,
+  statusRank,
+  technologyRank,
   toSuggestion,
   type AddressRecord,
   type AddressSuggestion,
   type BroadbandAvailability,
+  type BroadbandOffer,
   type LineRecord,
   type ResolvedIdentifier,
   type SearchResponse,
@@ -170,17 +173,100 @@ export async function allLinesAtPremises(
  * The composite site report
  * ------------------------------------------------------------------ */
 
+/**
+ * Alt-net and cable coverage, merged across every provider that answers.
+ *
+ * First-usable-wins is right for wholesale availability and wrong here. No
+ * single source knows about CityFibre *and* Virgin Media *and* Community
+ * Fibre *and* G.Network, so a second answer adds networks rather than
+ * replacing the first. A provider that fails is skipped: partial coverage
+ * beats none, and the report says which sources answered.
+ */
+async function altnetOffersFor(address: AddressRecord): Promise<{ offers: BroadbandOffer[]; sources: string[] }> {
+  const chain = providers().altnet;
+  if (!chain.length) return { offers: [], sources: [] };
+
+  const settled = await Promise.all(
+    chain.map(async (provider) => {
+      try {
+        return { name: provider.name, offers: await provider.forAddress(address) };
+      } catch {
+        // A coverage panel is not worth failing a site report over.
+        return { name: provider.name, offers: [] as BroadbandOffer[] };
+      }
+    }),
+  );
+
+  const offers: BroadbandOffer[] = [];
+  const sources: string[] = [];
+  // One row per operator + technology. Where two sources both know a
+  // network, the one that actually checked the address wins.
+  const seen = new Map<string, BroadbandOffer>();
+
+  for (const { name, offers: found } of settled) {
+    if (!found.length) continue;
+    sources.push(name);
+    for (const offer of found) {
+      const key = `${offer.operator}:${offer.technology}`;
+      const existing = seen.get(key);
+      if (!existing || rankServiceability(offer) > rankServiceability(existing)) seen.set(key, offer);
+    }
+  }
+  offers.push(...seen.values());
+
+  return { offers, sources };
+}
+
+const rankServiceability = (offer: BroadbandOffer): number =>
+  offer.serviceability === 'confirmed' ? 2 : offer.serviceability === 'footprint' ? 1 : 0;
+
 async function availabilityFor(
   address: AddressRecord,
 ): Promise<{ value: BroadbandAvailability | null; status: SectionStatus }> {
   const started = Date.now();
-  const result = await firstResult(
-    providers().availability,
-    (p) => p.forAddress(address),
-    (v) => v.offers.length > 0 || Boolean(v.openreach),
+  // Wholesale and alt-net are fetched together: they are independent
+  // upstreams and one should never wait on the other.
+  const [result, altnet] = await Promise.all([
+    firstResult(
+      providers().availability,
+      (p) => p.forAddress(address),
+      (v) => v.offers.length > 0 || Boolean(v.openreach),
+    ),
+    altnetOffersFor(address),
+  ]);
+
+  if (result.value === null) {
+    // Coverage alone is still worth showing — it answers "is there any
+    // gigabit here at all" even when the wholesale check failed.
+    if (!altnet.offers.length) return { value: null, status: failed(result.errors) };
+    return {
+      value: {
+        ...(address.uprn ? { uprn: address.uprn } : {}),
+        address,
+        offers: sortOffers(altnet.offers),
+        checkedAt: new Date().toISOString(),
+        sources: altnet.sources,
+      },
+      status: ok('live', Date.now() - started),
+    };
+  }
+
+  const value: BroadbandAvailability = {
+    ...result.value,
+    offers: sortOffers([...result.value.offers, ...altnet.offers]),
+    sources: [...result.value.sources, ...altnet.sources],
+  };
+  return { value, status: ok(result.mode, Date.now() - started) };
+}
+
+/** Sellable and serviceable first, then by technology — same order as before. */
+function sortOffers(offers: BroadbandOffer[]): BroadbandOffer[] {
+  return [...offers].sort(
+    (a, b) =>
+      statusRank(b.status) - statusRank(a.status) ||
+      rankServiceability(b) - rankServiceability(a) ||
+      technologyRank(b.technology) - technologyRank(a.technology),
   );
-  if (result.value === null) return { value: null, status: failed(result.errors) };
-  return { value: result.value, status: ok(result.mode, Date.now() - started) };
 }
 
 async function signalFor(address: AddressRecord): Promise<{ value: SignalReport | null; status: SectionStatus }> {

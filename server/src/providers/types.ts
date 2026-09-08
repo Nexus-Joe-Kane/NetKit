@@ -1,6 +1,7 @@
 import type {
   AddressRecord,
   BroadbandAvailability,
+  BroadbandOffer,
   LineRecord,
   SignalReport,
 } from '@sw/shared';
@@ -25,6 +26,21 @@ export interface AddressProvider extends ProviderMeta {
 
 export interface AvailabilityProvider extends ProviderMeta {
   forAddress(address: AddressRecord): Promise<BroadbandAvailability>;
+}
+
+/**
+ * Alt-net and cable coverage — everything that is not sold through the
+ * wholesale chain we buy from.
+ *
+ * Deliberately a separate capability rather than part of `AvailabilityProvider`.
+ * Wholesale availability is first-usable-wins, because Zen's answer for
+ * Openreach is authoritative and a second opinion adds nothing. Alt-net
+ * coverage is *additive*: no single source knows about all of CityFibre,
+ * Virgin Media, Community Fibre and G.Network, so these results are merged
+ * into the report rather than competing to replace it.
+ */
+export interface AltnetProvider extends ProviderMeta {
+  forAddress(address: AddressRecord): Promise<BroadbandOffer[]>;
 }
 
 export interface SignalProvider extends ProviderMeta {

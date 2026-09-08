@@ -29,7 +29,7 @@ function speedKind(offer: BroadbandOffer): 'fibre' | 'cable' | 'copper' {
   return technologyRank(offer.technology) >= technologyRank('SOGFAST') ? 'fibre' : 'copper';
 }
 
-type Filter = 'all' | 'orderable' | 'coming' | 'unavailable';
+type Filter = 'all' | 'orderable' | 'coming' | 'unavailable' | 'coverage';
 
 const COMING = new Set(['available_soon', 'build_planned', 'waiting_list', 'on_demand']);
 
@@ -39,14 +39,21 @@ export function BroadbandPanel({ data }: { data: BroadbandAvailability }): React
   const [detail, setDetail] = useState<BroadbandOffer | null>(null);
   const [ordering, setOrdering] = useState<BroadbandOffer | null>(null);
 
+  // A row we can actually sell is one the wholesale check answered for. An
+  // alt-net footprint is coverage intelligence, and mixing the two in
+  // "Orderable now" is how somebody quotes Community Fibre by accident.
+  const sellable = useMemo(() => offers.filter((o) => o.serviceability !== 'footprint'), [offers]);
+  const coverageOnly = useMemo(() => offers.filter((o) => o.serviceability === 'footprint'), [offers]);
+
   const buckets = useMemo(
     () => ({
       all: offers,
-      orderable: offers.filter((o) => o.status === 'available'),
-      coming: offers.filter((o) => COMING.has(o.status)),
-      unavailable: offers.filter((o) => o.status === 'not_available' || o.status === 'unknown'),
+      orderable: sellable.filter((o) => o.status === 'available'),
+      coming: sellable.filter((o) => COMING.has(o.status)),
+      unavailable: sellable.filter((o) => o.status === 'not_available' || o.status === 'unknown'),
+      coverage: coverageOnly,
     }),
-    [offers],
+    [coverageOnly, offers, sellable],
   );
 
   const tabs: Array<TabDef<Filter>> = [
@@ -54,6 +61,9 @@ export function BroadbandPanel({ data }: { data: BroadbandAvailability }): React
     { id: 'orderable', label: 'Orderable now', count: buckets.orderable.length },
     { id: 'coming', label: 'Planned', count: buckets.coming.length },
     { id: 'unavailable', label: 'Not available', count: buckets.unavailable.length },
+    ...(buckets.coverage.length
+      ? [{ id: 'coverage' as const, label: 'Other networks nearby', count: buckets.coverage.length }]
+      : []),
   ];
 
   const rows = buckets[filter];
@@ -65,7 +75,12 @@ export function BroadbandPanel({ data }: { data: BroadbandAvailability }): React
    * is a read-only row — no button, rather than a button that fails.
    */
   const canOrder = (offer: BroadbandOffer): boolean =>
-    Boolean(availabilityRef) && Boolean(offer.productCode) && offer.status === 'available' && offer.orderable !== false;
+    Boolean(availabilityRef) &&
+    Boolean(offer.productCode) &&
+    offer.status === 'available' &&
+    offer.orderable !== false &&
+    // Coverage intelligence is never orderable, whatever else it says.
+    offer.serviceability !== 'footprint';
 
   return (
     <div className="stack">
@@ -95,7 +110,7 @@ export function BroadbandPanel({ data }: { data: BroadbandAvailability }): React
               <Label>Orderable</Label>
               <div className="headline__big">
                 {buckets.orderable.length}
-                <span className="headline__unit">of {offers.length}</span>
+                <span className="headline__unit">of {sellable.length}</span>
               </div>
               <div className="headline__sub">options checked</div>
             </div>
@@ -132,6 +147,19 @@ export function BroadbandPanel({ data }: { data: BroadbandAvailability }): React
         tabs={<Tabs tabs={tabs} active={filter} onChange={setFilter} variant="sub" label="Filter availability" />}
       >
         <TabPanel>
+          {filter === 'coverage' && rows.length > 0 && (
+            <div className="flag flag--warn" style={{ margin: '14px 18px 0' }}>
+              <span className="flag__marker" aria-hidden="true" />
+              <span>
+                <strong>Coverage intelligence, not a serviceability check</strong>
+                <span className="flag__detail">
+                  These networks build in this area. Nobody has checked whether they can serve this exact address, and
+                  none of them are resellable through our wholesale account. Ring the network before you quote.
+                </span>
+              </span>
+            </div>
+          )}
+
           {rows.length === 0 ? (
             <div className="empty">
               <h3>Nothing in this group</h3>
@@ -161,6 +189,16 @@ export function BroadbandPanel({ data }: { data: BroadbandAvailability }): React
                         <Chip tone={TONE_BY_STATUS[offer.status] ?? 'idle'} dot>
                           {statusLabel(offer.status)}
                         </Chip>
+                        {offer.serviceability === 'footprint' && (
+                          <div style={{ marginTop: 3 }}>
+                            <Chip
+                              tone="warn"
+                              title="This network builds in the area. Nobody has checked whether it can serve this exact address — confirm with the network before quoting."
+                            >
+                              Not checked
+                            </Chip>
+                          </div>
+                        )}
                         {offer.rfsDate && (
                           <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>{formatDate(offer.rfsDate)}</div>
                         )}
@@ -298,6 +336,16 @@ function OfferModal({
           <Cell label="Ready for service" value={formatDate(offer.rfsDate)} />
           <Cell label="Install category" value={offer.installCategory} />
           <Cell label="Appointment required" value={offer.appointmentRequired} />
+          <Cell
+            label="Serviceability"
+            value={
+              offer.serviceability === 'confirmed'
+                ? 'Checked for this address'
+                : offer.serviceability === 'footprint'
+                  ? 'Not checked — area footprint only'
+                  : undefined
+            }
+          />
           <Cell label="Orderable" value={offer.orderable} />
           <Cell label="If not, why" value={offer.orderableReason} />
         </div>

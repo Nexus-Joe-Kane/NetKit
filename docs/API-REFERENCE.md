@@ -245,3 +245,67 @@ separately: they are a warning, not a reason to stop.
 Companies are indexed by postcode rather than premises, so the ones whose
 registered office postcode matches the premises being looked at are marked
 **This address**.
+
+---
+
+## thinkbroadband — alt-net and cable coverage
+
+`https://www.thinkbroadband.com/broadband-availability-api` — commercial data
+licence, priced on enquiry.
+
+**Why it is here.** Zen answers authoritatively for Openreach and for nothing
+else. No wholesale account we hold knows about CityFibre, Virgin Media,
+Community Fibre and G.Network at once. thinkbroadband aggregate availability
+across the alt-nets and cable, keyed by **postcode and UPRN**, and licence the
+data to the price-comparison sites. It is the one commercially obtainable
+source that covers all of those networks without a separate wholesale
+agreement per network.
+
+It is a **data licence, not a carrier contract**: it tells you who *could*
+serve a premises. Ordering an alt-net circuit still needs a commercial
+relationship with that network, or with an aggregator.
+
+**The response specification is not public.** The API page is behind bot
+protection and thinkbroadband publish field definitions to licensees only. So
+`server/src/providers/altnet/thinkbroadband.ts` is written the same way as the
+Zen and BT mappers:
+
+- Both a keyed-object shape (`{ virginmedia: {...} }`) and an array shape
+  (`{ networks: [...] }`) are read, under any of several envelope names.
+- Field names are matched case- and separator-insensitively, so
+  `maxDownload`, `max_download` and `maxdownload` are the same field.
+- An operator with no slot in `NetworkOperator` is surfaced as `other` with
+  its real name kept — a new alt-net appearing is the normal case, not an error.
+- Openreach rows are **skipped**, because Zen already answers for them with
+  engineering detail a coverage feed cannot match.
+- Anything unrecognised is ignored rather than guessed at.
+
+`__thinkbroadbandTesting.mapPayload` is the single function to adjust once a
+real response is in hand; `thinkbroadband.test.ts` pins the current tolerance,
+including the traps (`BT` inside `GIGABIT`, `false` meaning not-available,
+envelope fields being mistaken for operators).
+
+### Serviceability is not availability
+
+Every offer carries `serviceability`:
+
+| Value | Meaning |
+| --- | --- |
+| `confirmed` | A provider API answered for **this address** |
+| `footprint` | The network builds in this area; this address is **unchecked** |
+| `unknown` | No serviceability signal at all |
+
+A postcode-keyed aggregate is `footprint` unless the feed explicitly confirms
+the premises. Footprint rows sit in their own **Other networks nearby** tab,
+carry a "Not checked" chip, are excluded from the orderable count, can never
+be ordered, and appear in "Copy as text" under a heading that says so. The
+self-test fails if any unchecked row claims `available`.
+
+### Other routes considered
+
+| Route | What it gives you | Why not this first |
+| --- | --- | --- |
+| **Flexgrid** aggregator | 24 networks including Virgin, CityFibre, Community Fibre — and the ability to *order* | Needs partner onboarding; G.Network is not on their list |
+| **CityFibre** direct | TM Forum Open APIs, well documented at `docs.cityfibre.com` | One network, needs a partner agreement |
+| **G.Network** direct | Availability-checker API via their reseller programme | One network, needs a partner agreement. The only route that covers G.Network |
+| **Ofcom Connected Nations** | Free, no account | Publishes gigabit-capable coverage only, with the per-operator split withheld for commercial confidentiality. Cannot name a network |

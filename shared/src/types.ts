@@ -179,6 +179,19 @@ export interface BroadbandOffer {
   /** Openreach install category: `Category A` / `B` / `C`. */
   installCategory?: string;
   appointmentRequired?: boolean;
+  /**
+   * How sure we are the premises can actually be served.
+   *
+   * - `confirmed` — a provider API answered for *this address*.
+   * - `footprint` — the network builds in this area, but this address has
+   *   not been checked. Useful to know, dangerous to quote.
+   * - `unknown`   — no serviceability signal at all.
+   *
+   * The distinction earns its place because alt-net footprint data and
+   * alt-net serviceability are different facts, and only one of them is safe
+   * to read out to a customer.
+   */
+  serviceability?: 'confirmed' | 'footprint' | 'unknown';
   /** False when the provider says this product cannot be ordered today. */
   orderable?: boolean;
   /** The provider's own words for why not. */

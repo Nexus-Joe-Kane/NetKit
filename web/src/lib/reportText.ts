@@ -110,7 +110,13 @@ export function siteReportToText(report: SiteReport): string {
       );
     }
 
-    const orderable = broadband.offers.filter((o) => o.status === 'available');
+    // Footprint-only coverage is separated out and labelled. This text gets
+    // pasted into tickets and read to customers, so an unchecked alt-net must
+    // never sit in a list headed "orderable".
+    const sellable = broadband.offers.filter((o) => o.serviceability !== 'footprint');
+    const coverageOnly = broadband.offers.filter((o) => o.serviceability === 'footprint');
+
+    const orderable = sellable.filter((o) => o.status === 'available');
     if (orderable.length) {
       out.push('', 'ORDERABLE NOW', rule());
       for (const offer of orderable) {
@@ -123,7 +129,7 @@ export function siteReportToText(report: SiteReport): string {
       }
     }
 
-    const notAvailable = broadband.offers.filter((o) => o.status !== 'available');
+    const notAvailable = sellable.filter((o) => o.status !== 'available');
     if (notAvailable.length) {
       out.push('', 'NOT CURRENTLY AVAILABLE', rule());
       for (const offer of notAvailable) {
@@ -133,6 +139,19 @@ export function siteReportToText(report: SiteReport): string {
           }`,
         );
       }
+    }
+
+    if (coverageOnly.length) {
+      out.push('', 'OTHER NETWORKS IN THE AREA — NOT CHECKED FOR THIS ADDRESS', rule());
+      for (const offer of coverageOnly) {
+        out.push(
+          `  - ${offer.technology.padEnd(10)} ${offer.operatorLabel} — ${statusLabel(offer.status)}${
+            offer.rfsDate ? ` (${date(offer.rfsDate)})` : ''
+          }`,
+        );
+      }
+      out.push('    These networks build in the area. Nobody has checked this exact address,');
+      out.push('    and none are resellable through our wholesale account.');
     }
 
     const or = broadband.openreach;

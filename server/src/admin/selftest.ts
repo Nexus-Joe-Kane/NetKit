@@ -1,4 +1,4 @@
-import { identify, isFullPostcode, normaliseCli, type LineTestType } from '@sw/shared';
+import { identify, isFullPostcode, normaliseCli, type BroadbandOffer, type LineTestType } from '@sw/shared';
 import { config } from '../config';
 import { addressByUprn, addressesByPostcode, buildSiteReport, resolveQuery, searchAddresses } from '../services/resolve';
 import * as ops from '../services/operations';
@@ -323,6 +323,46 @@ export async function runSelfTest(): Promise<SelfTestReport> {
     return pass(
       `${result.data.rows.length} services, ${(result.data.totalBytes / 1024 ** 4).toFixed(1)} TB in ${result.data.period}.`,
       result.mode,
+    );
+  });
+
+  /**
+   * Alt-net coverage, and specifically whether anything is claiming a
+   * premises is serviceable when it has not been checked. That claim is the
+   * one thing in this tool an operator could quote to a customer and be
+   * wrong about, so the self-test refuses to let it pass quietly.
+   */
+  await r.run('Site report', 'site.altnet', 'Alt-net coverage is labelled honestly', async () => {
+    const list = (await addressesByPostcode(PROBE_POSTCODE)).filter((a) => a.uprn);
+    if (!list.length) return skip('No premises with a UPRN.');
+
+    // Not every premises has an alt-net near it, so walk a few rather than
+    // giving up on the first — a check that skips is a check that never runs.
+    let altnets: BroadbandOffer[] = [];
+    for (const address of list.slice(0, 8)) {
+      const report = await buildSiteReport(address, identify(address.uprn!), { includeSiblings: false });
+      const found = (report.broadband?.offers ?? []).filter(
+        (o) => o.operator !== 'openreach' && o.source !== 'fixture:openreach',
+      );
+      if (found.length) {
+        altnets = found;
+        break;
+      }
+    }
+    if (!altnets.length) return skip(`No alt-net coverage at any of the first ${Math.min(8, list.length)} premises.`);
+
+    const unchecked = altnets.filter((o) => o.serviceability !== 'confirmed');
+    const lying = unchecked.filter((o) => o.status === 'available');
+    if (lying.length) {
+      return fail(
+        `${lying.length} alt-net row(s) claim availability without a serviceability check: ${lying
+          .map((o) => o.operatorLabel)
+          .join(', ')}.`,
+      );
+    }
+    return pass(
+      `${altnets.length} alt-net option(s), ${altnets.length - unchecked.length} confirmed, ${unchecked.length} footprint-only.`,
+      altnets.some((o) => o.source === 'fixture:altnet') ? 'mock' : 'live',
     );
   });
 
