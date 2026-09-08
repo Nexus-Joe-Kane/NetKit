@@ -1,4 +1,4 @@
-import { identify, isFullPostcode, normaliseCli, type LineTestType } from '@sw/shared';
+import { identify, isFullPostcode, normaliseCli, type BroadbandOffer, type LineTestType } from '@sw/shared';
 import { config } from '../config';
 import { addressByUprn, addressesByPostcode, buildSiteReport, resolveQuery, searchAddresses } from '../services/resolve';
 import * as ops from '../services/operations';
@@ -323,6 +323,59 @@ export async function runSelfTest(): Promise<SelfTestReport> {
     return pass(
       `${result.data.rows.length} services, ${(result.data.totalBytes / 1024 ** 4).toFixed(1)} TB in ${result.data.period}.`,
       result.mode,
+    );
+  });
+
+  /**
+   * Alt-net coverage, and specifically whether anything is claiming a
+   * premises is serviceable when it has not been checked. That claim is the
+   * one thing in this tool an operator could quote to a customer and be
+   * wrong about, so the self-test refuses to let it pass quietly.
+   */
+  /**
+   * Alt-net coverage, and specifically whether anything claims a premises is
+   * serviceable when it has not been checked. That claim is the one thing in
+   * this tool an operator could quote to a customer and be wrong about, so
+   * the self-test refuses to let it pass quietly.
+   *
+   * The offers chain is called directly rather than through a site report.
+   * Building reports here cost a real wholesale availability call per
+   * premises against a fair-use quota that is shared across the account —
+   * an expensive way to check a labelling rule that needs no wholesale data
+   * at all.
+   */
+  await r.run('Site report', 'site.altnet', 'Alt-net coverage is labelled honestly', async () => {
+    const chain = providers().offers;
+    if (!chain.length) return skip('No coverage provider is connected.');
+
+    const list = (await addressesByPostcode(PROBE_POSTCODE)).filter((a) => a.uprn);
+    if (!list.length) return skip('No premises with a UPRN.');
+
+    // Not every premises has an alt-net near it, so walk a few — a check
+    // that skips is a check that never runs. These calls hit the coverage
+    // provider only, never the wholesale account.
+    let found: BroadbandOffer[] = [];
+    for (const address of list.slice(0, 8)) {
+      const results = await Promise.all(chain.map((p) => p.forAddress(address).catch(() => [])));
+      found = results.flat();
+      if (found.length) break;
+    }
+    if (!found.length) return skip(`No coverage at any of the first ${Math.min(8, list.length)} premises.`);
+
+    // Only footprint rows are in scope. Filtering by "not Openreach" also
+    // caught the fixed-wireless fallback, which is a legitimately available
+    // option and would have failed the check for no reason.
+    const unchecked = found.filter((o) => o.serviceability === 'footprint');
+    const lying = unchecked.filter((o) => o.status === 'available');
+    if (lying.length) {
+      return fail(
+        `${lying.length} unchecked row(s) claim availability: ${lying.map((o) => o.operatorLabel).join(', ')}.`,
+      );
+    }
+    const confirmed = found.filter((o) => o.serviceability === 'confirmed').length;
+    return pass(
+      `${found.length} option(s) from the coverage chain: ${confirmed} address-checked, ${unchecked.length} footprint-only.`,
+      found.some((o) => o.source.startsWith('fixture')) ? 'mock' : 'live',
     );
   });
 

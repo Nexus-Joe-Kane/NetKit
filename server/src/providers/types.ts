@@ -1,6 +1,7 @@
 import type {
   AddressRecord,
   BroadbandAvailability,
+  BroadbandOffer,
   LineRecord,
   SignalReport,
 } from '@sw/shared';
@@ -25,6 +26,28 @@ export interface AddressProvider extends ProviderMeta {
 
 export interface AvailabilityProvider extends ProviderMeta {
   forAddress(address: AddressRecord): Promise<BroadbandAvailability>;
+}
+
+/**
+ * Extra options at a premises, beyond the primary wholesale chain.
+ *
+ * Two kinds of thing land here, and both are *additive* rather than
+ * competing:
+ *
+ * - **Alt-net and cable coverage** — CityFibre, Virgin Media, Community
+ *   Fibre, G.Network. No single source knows about all of them.
+ * - **A second wholesale supplier** — Giacom carry BT Wholesale, CityFibre,
+ *   TalkTalk and Virgin Media Business, so the same premises can be sellable
+ *   through more than one account at different prices.
+ *
+ * Deliberately separate from `AvailabilityProvider`, which is
+ * first-usable-wins: Zen's Openreach answer is authoritative and a second
+ * opinion on it only contradicts confusingly. These results are merged into
+ * the report, deduped per operator+technology, with the source that actually
+ * checked the address winning over one that only knows the footprint.
+ */
+export interface OfferProvider extends ProviderMeta {
+  forAddress(address: AddressRecord): Promise<BroadbandOffer[]>;
 }
 
 export interface SignalProvider extends ProviderMeta {

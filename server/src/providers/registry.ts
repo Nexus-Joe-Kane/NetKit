@@ -7,8 +7,18 @@ import { createFixtureAvailabilityProvider } from './availability/fixture';
 import { createFixtureSignalProvider } from './signal/fixture';
 import { createOfcomSignalProvider } from './signal/ofcom';
 import { createFixtureLineProvider } from './lines/fixture';
+import { createFixtureOfferProvider } from './altnet/fixture';
+import { createThinkbroadbandProvider } from './altnet/thinkbroadband';
+import { createGiacomLineProvider, createGiacomOfferProvider } from './giacom/adapters';
 import { createZenAddressProvider, createZenAvailabilityProvider, createZenLineProvider } from './zen/adapters';
-import type { AddressProvider, AvailabilityProvider, LineProvider, ProviderMeta, SignalProvider } from './types';
+import type {
+  AddressProvider,
+  OfferProvider,
+  AvailabilityProvider,
+  LineProvider,
+  ProviderMeta,
+  SignalProvider,
+} from './types';
 
 /**
  * Provider chains.
@@ -21,6 +31,13 @@ import type { AddressProvider, AvailabilityProvider, LineProvider, ProviderMeta,
 export interface Registry {
   address: AddressProvider[];
   availability: AvailabilityProvider[];
+  /**
+   * Extra options at a premises: alt-net coverage, and any wholesale
+   * supplier beyond the primary chain. Unlike the others this chain is
+   * *merged* rather than first-wins — a second answer adds options instead
+   * of contradicting the first.
+   */
+  offers: OfferProvider[];
   signal: SignalProvider[];
   lines: LineProvider[];
   describe(): HealthResponse['providers'];
@@ -37,6 +54,7 @@ export function providers(): Registry {
 
   const address: AddressProvider[] = [];
   const availability: AvailabilityProvider[] = [];
+  const offers: OfferProvider[] = [];
   const signal: SignalProvider[] = [];
   const lines: LineProvider[] = [];
 
@@ -55,6 +73,26 @@ export function providers(): Registry {
     address.push(createOsPlacesProvider());
   }
 
+  // Giacom is the second wholesale account. Its serviceability answers merge
+  // alongside Zen's rather than replacing them, because the same premises can
+  // be sellable through both at different prices — and its service inventory
+  // is the only way a Giacom-supplied line shows up at a premises at all.
+  const giacomOffers = createGiacomOfferProvider();
+  if (shouldRunLive(giacomOffers.configured) && isProviderEnabled('giacom-qualification')) {
+    offers.push(giacomOffers);
+  }
+  const giacomLines = createGiacomLineProvider();
+  if (shouldRunLive(giacomLines.configured) && isProviderEnabled('giacom-services')) {
+    lines.push(giacomLines);
+  }
+
+  // thinkbroadband aggregate the alt-nets and cable, which is the one thing
+  // the wholesale chain cannot answer.
+  const tbb = createThinkbroadbandProvider();
+  if (shouldRunLive(tbb.configured) && isProviderEnabled('thinkbroadband')) {
+    offers.push(tbb);
+  }
+
   // Ofcom's published prediction beats a model, so it leads the chain.
   const ofcom = createOfcomSignalProvider();
   if (shouldRunLive(ofcom.configured) && isProviderEnabled('ofcom-coverage')) {
@@ -65,15 +103,20 @@ export function providers(): Registry {
   if (allowFixtures && isProviderEnabled('fixtures')) {
     address.push(createFixtureAddressProvider());
     availability.push(createFixtureAvailabilityProvider());
+    // Only when nothing live can answer: two sources of alt-net coverage
+    // would merge, and merging demo footprints into real ones would be worse
+    // than showing neither.
+    if (!offers.length) offers.push(createFixtureOfferProvider());
     signal.push(createFixtureSignalProvider());
     lines.push(createFixtureLineProvider());
   }
 
-  const all: ProviderMeta[] = [...address, ...availability, ...signal, ...lines];
+  const all: ProviderMeta[] = [...address, ...availability, ...offers, ...signal, ...lines];
 
   return {
     address,
     availability,
+    offers,
     signal,
     lines,
     describe() {

@@ -10,7 +10,7 @@ import {
   type OpenreachDetail,
 } from '@sw/shared';
 import { Seeded } from '../../lib/seeded';
-import { ALTNETS, EXCHANGES, ONT_MODELS, regionFor } from '../../fixtures/uk';
+import { EXCHANGES, ONT_MODELS, regionFor } from '../../fixtures/uk';
 import type { AvailabilityProvider } from '../types';
 
 /**
@@ -358,39 +358,11 @@ function buildOffers(rng: Seeded, address: AddressRecord, m: Model, or: Openreac
     source: 'fixture:openreach',
   });
 
-  // ---- Alt-nets and cable --------------------------------------------
-  const altnetCount = rng.weighted([
-    [0, 3],
-    [1, 4],
-    [2, 3],
-    [3, 1],
-  ]);
-  for (const alt of rng.sample(ALTNETS, altnetCount)) {
-    const isCable = alt.operator === 'virgin-media';
-    const status = rng.weighted<AvailabilityStatus>([
-      ['available', 6],
-      ['build_planned', 2],
-      ['waiting_list', 1],
-    ]);
-    push({
-      operator: alt.operator as NetworkOperator,
-      operatorLabel: alt.label,
-      technology: isCable ? 'DOCSIS3.1' : 'XGS-PON',
-      status,
-      speeds: isCable
-        ? { downMbpsHigh: rng.pick([500, 1130, 1808]), upMbpsHigh: rng.pick([50, 104, 120]), basis: 'headline' }
-        : { downMbpsHigh: rng.pick([900, 1000, 2000]), upMbpsHigh: rng.pick([900, 1000, 2000]), basis: 'headline' },
-      ...(status !== 'available' ? { rfsDate: rng.dateOffset(60, 540) } : {}),
-      productName: isCable ? 'Virgin Media cable (DOCSIS 3.1)' : `${alt.label} full fibre`,
-      notes: [
-        status === 'available'
-          ? 'Network already passes this premises.'
-          : 'Premises is inside the announced build footprint but not yet serviceable.',
-        'Not resellable via Zen — noted for completeness.',
-      ],
-      source: 'fixture:altnet',
-    });
-  }
+  // Alt-nets and cable used to be invented here. They now come from a
+  // separate provider chain, because footprint coverage and wholesale
+  // availability are different facts from different sources — and because a
+  // fabricated "Community Fibre: available" row is the one thing in this
+  // fixture nobody could ever replace with the truth.
 
   // ---- Fixed wireless fallback for poorly served premises -------------
   if (m.maturity === 'no-plan' && !m.fttcEnabled) {
@@ -445,7 +417,7 @@ export function buildFixtureAvailability(address: AddressRecord): BroadbandAvail
     // demo mode, and obviously a demo value to anyone reading it.
     availabilityReference: `DEMO-AV-${rng.digits(10)}`,
     checkedAt: new Date().toISOString(),
-    sources: ['fixture:openreach', 'fixture:altnet'],
+    sources: ['fixture:openreach'],
   };
 }
 

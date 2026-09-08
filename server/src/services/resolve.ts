@@ -1,10 +1,13 @@
 import {
   formatPostcode,
   identify,
+  statusRank,
+  technologyRank,
   toSuggestion,
   type AddressRecord,
   type AddressSuggestion,
   type BroadbandAvailability,
+  type BroadbandOffer,
   type LineRecord,
   type ResolvedIdentifier,
   type SearchResponse,
@@ -114,6 +117,33 @@ export async function findLines(id: ResolvedIdentifier): Promise<{ lines: LineRe
  * from every configured source, deduplicated. This is the "everything
  * lookup" that finds lines Zen doesn't own.
  */
+/**
+ * Whether a line found by a postcode sweep is actually at this premises.
+ *
+ * Three keys, in descending order of certainty. The third exists because
+ * Giacom's service inventory carries neither a UPRN nor a full address —
+ * TM Forum keys their addresses on the Openreach ALK — so without it every
+ * Giacom-supplied line was silently dropped from every site report and half
+ * that integration was inert.
+ *
+ * A line that matches none of them is excluded rather than guessed at: a
+ * neighbour's circuit appearing on a site report is worse than a missing one.
+ */
+function belongsToPremises(line: LineRecord, address: AddressRecord): boolean {
+  if (address.uprn && line.address.uprn) return line.address.uprn === address.uprn;
+
+  // The Openreach address key, which is what Giacom return and what an order
+  // is built from — so a match here is as good as a UPRN match.
+  const premisesKey = address.addressKey?.trim().toUpperCase();
+  const lineKey = line.lineAccessId?.trim().toUpperCase();
+  if (premisesKey && lineKey && premisesKey === lineKey) return true;
+
+  if (!line.address.uprn && line.address.singleLine) {
+    return line.address.singleLine.trim().toLowerCase() === address.singleLine.trim().toLowerCase();
+  }
+  return false;
+}
+
 export async function allLinesAtPremises(
   address: AddressRecord,
 ): Promise<{ lines: LineRecord[]; status: SectionStatus }> {
@@ -143,14 +173,7 @@ export async function allLinesAtPremises(
 
         if (!direct.length && p.byPostcode && address.postcode) {
           for (const line of await p.byPostcode(address.postcode)) {
-            // Keep only lines that actually belong to this premises. Where a
-            // line carries no UPRN, fall back to matching the address text.
-            const sameUprn = address.uprn && line.address.uprn === address.uprn;
-            const sameAddress =
-              !line.address.uprn && line.address.singleLine
-                ? line.address.singleLine.toLowerCase() === address.singleLine.toLowerCase()
-                : false;
-            if (sameUprn || sameAddress) add(line);
+            if (belongsToPremises(line, address)) add(line);
           }
         }
         answered = true;
@@ -170,17 +193,159 @@ export async function allLinesAtPremises(
  * The composite site report
  * ------------------------------------------------------------------ */
 
+/**
+ * Alt-net and cable coverage, merged across every provider that answers.
+ *
+ * First-usable-wins is right for wholesale availability and wrong here. No
+ * single source knows about CityFibre *and* Virgin Media *and* Community
+ * Fibre *and* G.Network, so a second answer adds networks rather than
+ * replacing the first. A provider that fails is skipped: partial coverage
+ * beats none, and the report says which sources answered.
+ */
+async function supplementalOffersFor(address: AddressRecord): Promise<{ offers: BroadbandOffer[]; sources: string[] }> {
+  const chain = providers().offers;
+  if (!chain.length) return { offers: [], sources: [] };
+
+  const settled = await Promise.all(
+    chain.map(async (provider) => {
+      try {
+        return { name: provider.name, offers: await provider.forAddress(address) };
+      } catch {
+        // A coverage panel is not worth failing a site report over.
+        return { name: provider.name, offers: [] as BroadbandOffer[] };
+      }
+    }),
+  );
+
+  const sources: string[] = [];
+  const seen = new Map<string, BroadbandOffer>();
+
+  for (const { name, offers: found } of settled) {
+    if (!found.length) continue;
+    sources.push(name);
+    for (const offer of found) {
+      const key = dedupeKey(offer);
+      const existing = seen.get(key);
+      if (!existing || confidenceRank(offer) > confidenceRank(existing)) seen.set(key, offer);
+    }
+  }
+
+  return { offers: [...seen.values()], sources };
+}
+
+/**
+ * What counts as the same option twice.
+ *
+ * Two *coverage* feeds reporting CityFibre XGS-PON at one address are the
+ * same fact, and should merge. Two *sellable products* that happen to share
+ * an operator and technology are not — SOGEA through BT Wholesale and SOGEA
+ * through TalkTalk are different commercial routes at different prices, and
+ * collapsing them would delete exactly the comparison this feature exists to
+ * show. So the retailer and product code join the key when present, and
+ * coverage rows (which have neither) still merge as before.
+ */
+const dedupeKey = (offer: BroadbandOffer): string =>
+  [offer.operator, offer.technology, offer.retailer ?? '', offer.productCode ?? ''].join('|');
+
+/**
+ * Which of two rows for the same option to keep: the one that actually
+ * checked this address beats one that only knows the area.
+ */
+const confidenceRank = (offer: BroadbandOffer): number =>
+  offer.serviceability === 'confirmed' ? 2 : offer.serviceability === 'footprint' ? 1 : 0;
+
+/**
+ * Where a row sorts, which is a different question from which row to keep.
+ *
+ * `serviceability` is absent on everything from the wholesale chain, because
+ * a wholesale availability answer *is* an address check — so absent must
+ * rank with `confirmed`, not below `footprint`. Ranking it 0 put unchecked
+ * alt-net footprints above genuinely orderable Openreach products, which is
+ * precisely backwards.
+ */
+const sellRank = (offer: BroadbandOffer): number => (offer.serviceability === 'footprint' ? 0 : 1);
+
 async function availabilityFor(
   address: AddressRecord,
 ): Promise<{ value: BroadbandAvailability | null; status: SectionStatus }> {
   const started = Date.now();
-  const result = await firstResult(
-    providers().availability,
-    (p) => p.forAddress(address),
-    (v) => v.offers.length > 0 || Boolean(v.openreach),
+  // Wholesale and alt-net are fetched together: they are independent
+  // upstreams and one should never wait on the other.
+  const [result, supplemental] = await Promise.all([
+    firstResult(
+      providers().availability,
+      (p) => p.forAddress(address),
+      (v) => v.offers.length > 0 || Boolean(v.openreach),
+    ),
+    supplementalOffersFor(address),
+  ]);
+
+  if (result.value === null) {
+    // Coverage alone is still worth showing — it answers "is there any
+    // gigabit here at all" even when the wholesale check failed.
+    if (!supplemental.offers.length) return { value: null, status: failed(result.errors) };
+    const coverageOnly = sortOffers(supplemental.offers);
+    const coverageHeadline = headlineFrom(coverageOnly);
+    return {
+      value: {
+        ...(address.uprn ? { uprn: address.uprn } : {}),
+        address,
+        offers: coverageOnly,
+        ...(coverageHeadline ? { headline: coverageHeadline } : {}),
+        checkedAt: new Date().toISOString(),
+        sources: supplemental.sources,
+      },
+      // Coverage is showing, but the wholesale check still failed and the
+      // operator has to know that — reporting this as a healthy section
+      // makes "no options here" indistinguishable from "Zen returned 503".
+      status: { ...failed(result.errors), durationMs: Date.now() - started },
+    };
+  }
+
+  const merged = sortOffers([...result.value.offers, ...supplemental.offers]);
+  const headline = headlineFrom(merged) ?? result.value.headline;
+  const value: BroadbandAvailability = {
+    ...result.value,
+    offers: merged,
+    ...(headline ? { headline } : {}),
+    sources: [...result.value.sources, ...supplemental.sources],
+  };
+  return { value, status: ok(result.mode, Date.now() - started) };
+}
+
+/** Sellable first, then by status, then by technology. */
+function sortOffers(offers: BroadbandOffer[]): BroadbandOffer[] {
+  return [...offers].sort(
+    (a, b) =>
+      sellRank(b) - sellRank(a) ||
+      statusRank(b.status) - statusRank(a.status) ||
+      technologyRank(b.technology) - technologyRank(a.technology),
   );
-  if (result.value === null) return { value: null, status: failed(result.errors) };
-  return { value: result.value, status: ok(result.mode, Date.now() - started) };
+}
+
+/**
+ * The "best available" summary, recomputed after merging.
+ *
+ * Carrying the wholesale provider's own headline through was wrong once a
+ * second supplier could beat it: a Giacom-confirmed gigabit product would
+ * never reach the summary strip or the copy-as-text header. Footprint rows
+ * are excluded — the headline is what you can sell, not what passes nearby.
+ */
+function headlineFrom(offers: BroadbandOffer[]): BroadbandAvailability['headline'] | undefined {
+  const best = offers
+    .filter((o) => o.status === 'available' && o.serviceability !== 'footprint')
+    .sort(
+      (a, b) =>
+        technologyRank(b.technology) - technologyRank(a.technology) ||
+        (b.speeds.downMbpsHigh ?? 0) - (a.speeds.downMbpsHigh ?? 0),
+    )[0];
+  if (!best) return undefined;
+  return {
+    technology: best.technology,
+    ...(best.speeds.downMbpsHigh != null ? { downMbps: best.speeds.downMbpsHigh } : {}),
+    ...(best.speeds.upMbpsHigh != null ? { upMbps: best.speeds.upMbpsHigh } : {}),
+    operatorLabel: best.operatorLabel,
+  };
 }
 
 async function signalFor(address: AddressRecord): Promise<{ value: SignalReport | null; status: SectionStatus }> {
@@ -365,3 +530,6 @@ export async function suggest(rawQuery: string, limit = 12): Promise<{ query: Re
 export function clearReportCache(): void {
   reportCache.clear();
 }
+
+/** Test hooks for the merge and ordering rules, which are easy to regress. */
+export const __resolveTesting = { dedupeKey, confidenceRank, sellRank, sortOffers, headlineFrom, belongsToPremises };

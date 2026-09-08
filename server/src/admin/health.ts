@@ -1,9 +1,10 @@
-import { config, type ZenScope } from '../config';
+import { config, type GiacomScope, type ZenScope } from '../config';
 import { zenPing } from '../providers/zen/client';
 import { zenAvailabilityQuota } from '../providers/zen/adapters';
 import { isProviderEnabled, settings } from '../auth/store';
 import { fetchJson } from '../lib/http';
 import { datasetStatus } from '../providers/signal/ofcom';
+import { giacomPing } from '../providers/giacom/client';
 
 /**
  * Service status for the admin portal.
@@ -27,6 +28,8 @@ export interface ServiceStatus {
     | 'Ordnance Survey'
     | 'postcodes.io'
     | 'Companies House'
+    | 'thinkbroadband'
+    | 'Giacom'
     | 'Resend'
     | 'Internal';
   /** What this integration gives the portal. */
@@ -65,6 +68,27 @@ const zenScopeProbe = (key: string, name: string, capability: string, scope: Zen
   configured: () => config().zen.configured && config().zen.scopes.includes(scope),
   run: async () => {
     const result = await zenPing(scope);
+    return result.ok
+      ? { state: 'ok' as const, detail: `Authenticated for ${scope}.` }
+      : { state: 'down' as const, detail: result.detail };
+  },
+});
+
+/**
+ * Giacom grant each of their twenty-one scopes individually, so every
+ * capability gets its own probe. A credential that works for the service
+ * inventory can still be refused serviceability, and the board should say
+ * which one rather than reporting "Giacom" as one thing.
+ */
+const giacomScopeProbe = (key: string, name: string, capability: string, scope: GiacomScope): Probe => ({
+  key,
+  name,
+  vendor: 'Giacom',
+  capability,
+  docsUrl: 'https://docs.integrations.giacom.com/',
+  configured: () => config().giacom.configured && config().giacom.scopes.includes(scope),
+  run: async () => {
+    const result = await giacomPing(scope);
     return result.ok
       ? { state: 'ok' as const, detail: `Authenticated for ${scope}.` }
       : { state: 'down' as const, detail: result.detail };
@@ -122,6 +146,90 @@ function probes(): Probe[] {
         return {
           state: res ? ('ok' as const) : ('degraded' as const),
           detail: res ? 'Reachable and authenticated.' : 'Reachable but returned no results for the probe postcode.',
+          meta: { probeMs: Date.now() - started },
+        };
+      },
+    },
+
+    // ---- Giacom ---------------------------------------------------------
+    // Scopes are granted individually, so each capability is probed
+    // separately: a working credential can still be refused one scope.
+    giacomScopeProbe(
+      'giacom-services',
+      'Giacom — Service inventory',
+      'Live and ceased services on the Giacom account, so a premises shows lines from both suppliers',
+      'integrations/serviceInventory.read',
+    ),
+    {
+      // Not a plain scope probe. Giacom document no path for
+      // ServiceQualification, so a tenant without it granted is the normal
+      // case, not a fault — and reporting `down` would drive the supervisor
+      // into recovery, open a circuit and email an admin about a capability
+      // that was never expected to be there. It reads "not connected" until
+      // both the scope and a confirmed path are present.
+      key: 'giacom-qualification',
+      name: 'Giacom — Serviceability',
+      vendor: 'Giacom',
+      capability: 'Per-address availability across BT Wholesale, CityFibre, TalkTalk and Virgin Media Business',
+      docsUrl: 'https://docs.integrations.giacom.com/',
+      configured: () =>
+        config().giacom.configured &&
+        config().giacom.scopes.includes('integrations/serviceQualification.submit') &&
+        Boolean(config().giacom.qualificationPath),
+      run: async () => {
+        const result = await giacomPing('integrations/serviceQualification.submit');
+        return result.ok
+          ? {
+              state: 'ok' as const,
+              detail: `Authenticated, and a path is configured (${config().giacom.qualificationPath}).`,
+            }
+          : { state: 'down' as const, detail: result.detail };
+      },
+    },
+    giacomScopeProbe(
+      'giacom-address',
+      'Giacom — Address matching',
+      'BT Wholesale address validation, returning the Openreach ALK for cross-checking Zen',
+      'integrations/address.manage',
+    ),
+    giacomScopeProbe(
+      'giacom-catalogue',
+      'Giacom — Product catalogue',
+      'Service specifications: what the Giacom account can sell',
+      'integrations/serviceCatalogue.read',
+    ),
+
+    // ---- thinkbroadband -------------------------------------------------
+    {
+      key: 'thinkbroadband',
+      name: 'thinkbroadband',
+      vendor: 'thinkbroadband',
+      capability: 'Alt-net and cable coverage — CityFibre, Virgin Media, Community Fibre, G.Network and others',
+      docsUrl: 'https://www.thinkbroadband.com/broadband-availability-api',
+      configured: () => cfg.thinkbroadband.configured,
+      run: async () => {
+        const started = Date.now();
+        const query = new URLSearchParams({
+          postcode: 'SW1A 1AA',
+          ...(cfg.thinkbroadband.apiKeyInQuery ? { key: cfg.thinkbroadband.apiKey } : {}),
+        });
+        const res = await fetchJson<unknown>(
+          `${cfg.thinkbroadband.baseUrl}${cfg.thinkbroadband.availabilityPath}?${query.toString()}`,
+          {
+            label: 'thinkbroadband',
+            headers: cfg.thinkbroadband.apiKeyInQuery
+              ? {}
+              : { Authorization: `Bearer ${cfg.thinkbroadband.apiKey}`, 'X-API-Key': cfg.thinkbroadband.apiKey },
+            timeoutMs: 8000,
+            retries: 0,
+            notFoundAsNull: true,
+          },
+        );
+        return {
+          state: res ? ('ok' as const) : ('degraded' as const),
+          detail: res
+            ? 'Reachable and authenticated.'
+            : 'Reachable but returned nothing for the probe postcode — check the licence covers availability lookups.',
           meta: { probeMs: Date.now() - started },
         };
       },
