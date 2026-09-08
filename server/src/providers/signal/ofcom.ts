@@ -321,33 +321,16 @@ export function createOfcomSignalProvider(): SignalProvider {
   return {
     name: 'ofcom-coverage',
     label: 'Ofcom mobile coverage (Connected Nations)',
-    configured: Boolean(cfg.ofcom.datasetPath || cfg.ofcom.apiBaseUrl),
+    configured: Boolean(cfg.ofcom.datasetPath),
     mode: 'live',
 
     async forAddress(address) {
-      // A live endpoint takes precedence where one is configured.
-      if (cfg.ofcom.apiBaseUrl) {
-        const url = `${cfg.ofcom.apiBaseUrl.replace(/\/$/, '')}/${encodeURIComponent(address.postcode.replace(/\s/g, ''))}`;
-        const json = await fetchJson<Record<string, unknown>>(url, {
-          ...(cfg.ofcom.apiKey ? { headers: { 'Ofcom-Subscription-Key': cfg.ofcom.apiKey } } : {}),
-          label: 'Ofcom coverage API',
-          timeoutMs: cfg.requestTimeoutMs,
-          notFoundAsNull: true,
-        });
-        if (json) {
-          // The response is flattened and run through the same header
-          // interpretation, so one code path handles both shapes.
-          const entries = Object.entries(json).filter(([, v]) => typeof v === 'string' || typeof v === 'number');
-          const { columns } = interpretHeader(entries.map(([k]) => k));
-          const row: CoverageRow = {};
-          for (const column of columns) {
-            const grade = gradeFromOfcom(String(entries[column.index]?.[1] ?? ''));
-            if (grade === 'unknown') continue;
-            (row[column.operator] ??= {})[`${column.service}_${column.placement}`] = grade;
-          }
-          if (Object.keys(row).length) return buildReport(address, row, 'ofcom:api');
-        }
-      }
+      // Dataset only. There was a speculative live-endpoint branch here for a
+      // mobile coverage API, written before anyone had an Ofcom account —
+      // Ofcom sell no such product (their developer portal offers Broadband
+      // Coverage Basic and Premium and nothing else), and it used the wrong
+      // subscription header. Code that can never run is worse than no code:
+      // it made OFCOM_API_KEY look like it did something.
 
       const dataset = loadDataset();
       if (!dataset) {

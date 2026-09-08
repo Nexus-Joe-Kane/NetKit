@@ -246,7 +246,22 @@ export interface AppConfig {
    * dependable route — free, no account. An API base URL is an optional
    * override for accounts that have a live endpoint.
    */
-  ofcom: { datasetPath: string; apiBaseUrl: string; apiKey: string };
+  /**
+   * Ofcom mobile coverage. Dataset only — Ofcom publish no mobile coverage
+   * API. Their developer portal sells Broadband Coverage (Basic/Premium)
+   * and nothing else; see `ofcomBroadband` for that one.
+   */
+  ofcom: { datasetPath: string };
+  /**
+   * Ofcom's Connected Nations Broadband API — free with a developer account,
+   * 50,000 requests a month on the Basic tier.
+   *
+   * Per-premises predicted speeds keyed by UPRN. It names no operator, by
+   * Ofcom's deliberate policy, so it answers "what can this premises get"
+   * and never "who from" — which is exactly why it sits beside the offers
+   * rather than among them.
+   */
+  ofcomBroadband: { apiKey: string; baseUrl: string; configured: boolean };
   /**
    * The recovery supervisor: probes every integration on an interval and
    * tries to fix what it can. On by default — an internal tool that quietly
@@ -332,6 +347,11 @@ export function config(): AppConfig {
     bt: loadBt(),
     allowOrdering: bool('ZEN_ALLOW_ORDERING', false),
     quotas: { availabilityPerUserPerDay: Math.max(0, num('AVAILABILITY_DAILY_BUDGET', 250)) },
+    ofcomBroadband: {
+      apiKey: str('OFCOM_BROADBAND_API_KEY'),
+      baseUrl: str('OFCOM_BROADBAND_BASE_URL', 'https://api-proxy.ofcom.org.uk/broadband'),
+      configured: Boolean(str('OFCOM_BROADBAND_API_KEY')),
+    },
     thinkbroadband: {
       apiKey: str('THINKBROADBAND_API_KEY'),
       baseUrl: str('THINKBROADBAND_BASE_URL', 'https://api.thinkbroadband.com'),
@@ -346,8 +366,6 @@ export function config(): AppConfig {
     },
     ofcom: {
       datasetPath: str('OFCOM_DATASET_PATH'),
-      apiBaseUrl: str('OFCOM_API_BASE_URL'),
-      apiKey: str('OFCOM_API_KEY'),
     },
     supervisor: {
       enabled: bool('SUPERVISOR_ENABLED', true),

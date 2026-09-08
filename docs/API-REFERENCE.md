@@ -422,3 +422,69 @@ they are linked plain, and the panel says the postcode needs pasting.
 
 The tab is always present, including when there is no footprint data at all:
 that is precisely when an operator needs the manual checkers.
+
+---
+
+## Ofcom Connected Nations Broadband API
+
+`https://api.ofcom.org.uk/` — **free** with a developer account.
+
+| Product | Rate | Monthly quota |
+| --- | --- | --- |
+| Broadband Coverage (Basic) | 100 calls/min | 50,000 |
+| Broadband Coverage (Premium) | 500 calls/min | 150,000 |
+
+- `GET /coverage/{postcode}` at `https://api-proxy.ofcom.org.uk/broadband` —
+  postcode **uppercase with spaces removed**.
+- Auth: `Ocp-Apim-Subscription-Key` header (Azure API Management). The key is
+  the Primary key on your Profile page.
+
+Unlike every other integration here, the response shape is **known** rather
+than inferred — Ofcom publish an OpenAPI document. `FixedAvailability`:
+
+```
+PostCode · Count · Availability: BroadbandProvision[]
+```
+
+And each `BroadbandProvision`, verbatim:
+
+```
+UPRN · AddressShortDescription · PostCode
+MaxBbPredictedDown/Up      (basic)
+MaxSfbbPredictedDown/Up    (superfast, 30 Mb+)
+MaxUfbbPredictedDown/Up    (ultrafast, 300 Mb+)
+MaxPredictedDown/Up        (best of any technology)
+```
+
+### It names no operator, deliberately
+
+There is no provider field in the schema. Ofcom withhold the per-provider
+split as commercially confidential, so this API can report that 1000 Mb is
+predicted at a premises and never that Community Fibre serves it. That is the
+reason it populates `BroadbandAvailability.predicted` — a panel beside the
+offers table — rather than adding rows to it. A row with no operator is not
+something anyone can order.
+
+### Summarising
+
+A UPRN match is used whenever Ofcom hold that premises, and
+`premisesMatched: true` says so. Otherwise the fallback is the **maximum**
+across the postcode's premises, flagged `premisesMatched: false`: this figure
+is only ever read as "what is possible here", and a mean would understate a
+premises that can get fibre when its neighbours cannot.
+
+Zero is treated as absent rather than as a real speed — "0 Mb predicted" on
+screen reads as a measurement rather than a gap. Ofcom type `UPRN` as an
+integer and NetKit carries it as a string, so the comparison is stringified;
+a mismatch there would silently downgrade every lookup to a postcode average,
+and there is a test pinning it.
+
+### There is no Ofcom mobile API
+
+Worth stating because it looks like there should be. Community client
+libraries reference Mobile Coverage products, but Ofcom's portal now offers
+**Broadband Coverage (Basic) and (Premium) only**. Mobile coverage comes from
+the Connected Nations dataset file. A speculative live-endpoint branch for a
+mobile API was removed from `signal/ofcom.ts` for this reason — it also used
+the wrong subscription header, and code that can never run is worse than no
+code because it makes an unused environment variable look meaningful.
