@@ -32,6 +32,14 @@ export const notConfigured = (message: string) => new HttpError(501, 'not_config
 export const upstream = (message: string, detail?: unknown) =>
   new HttpError(502, 'upstream_error', message, detail);
 
+/** A quota or fair-use budget has been spent, not a transport failure. */
+export const rateLimited = (message: string, detail?: unknown) =>
+  new HttpError(429, 'rate_limited', message, detail);
+
+/** The action is understood but this user is not permitted to take it. */
+export const forbidden = (message: string, detail?: unknown) =>
+  new HttpError(403, 'bad_request', message, detail);
+
 /** Thrown when a query matches several premises and the user must choose. */
 export const ambiguous = (message: string, suggestions: ApiError['suggestions']) =>
   new HttpError(300, 'ambiguous', message, undefined, suggestions);

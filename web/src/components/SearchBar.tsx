@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { identify, kindLabel, type AddressSuggestion, type IdentifierKind } from '@sw/shared';
-import { api } from '../lib/api';
-import { Chip, Label, type ChipTone } from './ui';
+import { api, type RecentLookup } from '../lib/api';
+import { Chip, Label, relativeTime, type ChipTone } from './ui';
 
 /**
  * The one search box.
@@ -53,10 +53,25 @@ export function SearchBar({
    * still holds the text that was searched for.
    */
   const [submitted, setSubmitted] = useState<string | null>(null);
+  /**
+   * What this user looked up recently. Loaded once on mount and refreshed
+   * after each submission, so the list is current without polling.
+   */
+  const [recent, setRecent] = useState<RecentLookup[]>([]);
   const boxRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const resolved = useMemo(() => identify(value), [value]);
+
+  const loadRecent = useCallback(() => {
+    void api
+      .recent()
+      .then((r) => setRecent(r.recent))
+      // A missing recents list is not worth a message — the box still works.
+      .catch(() => setRecent([]));
+  }, []);
+
+  useEffect(() => loadRecent(), [loadRecent]);
 
   // Debounced typeahead. A stale response must never overwrite a newer one,
   // so each request is tagged and late arrivals are dropped.
@@ -130,6 +145,9 @@ export function SearchBar({
     setOpen(false);
     setSubmitted(trimmed);
     onSubmit(trimmed);
+    // The server files the lookup once it resolves; give it a moment, then
+    // re-read rather than guessing what it recorded.
+    setTimeout(loadRecent, 1200);
   };
 
   const pick = (suggestion: AddressSuggestion) => {
@@ -137,6 +155,14 @@ export function SearchBar({
     setValue(suggestion.label);
     setSubmitted(suggestion.label.trim());
     onPickAddress(suggestion);
+    setTimeout(loadRecent, 1200);
+  };
+
+  /** Re-runs a recent lookup by its most precise identifier. */
+  const rerun = (entry: RecentLookup) => {
+    const query = entry.uprn ?? entry.query;
+    setValue(query);
+    submit(query);
   };
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -182,7 +208,12 @@ export function SearchBar({
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={onKeyDown}
-            onFocus={() => value.trim() !== submitted && (suggestions.length || postcodes.length) && setOpen(true)}
+            onFocus={() => {
+              // An empty box offers the history; a part-typed one offers
+              // suggestions, unless they are for what was just submitted.
+              if (!value.trim()) setOpen(recent.length > 0);
+              else if (value.trim() !== submitted && (suggestions.length || postcodes.length)) setOpen(true);
+            }}
             placeholder="Postcode, address, UPRN, CLI or line ID…"
             spellCheck={false}
             autoComplete="off"
@@ -213,30 +244,78 @@ export function SearchBar({
             </>
           ) : (
             <div>
-              <Label>Try</Label>
+              <Label>{recent.length > 0 ? 'Recent' : 'Try'}</Label>
               <div className="search__examples">
-                {EXAMPLES.map((ex) => (
+                {recent.length > 0
+                  ? recent.slice(0, 5).map((entry) => (
+                      <button
+                        key={`${entry.kind}:${entry.uprn ?? entry.query}`}
+                        type="button"
+                        className="search__example"
+                        onClick={() => rerun(entry)}
+                        title={`${entry.label ?? entry.query} — looked up ${relativeTime(entry.at)}`}
+                      >
+                        {entry.label ?? entry.query}
+                      </button>
+                    ))
+                  : EXAMPLES.map((ex) => (
+                      <button
+                        key={ex.label}
+                        type="button"
+                        className="search__example"
+                        onClick={() => {
+                          setValue(ex.label);
+                          submit(ex.label);
+                        }}
+                        title={`Example ${ex.hint}`}
+                      >
+                        {ex.label}
+                      </button>
+                    ))}
+                {recent.length > 0 && (
                   <button
-                    key={ex.label}
                     type="button"
-                    className="search__example"
+                    className="search__example search__example--muted"
                     onClick={() => {
-                      setValue(ex.label);
-                      submit(ex.label);
+                      void api.clearRecent().then(() => setRecent([]));
                     }}
-                    title={`Example ${ex.hint}`}
+                    title="Forget this list"
                   >
-                    {ex.label}
+                    Clear
                   </button>
-                ))}
+                )}
               </div>
             </div>
           )}
         </div>
       </div>
 
-      {open && (suggestions.length > 0 || postcodes.length > 0) && (
+      {open && (suggestions.length > 0 || postcodes.length > 0 || (!value.trim() && recent.length > 0)) && (
         <div className="typeahead" role="listbox">
+          {!value.trim() && recent.length > 0 && (
+            <>
+              <div className="typeahead__group">
+                <Label>Where you have been</Label>
+              </div>
+              {recent.map((entry) => (
+                <button
+                  key={`recent:${entry.kind}:${entry.uprn ?? entry.query}`}
+                  type="button"
+                  className="typeahead__item"
+                  role="option"
+                  aria-selected={false}
+                  onClick={() => rerun(entry)}
+                >
+                  <span className="typeahead__label">
+                    {entry.label ?? entry.query}
+                    <span className="muted" style={{ fontSize: 11, marginLeft: 8 }}>{relativeTime(entry.at)}</span>
+                  </span>
+                  <span className="typeahead__uprn sw-mono">{entry.uprn ?? entry.postcode ?? entry.kind}</span>
+                </button>
+              ))}
+            </>
+          )}
+
           {suggestions.length > 0 && (
             <>
               <div className="typeahead__group">

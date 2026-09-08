@@ -267,10 +267,70 @@ export async function runSelfTest(): Promise<SelfTestReport> {
     return pass(`${result.data.length} orders in flight.`, result.mode);
   });
 
+  /**
+   * Reports where the ordering locks stand. A pass here means "correctly
+   * locked" as much as "ready" — the check exists so nobody discovers at
+   * 4pm on a Friday that the switch they thought was on never was.
+   */
+  await r.run('Operations', 'ops.ordering-gate', 'Ordering locks report a clear state', async () => {
+    const gate = ops.orderingGate('selftest');
+    if (gate.allowed && !gate.demo) return warn('Ordering is UNLOCKED — orders placed here will be real.');
+    if (gate.allowed) return pass('Unlocked, but no provider credentials — the flow rehearses and refuses.');
+    if (!gate.reason) return fail('Ordering is blocked but gives no reason, which would be a silent dead end.');
+    return pass(
+      `Locked: ${gate.reason} (environment ${gate.environmentAllows ? 'allows' : 'blocks'}, admin switch ${
+        gate.adminAllows ? 'on' : 'off'
+      }, cap ${gate.dailyCap || 'none'}).`,
+    );
+  });
+
   await r.run('Operations', 'ops.sims', 'SIM estate responds', async () => {
     const result = await ops.simEstate();
     return pass(
       `${result.data.sims.length} SIMs${result.data.pool ? `, pool ${result.data.pool.simCount ?? 0} strong` : ''}.`,
+      result.mode,
+    );
+  });
+
+  await r.run('Operations', 'ops.notifications', 'Provider notices respond', async () => {
+    const result = await ops.notifications({});
+    return pass(`${result.data.length} notices in the window.`, result.mode);
+  });
+
+  await r.run('Operations', 'ops.address-match', 'Wholesale address references resolve', async () => {
+    const result = await ops.addressMatch({ postcode: PROBE_POSTCODE });
+    // Not finding a reference is a legitimate answer, so the check is that
+    // the two-database question got a coherent answer at all.
+    if (!result.data.btoAddressReference && !result.data.btwAddressReference) {
+      return warn(`No wholesale reference for ${PROBE_POSTCODE}: ${result.data.messages[0] ?? 'no reason given'}.`);
+    }
+    return pass(
+      result.data.agrees
+        ? `Openreach ${result.data.btoAddressReference} and BT Wholesale ${result.data.btwAddressReference}.`
+        : 'Only one database answered.',
+      result.mode,
+    );
+  });
+
+  await r.run('Operations', 'ops.network-config', 'Realms and IP options are listed', async () => {
+    const result = await ops.networkConfiguration();
+    if (!result.data.serviceSelectionNames.length) return warn('No service selection names were returned.');
+    return pass(`${result.data.serviceSelectionNames.length} options offered.`, result.mode);
+  });
+
+  await r.run('Operations', 'ops.estate-usage', 'Estate-wide usage reports', async () => {
+    const result = await ops.estateUsage();
+    return pass(
+      `${result.data.rows.length} services, ${(result.data.totalBytes / 1024 ** 4).toFixed(1)} TB in ${result.data.period}.`,
+      result.mode,
+    );
+  });
+
+  await r.run('Operations', 'ops.companies', 'Company context resolves for a postcode', async () => {
+    const result = await ops.companies(PROBE_POSTCODE);
+    const concerning = result.data.companies.filter((c) => c.concerning).length;
+    return pass(
+      `${result.data.companies.length} companies at ${PROBE_POSTCODE}${concerning ? `, ${concerning} needing attention` : ''}.`,
       result.mode,
     );
   });

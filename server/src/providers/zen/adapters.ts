@@ -169,11 +169,10 @@ export function createZenAvailabilityProvider(): AvailabilityProvider {
       }
 
       const availability = availabilityFromZen(address, res);
-      // The availability reference is needed to place an order or book an
-      // appointment, so it is carried through as a note on the report.
-      if (res.availabilityReference) {
-        availability.sources.push(`availabilityReference:${res.availabilityReference}`);
-      }
+      // The availability reference is what an order and an appointment
+      // request are both built from, so it is a field rather than a note.
+      if (res.availabilityReference) availability.availabilityReference = res.availabilityReference;
+      if (typeof lastQuota?.remaining === 'number') availability.remainingChecks = lastQuota.remaining;
       return availability;
     },
   };

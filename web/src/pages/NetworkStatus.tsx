@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactElement } from 'react';
-import type { Incident, IncidentImpact, IncidentState } from '@sw/shared';
+import type { Incident, IncidentImpact, IncidentState, ProviderNotification } from '@sw/shared';
 import { ApiClientError, api } from '../lib/api';
-import { Alert, Card, Cell, Chip, Label, Spinner, formatDateTime, type ChipTone } from '../components/ui';
+import { Alert, Card, Cell, Chip, Label, Spinner, formatDate, formatDateTime, type ChipTone } from '../components/ui';
 import { Tabs, TabPanel, type TabDef } from '../components/Tabs';
 import { Modal } from '../components/overlay';
 
@@ -49,7 +49,14 @@ const STATE_TONE: Record<IncidentState, ChipTone> = {
   unknown: 'idle',
 };
 
-type Tab = 'outages' | 'planned' | 'history';
+type Tab = 'outages' | 'planned' | 'notices' | 'history';
+
+const NOTICE_TONE: Record<ProviderNotification['severity'], ChipTone> = {
+  critical: 'crit',
+  warn: 'warn',
+  info: 'info',
+  unknown: 'idle',
+};
 
 export function NetworkStatusPage(): ReactElement {
   const [tab, setTab] = useState<Tab>('outages');
@@ -60,6 +67,8 @@ export function NetworkStatusPage(): ReactElement {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<Incident | null>(null);
+  const [notices, setNotices] = useState<ProviderNotification[] | null>(null);
+  const [notice, setNotice] = useState<ProviderNotification | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -75,6 +84,20 @@ export function NetworkStatusPage(): ReactElement {
       }
     })();
   }, []);
+
+  // Provider notices are fetched lazily too — they change by the week, not
+  // by the minute, so there is no sense fetching them before they are looked at.
+  useEffect(() => {
+    if (tab !== 'notices' || notices) return;
+    void (async () => {
+      try {
+        const result = await api.notifications({ days: 90 });
+        setNotices(result.notifications);
+      } catch {
+        setNotices([]);
+      }
+    })();
+  }, [tab, notices]);
 
   // History is fetched lazily — it is the tab nobody opens first.
   useEffect(() => {
@@ -109,6 +132,12 @@ export function NetworkStatusPage(): ReactElement {
       ...(liveOutages.length ? { tone: 'crit' as const } : {}),
     },
     { id: 'planned', label: 'Planned work', ...(planned.length ? { count: planned.length } : {}) },
+    {
+      id: 'notices',
+      label: 'Provider notices',
+      ...(notices?.length ? { count: notices.length } : {}),
+      ...(notices?.some((n) => n.severity === 'critical') ? { tone: 'crit' as const } : {}),
+    },
     { id: 'history', label: 'History' },
   ];
 
@@ -166,6 +195,54 @@ export function NetworkStatusPage(): ReactElement {
         <TabPanel>
           {tab === 'outages' && <IncidentTable incidents={outages} onOpen={setDetail} emptyTitle="No outages" emptyBody="Nothing is currently reported as affecting service. If a customer is down, it is theirs alone — run a line test." />}
           {tab === 'planned' && <IncidentTable incidents={planned} onOpen={setDetail} emptyTitle="No planned work" emptyBody="No engineering work is scheduled that would affect service." />}
+          {tab === 'notices' &&
+            (notices === null ? (
+              <div style={{ padding: 18 }}>
+                <Spinner label="Loading provider notices…" />
+              </div>
+            ) : notices.length === 0 ? (
+              <div className="empty">
+                <h3>No notices</h3>
+                <p>Nothing published in the last 90 days.</p>
+              </div>
+            ) : (
+              <div className="table-wrap">
+                <table className="data">
+                  <thead>
+                    <tr>
+                      <th>Published</th>
+                      <th>Category</th>
+                      <th>Notice</th>
+                      <th>Action by</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {notices.map((n) => (
+                      <tr key={n.id} className="clickable" onClick={() => setNotice(n)}>
+                        <td style={{ whiteSpace: 'nowrap', fontSize: 12.5 }}>{formatDate(n.publishedAt) ?? '—'}</td>
+                        <td>
+                          <Chip tone={NOTICE_TONE[n.severity]} dot>
+                            {n.category ?? n.severity}
+                          </Chip>
+                        </td>
+                        <td style={{ maxWidth: 420 }}>
+                          <strong style={{ color: 'var(--sw-ink)' }}>{n.title}</strong>
+                          {n.detail && (
+                            <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>
+                              {n.detail.length > 120 ? `${n.detail.slice(0, 120)}…` : n.detail}
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ whiteSpace: 'nowrap', fontSize: 12.5 }}>
+                          {n.actionRequiredBy ? formatDate(n.actionRequiredBy) : <span className="muted">—</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+
           {tab === 'history' &&
             (historyList === null ? (
               <div style={{ padding: 18 }}>
@@ -178,6 +255,41 @@ export function NetworkStatusPage(): ReactElement {
       </Card>
 
       <IncidentModal incident={detail} onClose={() => setDetail(null)} />
+
+      <Modal
+        open={notice !== null}
+        onClose={() => setNotice(null)}
+        eyebrow={notice ? `${notice.category ?? 'Notice'} · ${notice.severity}` : undefined}
+        title={notice?.title ?? ''}
+        subtitle={notice ? (formatDate(notice.publishedAt) ?? undefined) : undefined}
+        footer={
+          <button type="button" className="btn btn--primary" onClick={() => setNotice(null)}>
+            Close
+          </button>
+        }
+      >
+        {notice && (
+          <div className="stack stack--tight">
+            {notice.detail && <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.7 }}>{notice.detail}</p>}
+            <div className="kv">
+              <Cell label="Reference" value={notice.id} mono copy />
+              <Cell label="Published" value={formatDate(notice.publishedAt)} />
+              <Cell label="Action required by" value={formatDate(notice.actionRequiredBy)} />
+              <Cell label="Category" value={notice.category} />
+            </div>
+            {notice.affectedReferences && notice.affectedReferences.length > 0 && (
+              <div>
+                <Label>Services named</Label>
+                <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 5 }}>
+                  {notice.affectedReferences.map((r) => (
+                    <Chip key={r} tone="idle">{r}</Chip>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

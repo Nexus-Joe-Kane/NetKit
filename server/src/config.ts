@@ -159,13 +159,32 @@ export interface AppConfig {
    * tries to fix what it can. On by default — an internal tool that quietly
    * serves demo data because a token expired is worse than one that notices.
    */
-  supervisor: { enabled: boolean; intervalSeconds: number; selfTestOnBoot: boolean };
+  supervisor: {
+    enabled: boolean;
+    intervalSeconds: number;
+    selfTestOnBoot: boolean;
+    /**
+     * How long an integration must keep failing before a person is emailed.
+     * Recovery handles the transient cases; this is for the ones it cannot.
+     */
+    escalateAfterMinutes: number;
+  };
   /**
    * Placing real orders is off unless explicitly enabled. Ordering spends
    * money and books engineer appointments, so it needs a deliberate switch
    * rather than inheriting the credentials that read data.
    */
   allowOrdering: boolean;
+  /**
+   * Fair-use rationing. Zen's availability endpoint is explicitly not for
+   * bulk checking, so each user gets a daily budget. `0` removes the limit.
+   */
+  quotas: { availabilityPerUserPerDay: number };
+  /**
+   * Companies House. Free with a registration key. Adds business context to
+   * a premises — status, incorporation, SIC codes and overdue filings.
+   */
+  companiesHouse: { apiKey: string; baseUrl: string; configured: boolean };
   osPlaces: { apiKey: string; baseUrl: string; configured: boolean };
   postcodesIo: { baseUrl: string; enabled: boolean };
   signal: { baseUrl: string; apiKey: string; configured: boolean };
@@ -202,6 +221,12 @@ export function config(): AppConfig {
     zen: loadZen(),
     bt: loadBt(),
     allowOrdering: bool('ZEN_ALLOW_ORDERING', false),
+    quotas: { availabilityPerUserPerDay: Math.max(0, num('AVAILABILITY_DAILY_BUDGET', 250)) },
+    companiesHouse: {
+      apiKey: str('COMPANIES_HOUSE_API_KEY'),
+      baseUrl: str('COMPANIES_HOUSE_BASE_URL', 'https://api.company-information.service.gov.uk'),
+      configured: Boolean(str('COMPANIES_HOUSE_API_KEY')),
+    },
     ofcom: {
       datasetPath: str('OFCOM_DATASET_PATH'),
       apiBaseUrl: str('OFCOM_API_BASE_URL'),
@@ -213,6 +238,7 @@ export function config(): AppConfig {
       // user does, and rare enough to be invisible to the upstreams.
       intervalSeconds: Math.max(60, num('SUPERVISOR_INTERVAL_SECONDS', 300)),
       selfTestOnBoot: bool('SELFTEST_ON_BOOT', true),
+      escalateAfterMinutes: Math.max(5, num('SUPERVISOR_ESCALATE_AFTER_MINUTES', 60)),
     },
     jola: {
       baseUrl: str('JOLA_BASE_URL'),

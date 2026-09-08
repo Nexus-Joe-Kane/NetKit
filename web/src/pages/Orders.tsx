@@ -1,7 +1,19 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react';
 import type { OrderRecord, OrderState } from '@sw/shared';
 import { ApiClientError, api } from '../lib/api';
-import { Alert, Card, Cell, Chip, Label, Spinner, formatDate, formatDateTime, type ChipTone } from '../components/ui';
+import {
+  Alert,
+  Card,
+  Cell,
+  Chip,
+  ExportButtons,
+  Label,
+  Spinner,
+  formatDate,
+  formatDateTime,
+  type ChipTone,
+} from '../components/ui';
+import type { CsvColumn } from '../lib/csv';
 import { Tabs, TabPanel, type TabDef } from '../components/Tabs';
 import { Modal, useConfirm } from '../components/overlay';
 
@@ -39,6 +51,33 @@ const STATE_LABEL: Record<OrderState, string> = {
 };
 
 type Tab = 'status' | 'wip' | 'search';
+
+/** Everything a chased order needs, in the order someone would read it. */
+const ORDER_COLUMNS: Array<CsvColumn<OrderRecord>> = [
+  { header: 'Zen reference', value: (o) => o.zenReference },
+  { header: 'Customer reference', value: (o) => o.customerReference },
+  { header: 'Type', value: (o) => o.type },
+  { header: 'State', value: (o) => STATE_LABEL[o.state] },
+  { header: 'State reason', value: (o) => o.stateReason },
+  { header: 'Delay reason', value: (o) => o.delayReason },
+  { header: 'Product', value: (o) => o.productName },
+  { header: 'Product code', value: (o) => o.productCode },
+  { header: 'Address', value: (o) => o.address?.singleLine },
+  { header: 'Postcode', value: (o) => o.address?.postcode },
+  { header: 'UPRN', value: (o) => o.address?.uprn },
+  { header: 'CLI', value: (o) => o.cli },
+  { header: 'Service ID', value: (o) => o.serviceId },
+  { header: 'Access line ID', value: (o) => o.accessLineId },
+  { header: 'Supplier', value: (o) => o.supplier },
+  { header: 'Placed', value: (o) => o.placedAt },
+  { header: 'Committed', value: (o) => o.committedDate },
+  { header: 'Promised', value: (o) => o.promisedDate },
+  { header: 'Completed', value: (o) => o.completedAt },
+  { header: 'Engineer required', value: (o) => o.requiresEngineer },
+  { header: 'Appointment date', value: (o) => o.appointment?.date },
+  { header: 'Appointment slot', value: (o) => o.appointment?.slot },
+  { header: 'Site contact', value: (o) => o.contactName },
+];
 
 export function OrdersPage(): ReactElement {
   const [tab, setTab] = useState<Tab>('status');
@@ -155,7 +194,12 @@ export function OrdersPage(): ReactElement {
         index="01"
         accent={2}
         flush
-        meta={mode === 'mock' ? <Chip tone="warn" dot>Demo data</Chip> : <Chip tone="ok" dot>Live</Chip>}
+        meta={
+          <>
+            {mode === 'mock' ? <Chip tone="warn" dot>Demo data</Chip> : <Chip tone="ok" dot>Live</Chip>}
+            <ExportButtons rows={orders} columns={ORDER_COLUMNS} filenamePrefix={`orders-${tab}`} label="the order list" />
+          </>
+        }
         tabs={<Tabs tabs={tabs} active={tab} onChange={setTab} variant="sub" label="Order views" />}
       >
         <TabPanel>

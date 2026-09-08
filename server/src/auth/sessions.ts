@@ -21,6 +21,17 @@ const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const PENDING_TTL_MS = 10 * 60 * 1000;
 
 /**
+ * A session in active use is extended rather than expiring underneath the
+ * person using it. The cookie is re-issued once it is more than halfway
+ * through its life, so an engineer working a long shift is not thrown out
+ * mid-fault, while a browser left open overnight still expires.
+ *
+ * Refreshing on every request would rewrite the cookie hundreds of times an
+ * hour for no benefit; halfway is the point where doing it once is enough.
+ */
+const REFRESH_AFTER_MS = SESSION_TTL_MS / 2;
+
+/**
  * The signing secret. A generated fallback keeps development working, but it
  * changes on restart, so production is required to set SESSION_SECRET.
  */
@@ -95,6 +106,32 @@ export function issueSession(res: Response, user: User): void {
   const token = sign({ sub: user.id, epoch: user.sessionEpoch, exp: Date.now() + SESSION_TTL_MS, kind: 'full' });
   res.cookie(SESSION_COOKIE, token, cookieOptions(SESSION_TTL_MS));
   res.clearCookie(PENDING_COOKIE, { path: '/' });
+}
+
+/**
+ * True when a session is old enough to be worth extending.
+ *
+ * Exported for the test rather than for callers — `refreshSession` is the
+ * thing to use.
+ */
+export function needsRefresh(issuedExp: number, now = Date.now()): boolean {
+  const elapsed = SESSION_TTL_MS - (issuedExp - now);
+  return elapsed >= REFRESH_AFTER_MS;
+}
+
+/**
+ * Slides an in-use session forward. Called from the auth middleware, so any
+ * authenticated request keeps the session alive.
+ *
+ * Deliberately silent about failure: a response that has already started
+ * streaming cannot take a new cookie, and losing a refresh is harmless — the
+ * next request tries again.
+ */
+export function refreshSession(req: Request, res: Response, user: User): void {
+  const payload = verify(req.cookies?.[SESSION_COOKIE]);
+  if (!payload || payload.kind !== 'full' || !needsRefresh(payload.exp)) return;
+  if (res.headersSent) return;
+  issueSession(res, user);
 }
 
 export function issuePendingSession(res: Response, user: User): void {

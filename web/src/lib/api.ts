@@ -1,11 +1,15 @@
 import type {
+  AddressMatch,
   AddressRecord,
+  AddressRegistration,
   AddressSuggestion,
   ApiError,
   ApiResult,
   AppointmentSlot,
   AvailableTests,
   CallRecord,
+  CompanyContext,
+  EstateUsageReport,
   EthernetQuoteSet,
   FaultRecord,
   FootfallInsight,
@@ -14,13 +18,19 @@ import type {
   LineRecord,
   LineTestResult,
   LineTestType,
+  NetworkConfiguration,
   NetworkConnectivityCheck,
   NumberPortCheck,
+  OrderingGate,
   OrderQuote,
   OrderRecord,
+  PlaceOrderRequest,
+  PlaceOrderResult,
   ProfileOptions,
+  ProviderNotification,
   RaiseFaultRequest,
   RdnsRecord,
+  ServiceHistory,
   ResolvedIdentifier,
   SearchResponse,
   SimEstate,
@@ -28,6 +38,16 @@ import type {
   StabilityReport,
   UsageReport,
 } from '@sw/shared';
+
+/** One premises or identifier this user looked up recently. */
+export interface RecentLookup {
+  query: string;
+  kind: string;
+  label?: string;
+  uprn?: string;
+  postcode?: string;
+  at: string;
+}
 
 /** Every operational response says whether it came from a live API. */
 export interface Sourced {
@@ -202,6 +222,11 @@ export const api = {
   usage: (zenReference: string, period: 'day' | 'month' | 'current_month' = 'current_month') =>
     request<Sourced & UsageReport>(`/api/diagnostics/${encodeURIComponent(zenReference)}/usage?period=${period}`),
 
+  /* ---- Recent lookups ---------------------------------------------- */
+
+  recent: () => request<{ recent: RecentLookup[] }>('/api/recent'),
+  clearRecent: () => request<{ cleared: boolean }>('/api/recent', { method: 'DELETE' }),
+
   /* ---- Orders ------------------------------------------------------ */
 
   orders: (view: 'status' | 'wip' | 'search' = 'status', q?: string) =>
@@ -219,6 +244,66 @@ export const api = {
 
   appointments: (params: { availabilityReference: string; productCode: string; goldAddressKey: string; districtCode: string }) =>
     request<Sourced & { slots: AppointmentSlot[] }>(`/api/orders/appointments?${new URLSearchParams(params).toString()}`),
+
+  /** Whether ordering is unlocked for this user, and if not, why not. */
+  orderingGate: () => request<OrderingGate>('/api/orders/gate'),
+
+  /**
+   * Places a real order. `confirmAddressLine` is the retyped address — the
+   * server compares it and refuses on a mismatch, so this is not a
+   * client-side courtesy that can be skipped by calling the API directly.
+   */
+  placeOrder: (request_: PlaceOrderRequest & { confirmAddressLine: string }) =>
+    post<Sourced & PlaceOrderResult & { gate: OrderingGate }>('/api/orders', request_),
+
+  /* ---- Address references ------------------------------------------ */
+
+  addressMatch: (params: { postcode: string; postTown?: string; premiseName?: string; thoroughfareNumber?: string }) =>
+    request<Sourced & AddressMatch>(
+      `/api/tools/address-match?${new URLSearchParams(params as Record<string, string>).toString()}`,
+    ),
+
+  registerAddress: (body: {
+    postcode: string;
+    buildingName?: string;
+    buildingNumber?: string;
+    thoroughfare: string;
+    postTown: string;
+    county?: string;
+    uprn?: string;
+  }) => post<Sourced & AddressRegistration>('/api/tools/address-register', body),
+
+  /* ---- Service history, notifications, network, estate usage ------- */
+
+  serviceHistory: (zenReference: string) =>
+    request<Sourced & ServiceHistory>(`/api/diagnostics/${encodeURIComponent(zenReference)}/history`),
+
+  notifications: (options: { q?: string; days?: number } = {}) =>
+    request<Sourced & { notifications: ProviderNotification[]; checkedAt: string }>(
+      `/api/network/notifications${
+        options.q || options.days
+          ? `?${new URLSearchParams({
+              ...(options.q ? { q: options.q } : {}),
+              ...(options.days ? { days: String(options.days) } : {}),
+            }).toString()}`
+          : ''
+      }`,
+    ),
+
+  networkConfig: (zenReference?: string) =>
+    request<Sourced & NetworkConfiguration>(
+      `/api/tools/network-config${zenReference ? `?zenReference=${encodeURIComponent(zenReference)}` : ''}`,
+    ),
+
+  estateUsage: (period?: string) =>
+    request<Sourced & EstateUsageReport>(
+      `/api/tools/estate-usage${period ? `?period=${encodeURIComponent(period)}` : ''}`,
+    ),
+
+  /* ---- Company context --------------------------------------------- */
+
+  companies: (postcode: string) =>
+    request<Sourced & CompanyContext>(`/api/tools/companies?postcode=${encodeURIComponent(postcode)}`),
 
   /* ---- SIMs -------------------------------------------------------- */
 
@@ -265,6 +350,9 @@ export const api = {
   supervisor: () => request<SupervisorState>('/api/admin/supervisor'),
   sweepNow: () => post<{ sweep: SweepResult; state: SupervisorState }>('/api/admin/supervisor/sweep'),
   selfTest: () => post<SelfTestReport>('/api/admin/selftest'),
+  setOrdering: (patch: { enabled?: boolean; dailyCapPerUser?: number }) =>
+    post<{ ordering: OrderingSettings; note?: string }>('/api/admin/ordering', patch),
+  quotas: () => request<QuotaSummary>('/api/admin/quotas'),
 };
 
 export type ServiceState = 'ok' | 'degraded' | 'down' | 'not_configured' | 'disabled';
@@ -296,6 +384,32 @@ export interface AdminStatus {
     sessionSecretSet: boolean;
   };
   resend: { verified: boolean; verifiedAt?: string; lastError?: string; lastTestTo?: string };
+  ordering: OrderingSettings;
+  quotas: QuotaSummary;
+}
+
+/** The admin half of the ordering lock, plus the read-only environment half. */
+export interface OrderingSettings {
+  enabled: boolean;
+  dailyCapPerUser: number;
+  updatedAt?: string;
+  updatedBy?: string;
+  /** `ZEN_ALLOW_ORDERING`. Read-only here — changing it needs a deploy. */
+  environmentAllows: boolean;
+}
+
+export interface QuotaRow {
+  userId: string;
+  kind: 'availability' | 'order';
+  used: number;
+  limit: number;
+  email?: string;
+}
+
+export interface QuotaSummary {
+  day: string;
+  limits: { availability: number; order: number };
+  rows: QuotaRow[];
 }
 
 export type HealthState =

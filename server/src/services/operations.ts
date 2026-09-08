@@ -1,8 +1,12 @@
 import type {
+  AddressMatch,
   AddressRecord,
+  AddressRegistration,
   AppointmentSlot,
   AvailableTests,
   CallRecord,
+  CompanyContext,
+  EstateUsageReport,
   EthernetQuoteSet,
   FaultRecord,
   FootfallInsight,
@@ -10,25 +14,33 @@ import type {
   Incident,
   LineTestResult,
   LineTestType,
+  NetworkConfiguration,
   NetworkConnectivityCheck,
   NumberPortCheck,
   OrderQuote,
   OrderRecord,
+  OrderingGate,
+  PlaceOrderRequest,
+  PlaceOrderResult,
   ProfileOptions,
+  ProviderNotification,
   RaiseFaultRequest,
   RdnsRecord,
+  ServiceHistory,
   SimEstate,
   StabilityReport,
   UsageReport,
 } from '@sw/shared';
 import { config, shouldRunLive } from '../config';
-import { isProviderEnabled } from '../auth/store';
+import { isProviderEnabled, settings } from '../auth/store';
+import { quotaLimit, quotaUsed } from './quota';
 import { circuitReason, reportLiveFailure, reportLiveSuccess, shouldAttempt } from '../admin/supervisor';
 import * as assurance from '../providers/zen/assurance';
 import * as selfService from '../providers/zen/selfservice';
 import * as bt from '../providers/bt/adapters';
 import * as jola from '../providers/jola/adapters';
 import * as fx from '../providers/fixture/operations';
+import { companiesHouseConfigured, fetchCompaniesAtPostcode } from '../providers/companies/companiesHouse';
 
 /**
  * Operational orchestration.
@@ -287,6 +299,87 @@ export function cancelOrder(zenReference: string, reason: string): Promise<Sourc
   });
 }
 
+/**
+ * Whether this user may place an order right now, and if not, why not.
+ *
+ * Four independent conditions, reported separately rather than as one
+ * boolean, because "the button is greyed out" is a support call unless the
+ * reason is on screen. The order of the checks is the order a person would
+ * fix them in.
+ */
+export function orderingGate(userId: string): OrderingGate {
+  const environmentAllows = config().allowOrdering;
+  const adminAllows = settings().ordering?.enabled === true;
+  const credentialsPresent = zenReady('indirect-placeorder') && isProviderEnabled('zen-placeorder');
+  const dailyCap = quotaLimit('order');
+  const usedToday = quotaUsed('order', userId);
+  const withinCap = dailyCap === 0 || usedToday < dailyCap;
+
+  // The two locks guard real spend; the cap guards a loop. Credentials do not
+  // gate the flow — without them there is nothing to spend, and walking the
+  // flow is how somebody learns it before the keys land. `demo` says which
+  // it is, and the outcome screen never claims an order was placed.
+  const reason = !environmentAllows
+    ? 'Ordering is switched off in the server environment (ZEN_ALLOW_ORDERING). Changing it needs a deploy.'
+    : !adminAllows
+      ? 'Ordering is switched off in the admin portal. An administrator can enable it under Ordering & limits.'
+      : !withinCap
+        ? `You have placed ${usedToday} of your ${dailyCap} orders for today. The cap resets at midnight UTC.`
+        : undefined;
+
+  return {
+    allowed: environmentAllows && adminAllows && withinCap,
+    environmentAllows,
+    adminAllows,
+    credentialsPresent,
+    demo: !credentialsPresent,
+    usedToday,
+    dailyCap,
+    ...(reason ? { reason } : {}),
+  };
+}
+
+/**
+ * Sends the order.
+ *
+ * The gate is checked by the route before this is called; this is the last
+ * line and re-checks nothing, because a second read of a toggle between the
+ * check and the call would be a false comfort. It does honour demo mode,
+ * which refuses rather than inventing a reference.
+ */
+export async function placeOrder(request: PlaceOrderRequest): Promise<Sourced<PlaceOrderResult>> {
+  const key = 'zen-placeorder';
+  const canGoLive = isProviderEnabled(key) && shouldRunLive(zenReady('indirect-placeorder'));
+  if (!canGoLive) return { data: fx.buildFixturePlaceOrder(request), mode: 'mock' };
+
+  // Deliberately *not* routed through `resolve`. Everywhere else, a failed
+  // live call degrades to fixtures — which is right for a read. Here it would
+  // be a lie: a request that timed out may well have reached Zen and placed
+  // the order. So a failure is reported as a failure, with the wording an
+  // operator needs to hear, and the next step is to search the order book
+  // rather than to press the button again.
+  try {
+    const data = await selfService.placeOrder(request);
+    reportLiveSuccess(key);
+    return { data, mode: 'live' };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    reportLiveFailure(key, message);
+    return {
+      data: {
+        accepted: false,
+        message: `The order could not be confirmed: ${message}`,
+        messages: [
+          'This does not prove the order was rejected — the request may have reached Zen. Search the order book for this address before trying again.',
+        ],
+        source: 'zen:self-service',
+      },
+      mode: 'live',
+      error: message,
+    };
+  }
+}
+
 export function pricing(productCode: string, productName?: string): Promise<Sourced<OrderQuote>> {
   return resolve({
     key: 'zen-placeorder',
@@ -405,6 +498,113 @@ export function rdns(zenReference?: string): Promise<Sourced<RdnsRecord[]>> {
     configured: zenReady('indirect-broadbandconnection'),
     live: () => selfService.fetchRdns(zenReference),
     fixture: () => fx.buildFixtureRdns(zenReference),
+  });
+}
+
+/* ------------------------------------------------------------------ *
+ * Address references, history, notifications, network, estate usage
+ * ------------------------------------------------------------------ */
+
+export function addressMatch(query: {
+  postcode: string;
+  postTown?: string;
+  premiseName?: string;
+  thoroughfareNumber?: string;
+}): Promise<Sourced<AddressMatch>> {
+  return resolve({
+    key: 'zen-availability',
+    configured: zenReady('indirect-availability'),
+    live: () => selfService.matchAddress(query),
+    fixture: () => fx.buildFixtureAddressMatch(query),
+  });
+}
+
+/**
+ * Registers a premises with Openreach.
+ *
+ * A write, so it is not routed through the fixture fallback on failure —
+ * "nothing was created" has to be true when it is said. Demo mode still
+ * refuses politely.
+ */
+export async function registerAddress(request: {
+  postcode: string;
+  buildingName?: string;
+  buildingNumber?: string;
+  thoroughfare: string;
+  postTown: string;
+  county?: string;
+  uprn?: string;
+}): Promise<Sourced<AddressRegistration>> {
+  const key = 'zen-availability';
+  if (!(isProviderEnabled(key) && shouldRunLive(zenReady('indirect-availability')))) {
+    return { data: fx.buildFixtureAddressRegistration(request), mode: 'mock' };
+  }
+  try {
+    const data = await selfService.registerAddress(request);
+    reportLiveSuccess(key);
+    return { data, mode: 'live' };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    reportLiveFailure(key, message);
+    return {
+      data: {
+        created: false,
+        technologyRestrictions: [],
+        messages: [`The registration could not be confirmed: ${message}`, 'Re-run the address match before trying again — the premises may now be registered.'],
+        source: 'zen:self-service',
+      },
+      mode: 'live',
+      error: message,
+    };
+  }
+}
+
+export function serviceHistory(zenReference: string): Promise<Sourced<ServiceHistory>> {
+  return resolve({
+    key: 'zen-service',
+    configured: zenReady('indirect-service'),
+    live: () => selfService.fetchServiceHistory(zenReference),
+    fixture: () => fx.buildFixtureServiceHistory(zenReference),
+  });
+}
+
+export function notifications(options: { since?: string; searchTerm?: string } = {}): Promise<Sourced<ProviderNotification[]>> {
+  return resolve({
+    key: 'zen-customerengagement',
+    configured: zenReady('indirect-customerengagement'),
+    live: () => selfService.fetchNotifications(options),
+    fixture: () => fx.buildFixtureNotifications(options),
+  });
+}
+
+export function networkConfiguration(zenReference?: string): Promise<Sourced<NetworkConfiguration>> {
+  return resolve({
+    key: 'zen-broadbandconnection',
+    configured: zenReady('indirect-broadbandconnection'),
+    live: () => selfService.fetchNetworkConfiguration(zenReference),
+    fixture: () => fx.buildFixtureNetworkConfiguration(zenReference),
+  });
+}
+
+export function estateUsage(period?: string): Promise<Sourced<EstateUsageReport>> {
+  return resolve({
+    key: 'zen-service',
+    configured: zenReady('indirect-service'),
+    live: () => selfService.fetchEstateUsage(period),
+    fixture: () => fx.buildFixtureEstateUsage(period),
+  });
+}
+
+/* ------------------------------------------------------------------ *
+ * Company context
+ * ------------------------------------------------------------------ */
+
+export function companies(postcode: string): Promise<Sourced<CompanyContext>> {
+  return resolve({
+    key: 'companies-house',
+    configured: companiesHouseConfigured(),
+    live: () => fetchCompaniesAtPostcode(postcode),
+    fixture: () => fx.buildFixtureCompanies(postcode),
   });
 }
 

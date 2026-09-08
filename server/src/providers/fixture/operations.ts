@@ -1,5 +1,9 @@
 import { formatPostcode, normaliseCli, type AddressRecord } from '@sw/shared';
 import type {
+  AddressMatch,
+  CompanyContext,
+  CompanyRecord,
+  AddressRegistration,
   AppointmentSlot,
   AvailableTests,
   CallRecord,
@@ -13,7 +17,16 @@ import type {
   LineTestType,
   NetworkConnectivityCheck,
   NumberPortCheck,
+  EstateUsageReport,
+  EstateUsageRow,
+  NetworkConfiguration,
+  NetworkOption,
   OrderQuote,
+  PlaceOrderRequest,
+  PlaceOrderResult,
+  ProviderNotification,
+  ServiceHistory,
+  ServiceHistoryEvent,
   OrderRecord,
   ProfileOptions,
   RdnsRecord,
@@ -494,6 +507,14 @@ export function buildFixtureOrders(searchTerm?: string): OrderRecord[] {
     const placedDaysAgo = seed.int(1, 40);
     const needsEngineer = seed.bool(0.55);
 
+    // An order with no installation address is not a realistic order — the
+    // detail dialog and the CSV export both lead with it.
+    const orderPostcode = seed.pick(['M1 1AE', 'LS1 4AP', 'EH1 1YZ', 'SL1 1XY', 'CF10 1EP', 'BS1 4DJ']);
+    const orderRegion = regionFor(orderPostcode);
+    const houseNumber = seed.int(1, 180);
+    const street = seed.pick(['High Street', 'Mill Lane', 'Station Road', 'Church Street', 'Manor Road']);
+    const singleLine = `${houseNumber} ${street}, ${orderRegion.town.toUpperCase()}, ${orderPostcode}`;
+
     return {
       zenReference: `ZEN${seed.digits(7)}`,
       customerReference: `SW-${seed.digits(5)}`,
@@ -523,6 +544,14 @@ export function buildFixtureOrders(searchTerm?: string): OrderRecord[] {
           }
         : {}),
       ...(state === 'delayed' ? { delayReason: 'Openreach have raised a civils requirement — new date to follow.' } : {}),
+      address: {
+        uprn: seed.digits(12),
+        singleLine,
+        lines: [`${houseNumber} ${street}`],
+        postTown: orderRegion.town.toUpperCase(),
+        postcode: orderPostcode,
+        source: 'mock',
+      },
       supplier: seed.pick(['Openreach', 'Openreach', 'CityFibre', 'BT Wholesale']),
       requiresEngineer: needsEngineer,
       workingLineTakeover: seed.bool(0.3),
@@ -573,6 +602,31 @@ export function buildFixturePricing(productCode: string, productName?: string): 
     monthlyTotal: lines.filter((l) => l.recurring).reduce((s, l) => s + l.amount, 0),
     oneOffTotal: lines.filter((l) => !l.recurring).reduce((s, l) => s + l.amount, 0),
     currency: 'GBP',
+    source: 'fixture:self-service',
+  };
+}
+
+/**
+ * Demo mode never places an order.
+ *
+ * Every other fixture in this file invents plausible data, because a
+ * plausible read is useful. A plausible *order* is not: it would hand back a
+ * reference that no provider has ever heard of, and someone would chase it.
+ * So this refuses, and says why.
+ */
+export function buildFixturePlaceOrder(request: PlaceOrderRequest): PlaceOrderResult {
+  return {
+    accepted: false,
+    message:
+      'Demo mode — nothing was sent to Zen. Add Zen ordering credentials and set ZEN_ALLOW_ORDERING=true to place real orders.',
+    messages: [
+      // The address line usually ends with the postcode already, so only
+      // append it when it does not — a duplicated postcode reads as a bug.
+      `Would have ordered ${request.productName ?? request.productCode} at ${request.addressLine}${
+        request.addressLine.toUpperCase().includes(request.postcode.toUpperCase()) ? '' : `, ${request.postcode}`
+      }.`,
+      `Availability reference ${request.availabilityReference}, Gold Address Key ${request.goldAddressKey}.`,
+    ],
     source: 'fixture:self-service',
   };
 }
@@ -871,4 +925,343 @@ export function buildFixtureRdns(zenReference?: string): RdnsRecord[] {
       source: 'fixture:self-service',
     };
   });
+}
+
+/* ------------------------------------------------------------------ *
+ * Address references and Openreach registration
+ * ------------------------------------------------------------------ */
+
+/**
+ * Demo address matching, with a deliberate disagreement.
+ *
+ * Roughly one premises in five has a BTW reference that differs from the
+ * Openreach one, because that is the case the screen exists for — a fixture
+ * where the two always agree would never show the operator what a mismatch
+ * looks like.
+ */
+export function buildFixtureAddressMatch(query: {
+  postcode: string;
+  postTown?: string;
+  premiseName?: string;
+  thoroughfareNumber?: string;
+}): AddressMatch {
+  const key = `${query.postcode}|${query.premiseName ?? ''}|${query.thoroughfareNumber ?? ''}`;
+  const rng = new Seeded(`addrmatch:${key}`);
+  const found = rng.bool(0.9);
+  if (!found) {
+    return {
+      query,
+      agrees: false,
+      messages: ['No wholesale address matched that search. The premises may need registering with Openreach.'],
+      source: 'fixture:self-service',
+    };
+  }
+
+  const bto = `A${rng.digits(11)}`;
+  const disagrees = rng.bool(0.2);
+  const btw = disagrees ? `W${rng.digits(11)}` : `W${bto.slice(1)}`;
+
+  return {
+    query,
+    btoAddressReference: bto,
+    btwAddressReference: btw,
+    // Derived from the postcode's region, the same way the availability
+    // fixture does it — a Manchester postcode returning an Edinburgh district
+    // code is the kind of incoherence that makes demo data useless.
+    districtCode: `${(regionFor(query.postcode).exchanges[0] ?? 'XX').slice(0, 2)}${rng.int(10, 99)}`,
+    uprn: rng.digits(12),
+    agrees: true,
+    messages: disagrees
+      ? [
+          'Openreach and BT Wholesale hold different references for this premises. Order against the Openreach reference and expect BTW validation to query it.',
+        ]
+      : [],
+    source: 'fixture:self-service',
+  };
+}
+
+/** Demo registration. Never actually registers anything, and says so. */
+export function buildFixtureAddressRegistration(request: {
+  postcode: string;
+  thoroughfare: string;
+  postTown: string;
+}): AddressRegistration {
+  const rng = new Seeded(`addrreg:${request.postcode}:${request.thoroughfare}`);
+  return {
+    created: false,
+    technologyRestrictions: rng.bool(0.4)
+      ? [{ technology: 'FTTP', reason: 'No fibre spine serving this exchange area yet.' }]
+      : [],
+    messages: [
+      'Demo mode — no address was registered with Openreach.',
+      `Would have registered ${request.thoroughfare}, ${request.postTown}, ${request.postcode}.`,
+    ],
+    source: 'fixture:self-service',
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * Service history
+ * ------------------------------------------------------------------ */
+
+export function buildFixtureServiceHistory(zenReference: string): ServiceHistory {
+  const rng = new Seeded(`history:${zenReference}`);
+  const events: ServiceHistoryEvent[] = [];
+
+  // A plausible life story for a line, oldest first, then reversed.
+  const provided = rng.int(400, 1500);
+  events.push({
+    at: isoAt(provided, rng),
+    type: 'Provide',
+    description: 'Service activated',
+    reference: `ZO${rng.digits(8)}`,
+  });
+  if (rng.bool(0.6)) {
+    events.push({
+      at: isoAt(rng.int(120, provided - 30), rng),
+      type: 'Regrade',
+      description: 'Speed profile changed',
+      from: rng.pick(['FTTC 40/10', 'ADSL2+ 24/1', 'SOGEA 40/10']),
+      to: rng.pick(['SOGEA 80/20', 'FTTP 330/50', 'FTTP 500/70']),
+      reference: `ZO${rng.digits(8)}`,
+    });
+  }
+  if (rng.bool(0.45)) {
+    events.push({
+      at: isoAt(rng.int(30, 120), rng),
+      type: 'Care level',
+      description: 'Care level changed',
+      from: 'Care level 1',
+      to: 'Care level 2',
+      actor: 'SupportWizard',
+    });
+  }
+  if (rng.bool(0.3)) {
+    events.push({
+      at: isoAt(rng.int(2, 30), rng),
+      type: 'IP allocation',
+      description: 'Static IPv4 block added',
+      to: '/29',
+      actor: 'SupportWizard',
+    });
+  }
+
+  return {
+    zenReference,
+    events: events.sort((a, b) => b.at.localeCompare(a.at)),
+    source: 'fixture:self-service',
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * Notifications
+ * ------------------------------------------------------------------ */
+
+const NOTIFICATIONS: Array<[ProviderNotification['severity'], string, string, string]> = [
+  [
+    'critical',
+    'Stop sell',
+    'WLR stop-sell reached at a further 118 exchanges',
+    'Analogue lines and FTTC can no longer be ordered at these exchanges. Any provide must be SOGEA or FTTP. Existing services are unaffected until the withdrawal date.',
+  ],
+  [
+    'warn',
+    'Price change',
+    'Openreach annual price change effective 1 April',
+    'GEA-FTTC and GEA-FTTP rental rates change. Affected services will show the new rate on the next invoice.',
+  ],
+  [
+    'warn',
+    'Product withdrawal',
+    'ADSL2+ closed to new provides',
+    'Existing services continue. Any regrade must move to SOGEA or FTTP.',
+  ],
+  [
+    'info',
+    'Platform',
+    'Self-service API maintenance window',
+    'A two-hour window is planned overnight. Availability checks and order placement will return 503 during the window.',
+  ],
+  [
+    'info',
+    'Product',
+    'FTTP 1000/115 now available on the standard price list',
+    'No action required. The product appears automatically in availability results where the premises supports it.',
+  ],
+  [
+    'warn',
+    'Migration',
+    'Copper line migration programme — batch 14',
+    'Services on the attached list will be migrated within 90 days. Router reconfiguration is not required.',
+  ],
+];
+
+export function buildFixtureNotifications(options: { since?: string; searchTerm?: string } = {}): ProviderNotification[] {
+  const day = new Date().toISOString().slice(0, 10);
+  const rng = new Seeded(`notifications:${day}`);
+  const all = NOTIFICATIONS.map(([severity, category, title, detail], i): ProviderNotification => {
+    const seed = new Seeded(`notification:${day}:${i}`);
+    return {
+      id: `NOTE-${seed.digits(6)}`,
+      publishedAt: isoAt(seed.int(0, 45), seed),
+      category,
+      severity,
+      title,
+      detail,
+      ...(severity !== 'info' ? { actionRequiredBy: isoAt(-seed.int(14, 90), seed) } : {}),
+      read: seed.bool(0.5),
+      source: 'fixture:self-service',
+    };
+  }).sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
+
+  const term = options.searchTerm?.trim().toLowerCase();
+  const filtered = term
+    ? all.filter((n) => `${n.title} ${n.detail ?? ''} ${n.category ?? ''}`.toLowerCase().includes(term))
+    : all;
+  return options.since ? filtered.filter((n) => n.publishedAt >= options.since!) : filtered.slice(0, rng.int(4, 6));
+}
+
+/* ------------------------------------------------------------------ *
+ * Network management
+ * ------------------------------------------------------------------ */
+
+export function buildFixtureNetworkConfiguration(zenReference?: string): NetworkConfiguration {
+  const rng = new Seeded(`network:${zenReference ?? 'catalogue'}`);
+  const serviceSelectionNames: NetworkOption[] = [
+    { name: 'zen', description: 'Standard dynamic IPv4', realm: '@zen', ipVersion: 'ipv4', default: true },
+    { name: 'zen-static', description: 'Single static IPv4', realm: '@zen-static', ipVersion: 'ipv4', staticBlock: '/32' },
+    { name: 'zen-block29', description: 'Static IPv4 block', realm: '@zen-block29', ipVersion: 'ipv4', staticBlock: '/29' },
+    { name: 'zen-dual', description: 'Dual stack with delegated IPv6', realm: '@zen-dual', ipVersion: 'dual', staticBlock: '/56' },
+  ];
+
+  if (!zenReference) return { serviceSelectionNames, details: [], source: 'fixture:self-service' };
+
+  const selected = rng.pick(serviceSelectionNames);
+  return {
+    zenReference,
+    serviceSelectionNames,
+    details: [
+      { label: 'Service selection name', value: selected.name },
+      { label: 'RADIUS realm', value: selected.realm ?? '@zen' },
+      { label: 'Username', value: `${zenReference.toLowerCase()}${selected.realm ?? '@zen'}` },
+      { label: 'IPv4 address', value: `${rng.int(51, 88)}.${rng.int(0, 255)}.${rng.int(0, 255)}.${rng.int(1, 254)}` },
+      ...(selected.staticBlock && selected.staticBlock !== '/32'
+        ? [{ label: 'Static block', value: `${rng.int(51, 88)}.${rng.int(0, 255)}.${rng.int(0, 255)}.0${selected.staticBlock}` }]
+        : []),
+      ...(selected.ipVersion === 'dual'
+        ? [{ label: 'Delegated IPv6 prefix', value: `2a02:${rng.digits(4)}:${rng.digits(4)}::/56` }]
+        : []),
+      { label: 'MTU', value: '1492' },
+      { label: 'Reverse DNS delegated', value: rng.bool(0.3) ? 'Yes' : 'No' },
+    ],
+    source: 'fixture:self-service',
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * Estate-wide usage
+ * ------------------------------------------------------------------ */
+
+export function buildFixtureEstateUsage(period?: string): EstateUsageReport {
+  const month = period ?? new Date().toISOString().slice(0, 7);
+  const rng = new Seeded(`estateusage:${month}`);
+  const rows: EstateUsageRow[] = [];
+
+  for (let i = 0; i < rng.int(12, 28); i += 1) {
+    const seed = new Seeded(`estateusage:${month}:${i}`);
+    const region = regionFor(seed.pick(['M1 1AE', 'LS1 4AP', 'EH1 1YZ', 'SL1 1XY', 'CF10 1EP', 'BS1 4DJ']));
+    const down = seed.int(20, 1400) * 1024 * 1024 * 1024;
+    const up = Math.round(down * seed.float(0.04, 0.18, 3));
+    rows.push({
+      zenReference: `ZEN${seed.digits(7)}`,
+      serviceId: `BB${seed.pick(['ZN', 'ZS', 'ZF'])}${seed.digits(8)}`,
+      // `dialCode` already carries the full 0-prefixed stem, so this is the
+      // same shape the other order/line fixtures use: eleven digits.
+      cli: `${region.dialCode}${seed.digits(4)}`.slice(0, 11),
+      address: `${seed.int(1, 240)} ${seed.pick(['High Street', 'Mill Lane', 'Station Road', 'Church Street'])}, ${region.town}`,
+      downloadBytes: down,
+      uploadBytes: up,
+      totalBytes: down + up,
+      overAllowance: seed.bool(0.12),
+    });
+  }
+
+  rows.sort((a, b) => (b.totalBytes ?? 0) - (a.totalBytes ?? 0));
+
+  // Three months back, which is as far as the provider's picker usually goes.
+  const availablePeriods: string[] = [];
+  for (let i = 0; i < 4; i += 1) {
+    const d = new Date();
+    d.setUTCMonth(d.getUTCMonth() - i);
+    availablePeriods.push(d.toISOString().slice(0, 7));
+  }
+
+  return {
+    period: month,
+    rows,
+    totalBytes: rows.reduce((sum, r) => sum + (r.totalBytes ?? 0), 0),
+    availablePeriods,
+    source: 'fixture:self-service',
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * Company context
+ * ------------------------------------------------------------------ */
+
+const COMPANY_SUFFIXES = ['Limited', 'Ltd', 'LLP', 'PLC'] as const;
+const COMPANY_WORDS = [
+  'Northgate',
+  'Ashcroft',
+  'Pennine',
+  'Riverbank',
+  'Kestrel',
+  'Blackthorn',
+  'Meridian',
+  'Halewood',
+  'Copperfield',
+  'Stanbury',
+] as const;
+const COMPANY_TRADES = ['Consulting', 'Logistics', 'Dental Care', 'Joinery', 'Media', 'Property', 'Catering', 'Systems'] as const;
+
+/**
+ * Demo companies at a postcode, including one in trouble roughly a third of
+ * the time — the case the panel exists to surface.
+ */
+export function buildFixtureCompanies(postcode: string): CompanyContext {
+  const rng = new Seeded(`companies:${postcode}`);
+  const companies: CompanyRecord[] = [];
+
+  for (let i = 0; i < rng.int(1, 4); i += 1) {
+    const seed = new Seeded(`company:${postcode}:${i}`);
+    const status = seed.weighted([
+      ['active', 8],
+      ['liquidation', 1],
+      ['dissolved', 1],
+    ] as const);
+    const incorporated = new Date(Date.now() - seed.int(400, 9000) * 86_400_000).toISOString().slice(0, 10);
+    const region = regionFor(postcode);
+
+    companies.push({
+      companyNumber: seed.digits(8),
+      name: `${seed.pick(COMPANY_WORDS)} ${seed.pick(COMPANY_TRADES)} ${seed.pick(COMPANY_SUFFIXES)}`.toUpperCase(),
+      status,
+      concerning: status !== 'active',
+      type: 'ltd',
+      incorporatedOn: incorporated,
+      ...(status === 'dissolved'
+        ? { dissolvedOn: new Date(Date.now() - seed.int(10, 380) * 86_400_000).toISOString().slice(0, 10) }
+        : {}),
+      registeredOffice: `${seed.int(1, 180)} ${seed.pick(['High Street', 'Mill Lane', 'Station Road'])}, ${region.town}, ${formatPostcode(postcode)}`,
+      registeredHere: true,
+      sicCodes: [seed.pick(['62020', '43320', '86230', '70229', '56102', '68209'])],
+      ...(seed.bool(0.25) ? { overdue: ['Confirmation statement overdue'] } : {}),
+      officerCount: seed.int(1, 5),
+      url: 'https://find-and-update.company-information.service.gov.uk/',
+      source: 'fixture:companies-house',
+    });
+  }
+
+  companies.sort((a, b) => Number(b.concerning) - Number(a.concerning) || a.name.localeCompare(b.name));
+  return { postcode: formatPostcode(postcode), companies, source: 'fixture:companies-house' };
 }

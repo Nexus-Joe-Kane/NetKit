@@ -3,6 +3,7 @@ import { statusLabel, technologyRank, type BroadbandAvailability, type Broadband
 import { Card, Cell, Chip, Label, SpeedBar, formatDate, formatMbps, type ChipTone } from './ui';
 import { Tabs, TabPanel, type TabDef } from './Tabs';
 import { Disclosure, Modal } from './overlay';
+import { OrderFlow } from './OrderFlow';
 
 /**
  * Broadband availability.
@@ -36,6 +37,7 @@ export function BroadbandPanel({ data }: { data: BroadbandAvailability }): React
   const { offers, headline } = data;
   const [filter, setFilter] = useState<Filter>('all');
   const [detail, setDetail] = useState<BroadbandOffer | null>(null);
+  const [ordering, setOrdering] = useState<BroadbandOffer | null>(null);
 
   const buckets = useMemo(
     () => ({
@@ -55,7 +57,15 @@ export function BroadbandPanel({ data }: { data: BroadbandAvailability }): React
   ];
 
   const rows = buckets[filter];
-  const availabilityRef = data.sources.find((s) => s.startsWith('availabilityReference:'))?.split(':')[1];
+  const availabilityRef = data.availabilityReference;
+
+  /**
+   * An option is orderable through NetKit only when the provider says so and
+   * the check gave us the reference an order is built from. Everything else
+   * is a read-only row — no button, rather than a button that fails.
+   */
+  const canOrder = (offer: BroadbandOffer): boolean =>
+    Boolean(availabilityRef) && Boolean(offer.productCode) && offer.status === 'available' && offer.orderable !== false;
 
   return (
     <div className="stack">
@@ -104,6 +114,14 @@ export function BroadbandPanel({ data }: { data: BroadbandAvailability }): React
             {availabilityRef && (
               <Chip tone="idle" title="Required to place an order or book an appointment">
                 Ref {availabilityRef}
+              </Chip>
+            )}
+            {data.remainingChecks != null && (
+              <Chip
+                tone={data.remainingChecks < 25 ? 'warn' : 'idle'}
+                title="Availability checks left on the account today, under the provider's fair-use policy"
+              >
+                {data.remainingChecks} checks left
               </Chip>
             )}
             <span className="muted" style={{ fontSize: 11.5 }}>
@@ -182,6 +200,19 @@ export function BroadbandPanel({ data }: { data: BroadbandAvailability }): React
                         >
                           Open
                         </button>
+                        {canOrder(offer) && (
+                          <button
+                            type="button"
+                            className="btn btn--primary btn--small"
+                            style={{ marginLeft: 6 }}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setOrdering(offer);
+                            }}
+                          >
+                            Order
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -192,7 +223,20 @@ export function BroadbandPanel({ data }: { data: BroadbandAvailability }): React
         </TabPanel>
       </Card>
 
-      <OfferModal offer={detail} onClose={() => setDetail(null)} />
+      <OfferModal
+        offer={detail}
+        onClose={() => setDetail(null)}
+        {...(detail && canOrder(detail)
+          ? {
+              onOrder: () => {
+                setDetail(null);
+                setOrdering(detail);
+              },
+            }
+          : {})}
+      />
+
+      {ordering && <OrderFlow availability={data} offer={ordering} onClose={() => setOrdering(null)} />}
     </div>
   );
 }
@@ -209,7 +253,15 @@ function splitSpeed(mbps: number): ReactElement {
   );
 }
 
-function OfferModal({ offer, onClose }: { offer: BroadbandOffer | null; onClose: () => void }): ReactElement | null {
+function OfferModal({
+  offer,
+  onClose,
+  onOrder,
+}: {
+  offer: BroadbandOffer | null;
+  onClose: () => void;
+  onOrder?: () => void;
+}): ReactElement | null {
   if (!offer) return null;
 
   return (
@@ -225,7 +277,12 @@ function OfferModal({ offer, onClose }: { offer: BroadbandOffer | null; onClose:
           <span className="grow muted" style={{ fontSize: 11.5 }}>
             Source: {offer.source}
           </span>
-          <button type="button" className="btn btn--primary" onClick={onClose}>
+          {onOrder && (
+            <button type="button" className="btn btn--primary" onClick={onOrder}>
+              Order this
+            </button>
+          )}
+          <button type="button" className="btn btn--ghost" onClick={onClose}>
             Close
           </button>
         </>
@@ -241,6 +298,8 @@ function OfferModal({ offer, onClose }: { offer: BroadbandOffer | null; onClose:
           <Cell label="Ready for service" value={formatDate(offer.rfsDate)} />
           <Cell label="Install category" value={offer.installCategory} />
           <Cell label="Appointment required" value={offer.appointmentRequired} />
+          <Cell label="Orderable" value={offer.orderable} />
+          <Cell label="If not, why" value={offer.orderableReason} />
         </div>
 
         <div>

@@ -326,6 +326,270 @@ export interface OrderQuote {
   source: string;
 }
 
+/**
+ * A request to place a real order.
+ *
+ * Everything here comes from an availability check the operator has already
+ * run — the reference, the product code and the Gold Address Key are not
+ * things a person can type. That is deliberate: an order can only be built
+ * from a checked premises, never from free text.
+ */
+export interface PlaceOrderRequest {
+  availabilityReference: string;
+  productCode: string;
+  productName?: string;
+  /** Gold Address Key (Openreach `addressReferenceNumber`). */
+  goldAddressKey: string;
+  districtCode: string;
+  uprn?: string;
+  /** Single-line address, echoed back for the type-to-confirm guard. */
+  addressLine: string;
+  postcode: string;
+  /** Existing line to take over or migrate, where there is one. */
+  phoneNumber?: string;
+  accessLineId?: string;
+  ontSerialNumber?: string;
+  workingLineTakeover?: boolean;
+  /** Opaque appointment token from `AppointmentSlot.token`. */
+  appointmentToken?: string;
+  contractTermMonths?: number;
+  preferredActivationDate?: string;
+  customerReference?: string;
+  contactName?: string;
+  contactNumber?: string;
+  contactEmail?: string;
+  notes?: string;
+}
+
+/** What came back from the provider after an order was submitted. */
+export interface PlaceOrderResult {
+  accepted: boolean;
+  zenReference?: string;
+  orderReference?: string;
+  state?: OrderState;
+  message?: string;
+  /** Provider validation messages, verbatim. */
+  messages?: string[];
+  committedDate?: string;
+  source: string;
+}
+
+/**
+ * Why ordering is or is not available right now.
+ *
+ * Both locks are reported separately so the reason a button is disabled is
+ * never a mystery: one is an environment variable only a deploy can change,
+ * the other is an admin switch.
+ */
+export interface OrderingGate {
+  /** True when both locks are open and the user has budget left. */
+  allowed: boolean;
+  /** `ZEN_ALLOW_ORDERING` — needs a deploy to change. */
+  environmentAllows: boolean;
+  /** The admin portal switch. */
+  adminAllows: boolean;
+  /** Whether provider ordering credentials are actually present. */
+  credentialsPresent: boolean;
+  /**
+   * True when the flow will run end to end but nothing can reach the
+   * provider — no credentials, or the integration is switched off.
+   *
+   * This is a rehearsal, not a refusal. The two locks exist to stop real
+   * spend; without credentials there is no spend to stop, and being able to
+   * walk the flow is how someone learns it before the keys arrive. The
+   * outcome screen says plainly that nothing was sent.
+   */
+  demo: boolean;
+  /** Orders this user has placed today, and the ceiling. */
+  usedToday: number;
+  dailyCap: number;
+  /** Present when `allowed` is false: the first blocker, in plain English. */
+  reason?: string;
+}
+
+/* ------------------------------------------------------------------ *
+ * Address references and Openreach registration
+ * ------------------------------------------------------------------ */
+
+/**
+ * The two wholesale references for one premises.
+ *
+ * Openreach and BT Wholesale each keep their own address database, and they
+ * disagree more often than you would hope — usually over flats and
+ * subdivided buildings. When an order is rejected for an address mismatch,
+ * this is the screen that shows which of the two is the odd one out.
+ */
+export interface AddressMatch {
+  /** What was searched for, echoed back. */
+  query: { postcode: string; postTown?: string; premiseName?: string; thoroughfareNumber?: string };
+  /** Openreach's reference (the NAD / Gold Address Key). */
+  btoAddressReference?: string;
+  /** BT Wholesale's reference. */
+  btwAddressReference?: string;
+  districtCode?: string;
+  uprn?: string;
+  /** The address as the provider holds it, which may differ from the search. */
+  address?: AddressRecord;
+  /** True when both databases answered and the references correspond. */
+  agrees: boolean;
+  messages: string[];
+  source: string;
+}
+
+/**
+ * The result of registering a premises with Openreach.
+ *
+ * This is the fix for "the address is not in Openreach's list", which
+ * otherwise dead-ends a provide with nothing the operator can do.
+ */
+export interface AddressRegistration {
+  created: boolean;
+  /** The new Gold Address Key, when one was issued. */
+  addressReference?: string;
+  districtCode?: string;
+  /** Technologies Openreach will not sell at this premises, and why. */
+  technologyRestrictions: Array<{ technology: string; reason?: string }>;
+  messages: string[];
+  source: string;
+}
+
+/* ------------------------------------------------------------------ *
+ * Service history and notifications
+ * ------------------------------------------------------------------ */
+
+/** One recorded change to a service. */
+export interface ServiceHistoryEvent {
+  at: string;
+  /** Provide, modify, cease, regrade, care level change, and so on. */
+  type: string;
+  description?: string;
+  /** Before and after, where the provider reports both. */
+  from?: string;
+  to?: string;
+  reference?: string;
+  actor?: string;
+}
+
+export interface ServiceHistory {
+  zenReference: string;
+  events: ServiceHistoryEvent[];
+  source: string;
+}
+
+/**
+ * A provider notification — price changes, product withdrawals, planned
+ * migrations, stop-sell announcements.
+ *
+ * Worth having because these arrive by email to one mailbox and are read by
+ * whoever happens to open it.
+ */
+export interface ProviderNotification {
+  id: string;
+  publishedAt: string;
+  category?: string;
+  severity: 'info' | 'warn' | 'critical' | 'unknown';
+  title: string;
+  detail?: string;
+  /** Services this notification names, where it names any. */
+  affectedReferences?: string[];
+  actionRequiredBy?: string;
+  read?: boolean;
+  source: string;
+}
+
+/* ------------------------------------------------------------------ *
+ * Network management
+ * ------------------------------------------------------------------ */
+
+/**
+ * The realms and IP configuration available when ordering, and in use on an
+ * existing service. This is what decides what a router has to be configured
+ * with, so it is the answer to "why will this line not authenticate".
+ */
+export interface NetworkOption {
+  name: string;
+  description?: string;
+  /** RADIUS realm, e.g. `@zen`. */
+  realm?: string;
+  ipVersion?: 'ipv4' | 'ipv6' | 'dual';
+  /** Static block size where the option carries one, e.g. `/29`. */
+  staticBlock?: string;
+  default?: boolean;
+}
+
+export interface NetworkConfiguration {
+  zenReference?: string;
+  serviceSelectionNames: NetworkOption[];
+  /** IP allocations and routing detail for an existing service. */
+  details: Array<{ label: string; value: string }>;
+  source: string;
+}
+
+/* ------------------------------------------------------------------ *
+ * Estate-wide usage
+ * ------------------------------------------------------------------ */
+
+/** One service's month, in the estate-wide report. */
+export interface EstateUsageRow {
+  zenReference: string;
+  serviceId?: string;
+  cli?: string;
+  address?: string;
+  downloadBytes?: number;
+  uploadBytes?: number;
+  totalBytes?: number;
+  /** True where the provider flags the service as over its allowance. */
+  overAllowance?: boolean;
+}
+
+export interface EstateUsageReport {
+  period: string;
+  rows: EstateUsageRow[];
+  totalBytes: number;
+  /** Reports the provider has available, for the period picker. */
+  availablePeriods: string[];
+  source: string;
+}
+
+/* ------------------------------------------------------------------ *
+ * Company context
+ * ------------------------------------------------------------------ */
+
+/**
+ * A registered company at, or matching, a premises.
+ *
+ * Worth having on a support tool: when a business line goes into dispute,
+ * knowing the company is in liquidation, dissolved, or trading under a name
+ * nobody on the account recognises changes what you do next. It also catches
+ * the case where the "customer" is a company that no longer exists.
+ */
+export interface CompanyRecord {
+  companyNumber: string;
+  name: string;
+  /** Companies House status, e.g. `active`, `liquidation`, `dissolved`. */
+  status: string;
+  /** True for statuses that mean "do not take an order from this company". */
+  concerning: boolean;
+  type?: string;
+  incorporatedOn?: string;
+  dissolvedOn?: string;
+  registeredOffice?: string;
+  /** True when the registered office is the premises being looked at. */
+  registeredHere?: boolean;
+  sicCodes?: string[];
+  /** Set when Companies House flags overdue accounts or a confirmation statement. */
+  overdue?: string[];
+  officerCount?: number;
+  url?: string;
+  source: string;
+}
+
+export interface CompanyContext {
+  postcode: string;
+  companies: CompanyRecord[];
+  source: string;
+}
+
 /* ------------------------------------------------------------------ *
  * Call records
  * ------------------------------------------------------------------ */

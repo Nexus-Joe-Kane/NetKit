@@ -16,22 +16,24 @@ every line already in place.
 
 | | |
 | --- | --- |
-| **One search box** | Classifies what you typed locally as you type — postcode, address, UPRN, CLI, access line ID, service ID or ONT serial — and routes the lookup accordingly. A postcode always gives you the full premises list to pick the exact address from. |
+| **One search box** | Classifies what you typed locally as you type — postcode, address, UPRN, CLI, access line ID, service ID or ONT serial — and routes the lookup accordingly. A postcode always gives you the full premises list to pick the exact address from. Your last ten premises are one click away. |
 | **Address + UPRN, always** | Every screen leads with the identity box: full formatted address and UPRN, both one click to copy. Everything is searchable by all three. |
 | **Broadband availability** | Every access technology at the premises — FTTP, SOGEA, G.fast, FTTC, ADSL2+, Annex M, IPStream — with RAG status, Range A and Range B speed estimates, product codes and orderability, plus alt-net and cable coverage for completeness. |
 | **Openreach engineering detail** | Exchange and TLC, MDF site, PCP cabinet, copper loop length and attenuation, spare pairs, distribution point, FTTP build state, CBT, ONT serial and spare ports, FTTP-on-Demand excess construction charges, and All-IP stop-sell posture. |
 | **Lines** | CLI, access line ID, service ID, ONT serial, RADIUS state and session, IP allocations, sync and SNR, DLM profile, CPE, contract dates, open faults and appointments. Ceased lines included, so an archived service still turns up. |
 | **Mobile signal** | EE, Vodafone, O2 and Three, indoor *and* outdoor, for voice, 4G and 5G. Live from Ofcom's Connected Nations open data when a dataset is configured — free, no account — and modelled otherwise, labelled either way. |
 | **Line diagnostics** | Run a line test and read the last one — copper electrical, xDSL, TAM stack walk, known-network, or a fibre service test, offered by what the technology actually supports. Plus 30-day drop history, RADIUS authentication attempts, DLM profile options and usage against cap. |
-| **Network status** | Major service outages and planned engineering work, with per-service correlation — so "is it just us?" is answered before a fault is raised. |
+| **Network status** | Major service outages and planned engineering work, with per-service correlation — so "is it just us?" is answered before a fault is raised. Plus provider notices: price changes, product withdrawals, stop-sell and migration programmes. |
 | **Faults** | The open book, closed history, full update timeline, and raising a fault with the tests-carried-out detail providers require to avoid a chargeable no-fault-found visit. |
-| **Orders** | In-flight orders, the WIP report, search by Zen or customer reference, and cancellation behind a type-to-confirm guard. |
+| **Orders** | In-flight orders, the WIP report, search by Zen or customer reference, and cancellation behind a type-to-confirm guard. **Placing** an order is built too, behind two independent switches, a review step that shows the money, the installation address retyped by hand, and a per-user daily cap — off by default. |
+| **Who is here** | Every company registered at the premises, with liquidation, administration and dissolution flagged and sorted to the top. Free from Companies House with a registration key. |
 | **SIMs** | The mobile estate — shared pool with overage, per-SIM allowance, bars, and attach state. Zen's cellular endpoints are Jola-backed, so this covers business SIMs without a separate Jola key. |
-| **Tools** | Number porting checker, "is this phone on the network" (EE via BT), IMEI and handset lookup, Ethernet/leased-line quotes, footfall and catchment, call records, reverse DNS. |
-| **Admin portal** | Live status probe of all 18 integrations, per-integration on/off switches, user management, and an append-only audit log. |
+| **Tools** | Number porting checker, "is this phone on the network" (EE via BT), IMEI and handset lookup, Ethernet/leased-line quotes, footfall and catchment, call records, reverse DNS, both wholesale address references for a premises (and registering one with Openreach when neither database knows it), RADIUS realms and IP configuration, and estate-wide monthly usage. |
+| **Admin portal** | Live status probe of all 21 integrations, per-integration on/off switches, the ordering lock and its daily cap, today's fair-use counters per user, user management, and an append-only audit log. |
 | **Auto recovery** | The supervisor probes every integration on an interval and *fixes* what it can — re-mint an expired token, drop a poisoned cache, reload a dataset. A run of failures opens a circuit breaker so lookups skip the dead upstream instead of waiting for its timeout, with exponential backoff on reattempts. Every recovery is audited. |
 | **Self-test** | A full functional pass over the whole portal against whatever providers are actually configured. Answers "does this deployment work right now, with these credentials" — as distinct from the unit tests, which answer "is the code correct". Runs at startup and on demand. Read-only: it never raises a fault or places an order. |
 | **Copy as text** | Any site report as clean plain text for pasting into a ticket, an email or a message. No formatting to survive. |
+| **CSV export** | Orders, faults, SIMs, call records, estate usage and the audit log, as a download for a spreadsheet or a copy for a ticket. Formula-injection safe. |
 
 Sign-in is email and password, with optional email two-factor authentication
 that only becomes available once a Resend delivery test has actually passed.
@@ -138,10 +140,11 @@ are written against, including exact endpoint paths, scopes and field names.
 ## Testing
 
 ```bash
-npm test          # 51 tests: identifier classification, address formatting,
+npm test          # 72 tests: identifier classification, address formatting,
                   # Zen/BT/Jola response mapping, the Ofcom header
                   # interpreter, the circuit breaker and backoff ladder,
-                  # password hashing and policy
+                  # password hashing and policy, the retyped-address guard,
+                  # CSV escaping, fair-use counters, Companies House statuses
 npm run typecheck # strict TypeScript across all three packages
 ```
 
@@ -150,7 +153,7 @@ portal answers a different question — *does this deployment work right now,
 with these credentials* — and runs automatically at startup:
 
 ```
-[netkit] self-test passed — 22 passed, 0 failed, 1 warnings, 0 skipped in 1166ms
+[netkit] self-test passed — 28 passed, 0 failed, 1 warnings, 0 skipped in 1210ms
 [netkit]   warn Configuration / Data mode: mock — every panel is showing demo data
 ```
 
@@ -165,6 +168,38 @@ Six primary sections, plus the admin portal for administrators:
 Anything about one site lives under Lookup. Anything that is not about a
 single site — porting a number, checking a handset, the SIM estate — lives
 under Tools or its own section.
+
+A site report itself tabs into **Broadband**, **Openreach**, **Mobile
+signal**, **Lines** and **Who is here**; a line tabs into its identity, sync,
+session, IP, equipment, contract, faults, diagnostics, stability, usage and
+**what changed**.
+
+### Screens
+
+| | |
+| --- | --- |
+| [Site report](docs/screenshots/broadband.png) | Availability by technology, with an **Order** button on anything orderable |
+| [Openreach detail](docs/screenshots/openreach.png) | Exchange, cabinet, loop length, FTTP build state, stop-sell posture |
+| [Mobile signal](docs/screenshots/signal.png) | Four networks, indoor and outdoor, voice/4G/5G |
+| [Who is here](docs/screenshots/companies.png) | Companies registered at the premises, with liquidation and dissolution flagged |
+| [What changed](docs/screenshots/service-history.png) | Every recorded change to a service, newest first |
+| [Line test](docs/screenshots/line-test.png) | Only the tests the technology supports, with a recommendation |
+| [Network status](docs/screenshots/network-status.png) | Outages and planned engineering work |
+| [Provider notices](docs/screenshots/provider-notices.png) | Price changes, withdrawals, stop-sell, migrations |
+| [Faults](docs/screenshots/faults.png) · [raising one](docs/screenshots/raise-fault.png) | The open book, and the form with the tests-carried-out field |
+| [Orders](docs/screenshots/orders.png) | In flight, WIP report, search |
+| [Ordering an order — review](docs/screenshots/order-review.png) | The money, before anything is committed |
+| [Ordering an order — confirm](docs/screenshots/order-confirm.png) | The installation address retyped by hand |
+| [SIMs](docs/screenshots/sims.png) | The estate, the shared pool, bars and attach state |
+| [Tools](docs/screenshots/tools.png) · [estate usage](docs/screenshots/estate-usage.png) | Ten standalone lookups |
+| [Recent lookups](docs/screenshots/recent-lookups.png) | The last ten premises this user opened |
+| [Admin — service status](docs/screenshots/admin.png) | Twenty-one integrations, live |
+| [Admin — ordering & limits](docs/screenshots/ordering-admin.png) | The two locks, the daily cap, today's fair-use counters |
+| [Admin — recovery](docs/screenshots/auto-recovery.png) · [detail](docs/screenshots/recovery-detail.png) | What broke, what was tried, what fixed it |
+| [Admin — self-test](docs/screenshots/self-test.png) | Twenty-eight functional checks against the live configuration |
+| [Copy as text](docs/screenshots/copy-as-text.png) | A whole site report as plain text |
+| [Address picker](docs/screenshots/address-picker.png) · [confirmations](docs/screenshots/confirmation.png) | The two dialogs you meet most |
+| [Sign in](docs/screenshots/login.png) | Email and password, with optional email 2FA |
 
 ---
 

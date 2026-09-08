@@ -49,6 +49,13 @@ ADMIN_PASSWORD=<the password you want for the first sign-in>
 Then add credentials as they arrive — see `.env.example` for the full list
 with explanations. Variables set here take precedence over any `.env` file.
 
+Two worth knowing about before they surprise you:
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `ZEN_ALLOW_ORDERING` | `false` | One of the two locks on placing real orders. The other is the admin-portal switch; both must be open. |
+| `AVAILABILITY_DAILY_BUDGET` | `250` | Premises lookups per user per day. Protects the account's shared fair-use quota. `0` removes it. |
+
 ### Two things that matter
 
 **`SESSION_SECRET` is required in production.** The app refuses to mint
@@ -121,7 +128,43 @@ proxy.
 **Updating.** Pull in Plesk (or push to the branch if a webhook is set up).
 The deployment action rebuilds and restarts.
 
-**Backups.** Back up `DATA_DIR`. Everything else is rebuildable from Git.
+### Backups
+
+`DATA_DIR` holds the only state that cannot be rebuilt from Git: user
+accounts and password hashes, the settings (including the ordering switch and
+its daily cap), the append-only audit log, the per-user daily counters and the
+recent-lookup lists. Everything else in the application is a build artefact.
+
+`backup-data.sh` in the application root does it. It reads `DATA_DIR` from
+`.env` so the backup can never disagree with the app about which directory
+matters, writes a dated `tar.gz` with `600` permissions (the archive contains
+password hashes and the audit log), verifies the archive is readable before
+keeping it, and prunes anything older than `KEEP_DAYS`.
+
+```bash
+# Nightly at 02:00 — add via crontab or Plesk → Scheduled Tasks
+0 2 * * * /var/www/vhosts/<domain>/httpdocs/backup-data.sh >> /var/log/netkit-backup.log 2>&1
+```
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `DATA_DIR` | from `.env`, else `data` | What gets backed up |
+| `BACKUP_DIR` | `backups` | Point this inside the Plesk backup set so archives leave the machine |
+| `KEEP_DAYS` | `14` | Long enough to notice a bad change, short enough not to become its own problem |
+
+**To restore:** stop the app (**Node.js → Disable**), extract the archive over
+the parent of `DATA_DIR`, and start it again:
+
+```bash
+tar -xzf backups/netkit-data-20260908T020000Z.tar.gz -C /var/www/vhosts/<domain>
+```
+
+The audit log is append-only, so a restore rolls it back to the backup point.
+If anyone asks about the gap, that is why.
+
+`backups/` is gitignored, so a backup written into the working tree will never
+be committed — but keep it outside the tree anyway, for the same reason
+`DATA_DIR` is outside it.
 
 ---
 

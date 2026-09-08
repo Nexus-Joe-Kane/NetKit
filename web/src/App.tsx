@@ -7,6 +7,7 @@ import { IdentityBox } from './components/IdentityBox';
 import { BroadbandPanel, OpenreachPanel } from './components/BroadbandPanel';
 import { SignalPanel } from './components/SignalPanel';
 import { LinesPanel } from './components/LinesPanel';
+import { CompaniesPanel } from './components/CompaniesPanel';
 import { AdminPortal } from './components/AdminPortal';
 import { NetworkStatusPage } from './pages/NetworkStatus';
 import { FaultsPage } from './pages/Faults';
@@ -28,7 +29,7 @@ import { siteReportToText } from './lib/reportText';
  */
 
 type View = 'lookup' | 'network' | 'faults' | 'orders' | 'sims' | 'tools' | 'admin';
-type ReportTab = 'broadband' | 'openreach' | 'signal' | 'lines';
+type ReportTab = 'broadband' | 'openreach' | 'signal' | 'lines' | 'companies';
 
 /** The primary navigation. `admin` is reached by its own button. */
 const NAV: Array<{ id: Exclude<View, 'admin'>; label: string }> = [
@@ -368,6 +369,7 @@ function SiteReportView({
       ...(report.lines.length ? { count: report.lines.length } : {}),
       ...(openFaults ? { tone: 'crit' as const } : {}),
     },
+    { id: 'companies', label: 'Who is here' },
   ];
 
   const siblings = report.siblings ?? [];
@@ -458,6 +460,8 @@ function SiteReportView({
           ))}
 
         {tab === 'lines' && <LinesPanel lines={report.lines} />}
+
+        {tab === 'companies' && <CompaniesPanel postcode={report.address.postcode} />}
       </TabPanel>
 
       <div style={{ marginTop: 18 }}>

@@ -1,7 +1,39 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import type { SimEstate, SimRecord, SimState } from '@sw/shared';
 import { ApiClientError, api } from '../lib/api';
-import { Alert, Card, Cell, Chip, Label, Spinner, formatBytes, formatDateTime, type ChipTone } from '../components/ui';
+import {
+  Alert,
+  Card,
+  Cell,
+  Chip,
+  ExportButtons,
+  Label,
+  Spinner,
+  formatBytes,
+  formatDateTime,
+  type ChipTone,
+} from '../components/ui';
+import type { CsvColumn } from '../lib/csv';
+
+/** Bytes, not gigabytes — a spreadsheet can divide, a lossy export cannot. */
+const SIM_COLUMNS: Array<CsvColumn<SimRecord>> = [
+  { header: 'ICCID', value: (s) => s.iccid },
+  { header: 'MSISDN', value: (s) => s.msisdn },
+  { header: 'IMSI', value: (s) => s.imsi },
+  { header: 'Service reference', value: (s) => s.zenReference },
+  { header: 'State', value: (s) => s.state },
+  { header: 'Network', value: (s) => s.network },
+  { header: 'Attached', value: (s) => s.attached },
+  { header: 'Last seen', value: (s) => s.lastSeenAt },
+  { header: 'Allowance (bytes)', value: (s) => s.allowanceBytes },
+  { header: 'Bolt-on (bytes)', value: (s) => s.boltOnBytes },
+  { header: 'Used (bytes)', value: (s) => s.usedBytes },
+  { header: 'Bars', value: (s) => s.bars?.join('; ') },
+  { header: 'APN', value: (s) => s.apn },
+  { header: 'IP address', value: (s) => s.ipAddress },
+  { header: 'Postcode', value: (s) => s.postcode },
+  { header: 'Provider', value: (s) => s.provider },
+];
 import { Tabs, TabPanel, type TabDef } from '../components/Tabs';
 import { Modal } from '../components/overlay';
 
@@ -189,7 +221,12 @@ export function SimsPage(): ReactElement {
         index="03"
         accent={2}
         flush
-        meta={mode === 'mock' ? <Chip tone="warn" dot>Demo data</Chip> : <Chip tone="ok" dot>Live</Chip>}
+        meta={
+          <>
+            {mode === 'mock' ? <Chip tone="warn" dot>Demo data</Chip> : <Chip tone="ok" dot>Live</Chip>}
+            <ExportButtons rows={rows} columns={SIM_COLUMNS} filenamePrefix="sims" label="the SIM list" />
+          </>
+        }
         tabs={<Tabs tabs={tabs} active={tab} onChange={setTab} variant="sub" label="SIM groups" />}
       >
         <TabPanel>

@@ -202,11 +202,16 @@ async function signalFor(address: AddressRecord): Promise<{ value: SignalReport 
 export async function buildSiteReport(
   address: AddressRecord,
   query: ResolvedIdentifier,
-  opts: { includeSiblings?: boolean } = {},
+  opts: { includeSiblings?: boolean; budget?: BudgetHook } = {},
 ): Promise<SiteReport> {
   const cacheKey = `report:${address.uprn ?? address.singleLine}`;
   const cached = reportCache.get(cacheKey);
   if (cached) return { ...cached, query, generatedAt: cached.generatedAt };
+
+  // Fair use is charged here rather than at the route, because this is the
+  // only place that knows the answer was not already in hand. A second look
+  // at a premises an operator opened ten minutes ago is free.
+  opts.budget?.();
 
   const [availability, signal, lines, siblings] = await Promise.all([
     availabilityFor(address),
@@ -245,20 +250,31 @@ export async function buildSiteReport(
  * The single entry point
  * ------------------------------------------------------------------ */
 
+/**
+ * Called once per uncached premises, immediately before the upstream calls.
+ *
+ * Throwing refuses the lookup — that is how the fair-use budget says no.
+ * Passing no hook means no rationing, which is what the internal callers
+ * (self-test, supervisor) want.
+ */
+export type BudgetHook = () => void;
+
 export interface ResolveOptions {
   /** Set when the user has already picked an address from the dropdown. */
   uprn?: string;
   /** Cap on returned suggestions. */
   limit?: number;
+  budget?: BudgetHook;
 }
 
 export async function resolveQuery(rawQuery: string, opts: ResolveOptions = {}): Promise<SearchResponse> {
+  const budget = opts.budget ? { budget: opts.budget } : {};
   // An explicit UPRN from the dropdown short-circuits everything.
   if (opts.uprn) {
     const address = await addressByUprn(opts.uprn);
     if (!address) throw notFound(`No premises found for UPRN ${opts.uprn}.`);
     const query = identify(opts.uprn);
-    return { query, suggestions: [], report: await buildSiteReport(address, query) };
+    return { query, suggestions: [], report: await buildSiteReport(address, query, budget) };
   }
 
   const query = identify(rawQuery);
@@ -278,7 +294,7 @@ export async function resolveQuery(rawQuery: string, opts: ResolveOptions = {}):
       if (!list.length) throw notFound(`No premises found at ${query.normalised}.`);
       // A single premises at a postcode needs no disambiguation.
       if (list.length === 1) {
-        return { query, suggestions: [], report: await buildSiteReport(list[0]!, query) };
+        return { query, suggestions: [], report: await buildSiteReport(list[0]!, query, budget) };
       }
       return { query, suggestions: list.map(toSuggestion) };
     }
@@ -287,7 +303,7 @@ export async function resolveQuery(rawQuery: string, opts: ResolveOptions = {}):
     case 'uprn': {
       const address = await addressByUprn(query.normalised);
       if (!address) throw notFound(`No premises found for UPRN ${query.normalised}.`);
-      return { query, suggestions: [], report: await buildSiteReport(address, query) };
+      return { query, suggestions: [], report: await buildSiteReport(address, query, budget) };
     }
 
     // ---- Line identifiers: find the line, then the site --------------
@@ -303,7 +319,7 @@ export async function resolveQuery(rawQuery: string, opts: ResolveOptions = {}):
       }
       // Land the user on the site the line sits at.
       const address = lines[0]!.address;
-      const report = await buildSiteReport(address, query);
+      const report = await buildSiteReport(address, query, budget);
       // Make sure the line we searched for is definitely in the report.
       const merged = [...lines];
       for (const l of report.lines) {
@@ -317,7 +333,7 @@ export async function resolveQuery(rawQuery: string, opts: ResolveOptions = {}):
       const list = await searchAddresses(query.normalised, limit);
       if (!list.length) throw notFound(`No premises matched "${query.normalised}".`);
       if (list.length === 1) {
-        return { query, suggestions: [], report: await buildSiteReport(list[0]!, query) };
+        return { query, suggestions: [], report: await buildSiteReport(list[0]!, query, budget) };
       }
       return { query, suggestions: list.map(toSuggestion) };
     }

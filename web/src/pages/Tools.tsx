@@ -1,16 +1,33 @@
 import { useState, type ReactElement, type ReactNode } from 'react';
 import { formatPostcode, identify, normaliseCli } from '@sw/shared';
 import type {
+  AddressMatch,
+  AddressRegistration,
   CallRecord,
+  EstateUsageReport,
+  EstateUsageRow,
   EthernetQuoteSet,
   FootfallInsight,
   ImeiLookup,
+  NetworkConfiguration,
   NetworkConnectivityCheck,
   NumberPortCheck,
   RdnsRecord,
 } from '@sw/shared';
 import { ApiClientError, api } from '../lib/api';
-import { Alert, Card, Cell, Chip, Label, Spinner, formatBytes, formatDateTime, formatDuration } from '../components/ui';
+import {
+  Alert,
+  Card,
+  Cell,
+  Chip,
+  ExportButtons,
+  Label,
+  Spinner,
+  formatBytes,
+  formatDateTime,
+  formatDuration,
+} from '../components/ui';
+import type { CsvColumn } from '../lib/csv';
 import { Modal } from '../components/overlay';
 
 /**
@@ -39,6 +56,35 @@ const cliValidator = (value: string): string | null =>
 
 const postcodeValidator = (value: string): string | null =>
   identify(value).kind === 'postcode' ? null : 'Enter a full UK postcode, e.g. M1 1AE.';
+
+/**
+ * Splits "12 High Street, M1 1AE" into a premises and a postcode.
+ *
+ * The postcode is taken from the end because that is where it always is in a
+ * written UK address, and everything before it is the premises. Returns null
+ * when there is no recognisable postcode, which is what the validator uses.
+ */
+function addressQuery(
+  value: string,
+): { postcode: string; premiseName?: string; thoroughfareNumber?: string } | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  // Try the whole thing as a postcode first — the common case is just that.
+  if (identify(trimmed).kind === 'postcode') return { postcode: formatPostcode(trimmed) };
+
+  const parts = trimmed.split(',').map((p) => p.trim()).filter(Boolean);
+  const tail = parts[parts.length - 1];
+  if (!tail || identify(tail).kind !== 'postcode') return null;
+
+  const premises = parts.slice(0, -1).join(', ');
+  // A leading number is the thoroughfare number; anything else is a name.
+  const numbered = /^(\d+[A-Za-z]?)\s+(.*)$/.exec(premises);
+  return {
+    postcode: formatPostcode(tail),
+    ...(numbered ? { thoroughfareNumber: numbered[1]!, premiseName: numbered[2]! } : premises ? { premiseName: premises } : {}),
+  };
+}
 
 export function ToolsPage(): ReactElement {
   const [active, setActive] = useState<ToolDef | null>(null);
@@ -102,6 +148,50 @@ export function ToolsPage(): ReactElement {
       accent: 1,
       input: { label: 'Nothing needed', placeholder: 'Press Run', hint: 'Zen limits the window to two days; this fetches the last 24 hours.' },
       run: async () => <CdrResult data={await api.callRecords()} />,
+    },
+    {
+      id: 'address-match',
+      name: 'Openreach / BT Wholesale address reference',
+      description: 'Both wholesale references for one premises, and whether the two databases agree.',
+      vendor: 'Zen',
+      accent: 2,
+      input: {
+        label: 'Premises and postcode',
+        placeholder: '12 High Street, M1 1AE',
+        hint: 'Postcode alone works. Put the building first if you have it — the postcode is read from the end.',
+      },
+      validate: (value) => (addressQuery(value) ? null : 'Include a full UK postcode, e.g. 12 High Street, M1 1AE.'),
+      run: async (value) => {
+        const query = addressQuery(value)!;
+        return <AddressMatchResult data={await api.addressMatch(query)} query={query} />;
+      },
+    },
+    {
+      id: 'network-config',
+      name: 'Realms and IP configuration',
+      description: 'The service selection names on offer, and how one service is actually configured.',
+      vendor: 'Zen',
+      accent: 4,
+      input: {
+        label: 'Zen reference (optional)',
+        placeholder: 'ZEN1234567',
+        hint: 'Leave blank for the catalogue of options. This is the answer to “why will this line not authenticate”.',
+      },
+      run: async (value) => <NetworkConfigResult data={await api.networkConfig(value.trim() || undefined)} />,
+    },
+    {
+      id: 'estate-usage',
+      name: 'Usage across the base',
+      description: 'Every service’s data use for a month, heaviest first, with over-allowance flagged.',
+      vendor: 'Zen',
+      accent: 1,
+      input: {
+        label: 'Month (optional)',
+        placeholder: '2026-09',
+        hint: 'Leave blank for the current month.',
+      },
+      validate: (value) => (!value.trim() || /^\d{4}-\d{2}$/.test(value.trim()) ? null : 'A month looks like 2026-09.'),
+      run: async (value) => <EstateUsageResult data={await api.estateUsage(value.trim() || undefined)} />,
     },
     {
       id: 'rdns',
@@ -477,6 +567,24 @@ function FootfallResult({
   );
 }
 
+/**
+ * Call records are the export people actually ask for — a bill query means
+ * reconciling a month of calls against an invoice, which is spreadsheet work.
+ * Cost stays in pounds at full precision rather than being rounded for
+ * display, because the rounding is what the argument is usually about.
+ */
+const CDR_COLUMNS: Array<CsvColumn<CallRecord>> = [
+  { header: 'Started', value: (r) => r.startedAt },
+  { header: 'From', value: (r) => r.sourceNumber },
+  { header: 'Presented', value: (r) => r.presentationNumber },
+  { header: 'To', value: (r) => r.destinationNumber },
+  { header: 'Duration (seconds)', value: (r) => r.durationSeconds },
+  { header: 'Classification', value: (r) => r.classification },
+  { header: 'Destination', value: (r) => r.destinationDescription },
+  { header: 'Dial code', value: (r) => r.dialCode },
+  { header: 'Cost (GBP)', value: (r) => r.costPounds },
+];
+
 function CdrResult({
   data,
 }: {
@@ -498,7 +606,16 @@ function CdrResult({
       {data.records.length === 0 ? (
         <Alert tone="info">No calls in this window.</Alert>
       ) : (
-        <div className="table-wrap" style={{ maxHeight: 340 }}>
+        <>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+            <ExportButtons
+              rows={data.records}
+              columns={CDR_COLUMNS}
+              filenamePrefix="call-records"
+              label="these call records"
+            />
+          </div>
+          <div className="table-wrap" style={{ maxHeight: 340 }}>
           <table className="data">
             <thead>
               <tr>
@@ -528,7 +645,8 @@ function CdrResult({
               ))}
             </tbody>
           </table>
-        </div>
+          </div>
+        </>
       )}
     </>
   );
@@ -582,6 +700,365 @@ function RdnsResult({
             </tbody>
           </table>
         </div>
+      )}
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Address references
+ * ------------------------------------------------------------------ */
+
+/**
+ * The two wholesale references, and the registration form when neither
+ * database knows the premises.
+ *
+ * This is the one tool that can write, so the form is deliberately a second
+ * step rather than something that submits from the same button as the search.
+ */
+function AddressMatchResult({
+  data,
+  query,
+}: {
+  data: AddressMatch & { mode: 'live' | 'mock'; providerError?: string };
+  query: { postcode: string; premiseName?: string; thoroughfareNumber?: string };
+}): ReactElement {
+  const [registering, setRegistering] = useState(false);
+  const [registration, setRegistration] = useState<AddressRegistration | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [form, setForm] = useState({
+    buildingNumber: query.thoroughfareNumber ?? '',
+    buildingName: '',
+    thoroughfare: query.premiseName ?? '',
+    postTown: '',
+    county: '',
+  });
+
+  const found = Boolean(data.btoAddressReference || data.btwAddressReference);
+  const disagrees = Boolean(data.btoAddressReference && data.btwAddressReference && data.messages.length > 0);
+
+  const submit = async () => {
+    setBusy(true);
+    setFormError(null);
+    try {
+      const result = await api.registerAddress({
+        postcode: query.postcode,
+        ...(form.buildingName.trim() ? { buildingName: form.buildingName.trim() } : {}),
+        ...(form.buildingNumber.trim() ? { buildingNumber: form.buildingNumber.trim() } : {}),
+        thoroughfare: form.thoroughfare.trim(),
+        postTown: form.postTown.trim(),
+        ...(form.county.trim() ? { county: form.county.trim() } : {}),
+      });
+      setRegistration(result);
+    } catch (err) {
+      setFormError(err instanceof ApiClientError ? err.message : 'The address could not be registered.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <ModeBadge mode={data.mode} {...(data.providerError ? { providerError: data.providerError } : {})} />
+
+      <div className={found ? (disagrees ? 'flag flag--warn' : 'flag flag--ok') : 'flag flag--critical'}>
+        <span className="flag__marker" aria-hidden="true" />
+        <span>
+          <strong>
+            {!found
+              ? 'Neither database knows this premises'
+              : disagrees
+                ? 'The two databases disagree'
+                : 'Both references found'}
+          </strong>
+          <span className="flag__detail">
+            {!found
+              ? 'A provide will be rejected until the premises is registered with Openreach.'
+              : disagrees
+                ? data.messages[0]
+                : 'Order against the Openreach reference.'}
+          </span>
+        </span>
+      </div>
+
+      <div className="kv">
+        <Cell label="Searched postcode" value={data.query.postcode} mono />
+        <Cell label="Premises" value={data.query.premiseName} />
+        <Cell label="Number" value={data.query.thoroughfareNumber} mono />
+        <Cell label="Openreach reference" value={data.btoAddressReference} mono copy />
+        <Cell label="BT Wholesale reference" value={data.btwAddressReference} mono copy />
+        <Cell label="District code" value={data.districtCode} mono />
+        <Cell label="UPRN" value={data.uprn} mono copy />
+      </div>
+
+      {data.messages.length > 1 && (
+        <ul style={{ margin: '4px 0 0', paddingLeft: 17, fontSize: 13, lineHeight: 1.65 }}>
+          {data.messages.slice(1).map((m, i) => (
+            <li key={i}>{m}</li>
+          ))}
+        </ul>
+      )}
+
+      {registration ? (
+        <div className={registration.created ? 'flag flag--ok' : 'flag flag--warn'}>
+          <span className="flag__marker" aria-hidden="true" />
+          <span>
+            <strong>{registration.created ? `Registered as ${registration.addressReference}` : 'Nothing was registered'}</strong>
+            <span className="flag__detail">
+              {registration.messages.join(' ')}
+              {registration.technologyRestrictions.length > 0 && (
+                <>
+                  {' '}
+                  Restrictions:{' '}
+                  {registration.technologyRestrictions
+                    .map((r) => `${r.technology}${r.reason ? ` (${r.reason})` : ''}`)
+                    .join(', ')}
+                  .
+                </>
+              )}
+            </span>
+          </span>
+        </div>
+      ) : registering ? (
+        <div
+          style={{
+            border: '1px solid var(--sw-hairline)',
+            borderRadius: 4,
+            background: 'var(--sw-panel)',
+            padding: 16,
+            marginTop: 10,
+          }}
+        >
+          <Label>Register this premises with Openreach</Label>
+          <p className="muted" style={{ fontSize: 12, margin: '4px 0 12px' }}>
+            This writes to the national address database. Get it right first time — a duplicate or wrong entry is
+            somebody else&rsquo;s support call later.
+          </p>
+          {formError && <Alert tone="error">{formError}</Alert>}
+          <div className="two-col">
+            <label className="field">
+              <Label>Building number</Label>
+              <input
+                className="field__input"
+                value={form.buildingNumber}
+                onChange={(e) => setForm({ ...form, buildingNumber: e.target.value })}
+                placeholder="12"
+              />
+            </label>
+            <label className="field">
+              <Label>Building name</Label>
+              <input
+                className="field__input"
+                value={form.buildingName}
+                onChange={(e) => setForm({ ...form, buildingName: e.target.value })}
+                placeholder="Rose Cottage"
+              />
+            </label>
+            <label className="field">
+              <Label>Street</Label>
+              <input
+                className="field__input"
+                value={form.thoroughfare}
+                onChange={(e) => setForm({ ...form, thoroughfare: e.target.value })}
+                placeholder="High Street"
+              />
+            </label>
+            <label className="field">
+              <Label>Post town</Label>
+              <input
+                className="field__input"
+                value={form.postTown}
+                onChange={(e) => setForm({ ...form, postTown: e.target.value })}
+                placeholder="Manchester"
+              />
+            </label>
+            <label className="field">
+              <Label>County (optional)</Label>
+              <input
+                className="field__input"
+                value={form.county}
+                onChange={(e) => setForm({ ...form, county: e.target.value })}
+              />
+            </label>
+            <label className="field">
+              <Label>Postcode</Label>
+              <input className="field__input" value={query.postcode} readOnly disabled />
+            </label>
+          </div>
+          <div className="row" style={{ gap: 8, marginTop: 6 }}>
+            <button
+              type="button"
+              className="btn btn--primary"
+              disabled={busy || !form.thoroughfare.trim() || !form.postTown.trim() || !(form.buildingName.trim() || form.buildingNumber.trim())}
+              onClick={() => void submit()}
+            >
+              {busy ? 'Registering…' : 'Register with Openreach'}
+            </button>
+            <button type="button" className="btn btn--ghost" onClick={() => setRegistering(false)} disabled={busy}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        !found && (
+          <button type="button" className="btn btn--primary btn--small" onClick={() => setRegistering(true)}>
+            Register this premises
+          </button>
+        )
+      )}
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Network configuration
+ * ------------------------------------------------------------------ */
+
+function NetworkConfigResult({
+  data,
+}: {
+  data: NetworkConfiguration & { mode: 'live' | 'mock'; providerError?: string };
+}): ReactElement {
+  return (
+    <>
+      <ModeBadge mode={data.mode} {...(data.providerError ? { providerError: data.providerError } : {})} />
+
+      {data.details.length > 0 && (
+        <div>
+          <Label>How {data.zenReference} is configured</Label>
+          <div className="kv" style={{ marginTop: 5 }}>
+            {data.details.map((d) => (
+              <Cell key={d.label} label={d.label} value={d.value} mono copy />
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div>
+        <Label>Service selection names available</Label>
+        {data.serviceSelectionNames.length === 0 ? (
+          <Alert tone="info">The provider returned no options for this account.</Alert>
+        ) : (
+          <div className="table-wrap" style={{ marginTop: 5 }}>
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Realm</th>
+                  <th>IP</th>
+                  <th>Static block</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.serviceSelectionNames.map((o) => (
+                  <tr key={o.name}>
+                    <td className="sw-mono">
+                      {o.name}
+                      {o.default && (
+                        <span style={{ marginLeft: 6 }}>
+                          <Chip tone="idle" title="Applied when nothing else is chosen">
+                            default
+                          </Chip>
+                        </span>
+                      )}
+                    </td>
+                    <td className="sw-mono" style={{ fontSize: 12 }}>{o.realm ?? '—'}</td>
+                    <td style={{ fontSize: 12 }}>{o.ipVersion ?? '—'}</td>
+                    <td className="sw-mono" style={{ fontSize: 12 }}>{o.staticBlock ?? '—'}</td>
+                    <td style={{ fontSize: 12 }}>{o.description ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Estate-wide usage
+ * ------------------------------------------------------------------ */
+
+const ESTATE_COLUMNS: Array<CsvColumn<EstateUsageRow>> = [
+  { header: 'Zen reference', value: (r) => r.zenReference },
+  { header: 'Service ID', value: (r) => r.serviceId },
+  { header: 'CLI', value: (r) => r.cli },
+  { header: 'Address', value: (r) => r.address },
+  { header: 'Download (bytes)', value: (r) => r.downloadBytes },
+  { header: 'Upload (bytes)', value: (r) => r.uploadBytes },
+  { header: 'Total (bytes)', value: (r) => r.totalBytes },
+  { header: 'Over allowance', value: (r) => r.overAllowance },
+];
+
+function EstateUsageResult({
+  data,
+}: {
+  data: EstateUsageReport & { mode: 'live' | 'mock'; providerError?: string };
+}): ReactElement {
+  const over = data.rows.filter((r) => r.overAllowance).length;
+
+  return (
+    <>
+      <ModeBadge mode={data.mode} {...(data.providerError ? { providerError: data.providerError } : {})} />
+      <div className="kv">
+        <Cell label="Period" value={data.period} mono />
+        <Cell label="Services" value={data.rows.length} mono />
+        <Cell label="Total transferred" value={formatBytes(data.totalBytes)} mono />
+        <Cell label="Over allowance" value={over} mono />
+      </div>
+
+      {data.rows.length === 0 ? (
+        <Alert tone="info">No usage was reported for {data.period}.</Alert>
+      ) : (
+        <>
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <span className="muted" style={{ fontSize: 11.5 }}>Heaviest first.</span>
+            <ExportButtons
+              rows={data.rows}
+              columns={ESTATE_COLUMNS}
+              filenamePrefix={`usage-${data.period}`}
+              label="this usage report"
+            />
+          </div>
+          <div className="table-wrap" style={{ maxHeight: 340 }}>
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Service</th>
+                  <th>Address</th>
+                  <th className="num">Down</th>
+                  <th className="num">Up</th>
+                  <th className="num">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.rows.map((r) => (
+                  <tr key={r.zenReference}>
+                    <td className="sw-mono" style={{ fontSize: 12 }}>
+                      {r.zenReference}
+                      {r.overAllowance && (
+                        <span style={{ marginLeft: 6 }}>
+                          <Chip tone="warn" title="The provider flags this service as over its allowance">
+                            Over
+                          </Chip>
+                        </span>
+                      )}
+                      {r.cli && <div className="muted" style={{ fontSize: 11 }}>{r.cli}</div>}
+                    </td>
+                    <td style={{ fontSize: 12, maxWidth: 220 }}>{r.address ?? '—'}</td>
+                    <td className="num">{formatBytes(r.downloadBytes) ?? '—'}</td>
+                    <td className="num">{formatBytes(r.uploadBytes) ?? '—'}</td>
+                    <td className="num">{formatBytes(r.totalBytes) ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </>
   );

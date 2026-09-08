@@ -14,26 +14,28 @@ the moment credentials land. No stubs, no "coming soon" screens.
 
 | Area | What it does |
 | --- | --- |
-| One search box | Postcode, first line of address, UPRN, CLI, Openreach access line ID, service ID, ONT serial. Classified locally *and* server-side by the same code |
-| Site report | Full address + UPRN, availability by technology, Openreach engineering detail, mobile coverage, every line at the premises |
-| Line detail | Identity, sync, RADIUS session, IP allocations, equipment, contract, faults, **line testing, 30-day stability, usage** |
-| Network status | Major service outages and planned engineering work, with per-service correlation |
+| One search box | Postcode, first line of address, UPRN, CLI, Openreach access line ID, service ID, ONT serial. Classified locally *and* server-side by the same code. Remembers each user's last ten premises |
+| Site report | Full address + UPRN, availability by technology, Openreach engineering detail, mobile coverage, every line at the premises, and the companies registered there |
+| Line detail | Identity, sync, RADIUS session, IP allocations, equipment, contract, faults, **line testing, 30-day stability, usage**, and the service's change history |
+| Network status | Major service outages, planned engineering work with per-service correlation, and provider notices (price changes, withdrawals, stop-sell) |
 | Faults | Open book, closed history, full timeline, and raising a fault with the tests-carried-out field the provider needs |
-| Orders | In-flight, WIP report, search, cancellation with a type-to-confirm guard |
+| Orders | In-flight, WIP report, search, cancellation with a type-to-confirm guard, and **placing an order** behind the five guards in §4 |
 | SIMs | Estate, shared pool with overage, bars, attach state |
-| Tools | Number porting, "is this phone on the network", IMEI/handset, Ethernet quotes, footfall, call records, reverse DNS |
-| Admin | Live probe of 17 integrations, per-integration switches, users, append-only audit log |
-| Auth | Email + password, scrypt, revocable sessions, lockout, email 2FA gated on a verified Resend send |
+| Tools | Number porting, "is this phone on the network", IMEI/handset, Ethernet quotes, footfall, call records, reverse DNS, wholesale address references (and registering a premises with Openreach), realms and IP configuration, estate-wide usage |
+| Admin | Live probe of 21 integrations, per-integration switches, the ordering lock and its daily cap, today's fair-use counters per user, users, append-only audit log |
+| Auth | Email + password, scrypt, revocable sessions that slide while in use, lockout, email 2FA gated on a verified Resend send |
 
 ### What is deliberately *not* built
 
-- **Placing orders.** Everything up to it is there — availability reference,
-  appointment slots, pricing, the order payload shape. I stopped at the
-  `POST /api/order` call because it spends real money and commits real
-  engineer appointments. See §4 for how I'd gate it.
-- **Live mobile coverage.** The signal panel is modelled, not measured. See §3.1
-  — this is the single biggest data-quality gap and it is free to fix.
+- **Live mobile coverage** *where no Ofcom dataset is present.* The signal
+  panel falls back to a model when `OFCOM_DATASET_PATH` is unset. See §3.1.
 - **Openreach direct.** There is nothing to build. See §2.
+- **A client-facing report.** The brand guide has a whole client-facing
+  document system that NetKit does not use. See §6.6.
+
+Placing orders **is** now built, behind the five guards in §4. It is off by
+default and needs two independent switches opened before it will send
+anything.
 
 ---
 
@@ -89,15 +91,17 @@ One thing I could not verify: whether Ofcom also expose a live per-postcode
 API. I hit a tool limit before confirming it, so `OFCOM_API_BASE_URL` exists
 as an override but the dataset is the route I actually tested.
 
-### 3.2 Companies House API — business context on a site
+### 3.2 Companies House — ✅ **done**
 
-Free with a registration key. Given a business address you get company number,
-status, incorporation date, SIC code, officers and filing history.
+Free with a registration key. Set `COMPANIES_HOUSE_API_KEY` and the **Who is
+here** tab on any site report lists every company registered at the postcode,
+with anything in liquidation, administration or dissolved flagged red and
+sorted to the top. Overdue filings are shown separately — a warning, not a
+reason to stop.
 
-Why it earns a place: when a support call comes in about a business line,
-knowing the company is in liquidation, or dissolved, or trading under a
-different name, changes what you do next. It also catches the case where the
-"customer" on the line is a company that no longer exists.
+It earns its place on the days it changes the answer: a business fault, a
+cease request or a credit decision reads differently when the company on the
+account went into liquidation last month.
 
 ### 3.3 Ordnance Survey Open UPRN / OS NGD
 
@@ -107,44 +111,53 @@ lacks the full address text so it cannot replace Places outright, but it can
 resolve a bare UPRN to a location for nothing, which is one of the two things
 Places is currently doing.
 
-### 3.4 Zen endpoints documented but not yet surfaced
+### 3.4 Zen endpoints documented but not surfaced — ✅ **done**
 
-I mapped these while reading the spec but did not build screens for them.
-Small additions, each maybe an hour:
+All six are now wired and on screen:
 
-- `POST /api/bto/addaddress` — **create an Openreach NAD address key** for a
-  premises not in the database. This is the fix for "the address isn't in
-  Openreach's list", which currently dead-ends a provide.
-- `GET /api/address/match` — returns *both* the Openreach and BT Wholesale
-  address references for one address. Useful when the two disagree.
-- `GET /api/service/{ref}/history` — the change history of a service.
-- `GET /api/networkmanagement/serviceselectionnames` and `/networkdetails` —
-  the realms and IP configuration available when ordering.
-- `GET /api/monthlyusage/report` / `/reports` — usage across the whole base
-  rather than one service.
-- `GET /api/notifications/search` — Zen's own notifications, which would make
-  a decent "what changed today" panel.
+| Endpoint | Where it appears |
+| --- | --- |
+| `GET /api/address/match` | Tools → **Openreach / BT Wholesale address reference**. Shows both references and says plainly when they disagree — which is usually why an order was rejected |
+| `POST /api/bto/addaddress` | A second step inside that tool, appearing only once a match has failed. Audited as a write against the national address database |
+| `GET /api/service/{ref}/history` | The **What changed** tab on a line. The first thing worth asking when a line that worked for two years stops working |
+| `GET /api/notifications/search` | **Provider notices** on the network status page — price changes, product withdrawals, stop-sell, migrations |
+| `/api/networkmanagement/*` | Tools → **Realms and IP configuration**. The answer to "why will this line not authenticate" |
+| `/api/monthlyusage/report` | Tools → **Usage across the base**, heaviest first, with over-allowance flagged and a CSV export |
 
 ---
 
-## 4. Product ordering — how I'd gate it
+## 4. Product ordering — ✅ **done, behind five guards**
 
-Ordering is built up to the final call. To finish it safely I would:
+Everything else in NetKit is read-only or reversible. Ordering is neither, so
+it is the one feature built to resist being used by accident:
 
-1. **Feature flag, default off.** `ZEN_ALLOW_ORDERING=false` in the
-   environment, plus an admin switch. Two independent locks.
-2. **A review step that shows the money.** Product, monthly and one-off
-   totals from `/api/pricingDetails`, the appointment, the address, the CLI,
-   and whether it is a working-line takeover. Nothing submits from a table row.
-3. **Type-to-confirm the address.** The same guard the user-removal dialog
-   uses. An order to the wrong premises is expensive and slow to unwind.
-4. **Audit before and after.** Log the intent with the full payload, then the
-   provider's response. The audit log already exists and is append-only.
-5. **A hard cap for the first month.** Refuse more than N orders per day per
-   user. A loop bug that places forty provides is a very bad afternoon.
+1. **Two independent locks.** `ZEN_ALLOW_ORDERING=false` in the environment
+   *and* a switch in **Admin portal → Ordering & limits**. Both must be open.
+   The environment flag is deliberately not settable from the admin screen —
+   two locks one person can open from one screen are one lock. Turning the
+   admin switch on requires typing `UNLOCK ORDERING`.
+2. **A review step that shows the money.** Monthly and one-off totals from
+   `/api/pricingDetails` with the line items, the appointment, the address,
+   the UPRN, the Gold Address Key and whether a provider is already on the
+   line. Nothing submits from a table row: the **Order** button on an
+   availability row opens a two-step dialog.
+3. **The address retyped by hand.** Not a checkbox. The comparison forgives
+   case, punctuation and repeated spaces and refuses everything that changes
+   which building it is — `Flat 3` still differs from `Flat 4`, and `12` from
+   `12A`. It is enforced server-side, so calling the API directly does not
+   skip it. `shared/src/confirm.test.ts` pins both halves.
+4. **Audited before and after.** `order.submitting` carries the full payload,
+   then `order.placed` or `order.rejected` carries the provider's response. A
+   request that vanishes still leaves evidence of what was attempted.
+5. **A per-user daily cap**, default 3, adjustable to 0–50 in the admin
+   portal. Charged *before* the call, which is the safe direction for a cap
+   whose whole job is to stop a loop. An explicit provider rejection refunds
+   the unit; an unconfirmed failure does not.
 
-I would not skip any of those. Everything else in NetKit is read-only or
-reversible; ordering is neither.
+One more thing worth knowing: a failed order is never reported as "nothing was
+sent". A request that timed out may well have reached Zen, so the message
+sends the operator to the order book rather than back to the button. Demo mode
+refuses outright rather than inventing a reference nobody can chase.
 
 ---
 
@@ -167,13 +180,22 @@ It holds users, settings and the audit log. Everything else is rebuildable
 from Git. It is currently backed up by nothing. A nightly `tar` into the Plesk
 backup set is enough.
 
-### 5.3 Rate limits and Zen's fair-use policy
+### 5.3 Rate limits and Zen's fair-use policy — ✅ **done**
 
-Zen are explicit that availability is not for bulk checking. NetKit caches
-hard (six hours) and surfaces the remaining quota, but nothing stops a user
-pasting a hundred postcodes in a row. I would add a per-user daily
-availability budget, visible in the admin portal, before this goes to a wider
-team.
+Zen are explicit that availability is not for bulk checking, and the quota is
+per *account*, not per user — so one person working through a list of
+postcodes can spend everyone else's allowance.
+
+Each user now gets a daily budget of premises lookups
+(`AVAILABILITY_DAILY_BUDGET`, default 250, `0` to disable). It is charged only
+when a lookup will actually cost an upstream check: a second look at a
+premises somebody opened ten minutes ago is free, because the report is
+cached. Spending it gives a refusal with a number in it rather than a silent
+degradation later in the day. Today's counters, per user, are on
+**Admin portal → Ordering & limits**.
+
+Still open: bulk address checking as a feature. That needs the conversation
+with Zen first — they offer to arrange it.
 
 ### 5.4 Health checks — ✅ **done, and it now repairs as well as reports**
 
@@ -205,14 +227,28 @@ hold there.
 The breaker is deliberately separate from the admin on/off switch: automation
 never overrides a human decision, and a human switch is never quietly undone.
 
-Still worth adding if you want it: an email when an integration has been
-failing for, say, an hour despite recovery. That is the case where a human
-genuinely does need to know.
+**Escalation is now wired too.** When recovery has not fixed something after
+`SUPERVISOR_ESCALATE_AFTER_MINUTES` (default 60), every active admin gets an
+email saying what is failing, since when, and what was tried — and a second
+email when it recovers. It only sends when Resend is verified working, so it
+cannot become its own silent failure. The email states plainly that lookups
+still work, because they do: the integration is being skipped, so nothing is
+down for users, but the data is not live.
 
-### 5.5 The session cookie is 12 hours with no refresh
+### 5.5 Session refresh — ✅ **done**
 
-Fine for a support desk that signs in each morning. If people leave tabs open
-for days they will be signed out mid-task. A sliding refresh would be kinder.
+A session in active use is now extended rather than expiring underneath the
+person using it: the cookie is re-issued once it is more than halfway through
+its twelve hours. An engineer working a long shift is not thrown out
+mid-fault; a browser left open overnight still expires.
+
+### 5.6 Back up `DATA_DIR` — ✅ **done**
+
+`backup-data.sh` reads `DATA_DIR` from `.env`, writes a dated `tar.gz` with
+`600` permissions, verifies the archive is readable before keeping it, and
+prunes anything older than `KEEP_DAYS`. Cron line and restore instructions are
+in `docs/DEPLOY-PLESK.md`. It exits non-zero if `DATA_DIR` does not exist,
+rather than quietly backing up nothing.
 
 ---
 
@@ -220,19 +256,28 @@ for days they will be signed out mid-task. A sliding refresh would be kinder.
 
 Ordered by how often I think they would get used.
 
-1. **Recent lookups, per user.** Support staff check the same site repeatedly.
-   A "last 20" list in the search dropdown would save real time. Small job.
+1. ~~**Recent lookups, per user.**~~ ✅ **done.** The last ten premises each
+   user looked at, kept server-side so they follow the person between a desk
+   and a laptop, shown as chips under the search box and as a **Where you have
+   been** group in the dropdown when the box is empty. Re-looking at a site
+   moves it up rather than adding a second row, and there is a Clear button.
 2. **Saved sites / watchlist.** Pin a problem site and see its faults,
-   outages and line stability on one screen.
+   outages and line stability on one screen. This is the next one I would
+   build — the recent-lookups store is most of the plumbing.
 3. **A "what changed" digest.** Daily email: new faults, orders that slipped,
-   SIMs over allowance, integrations that broke. Resend is already connected.
+   SIMs over allowance, integrations that broke. Resend is already connected,
+   and the **Provider notices** panel (§3.4) covers the provider half.
 4. ~~**Copy-as-text for a whole site report.**~~ ✅ **done.** "Copy as text" on
    any site report produces about 90 lines of aligned plain text — address and
    UPRN, best available, orderable options, Openreach detail, coverage per
    network, every line with its identifiers and sync — with no formatting to
    survive a helpdesk, an email reply or a message. It also states plainly
    where demo data was used.
-5. **Export to CSV** on the orders, faults, SIMs and CDR tables.
+5. ~~**Export to CSV.**~~ ✅ **done.** Orders, faults, SIMs, call records, the
+   estate usage report and the audit log each offer a download and a copy —
+   download for a spreadsheet, copy for a ticket. Values that a spreadsheet
+   would execute as a formula (a leading `=`, `+`, `-` or `@`) are
+   neutralised, and Excel gets a BOM so pound signs survive.
 6. **A customer-facing site report.** The brand guide has a whole
    *client-facing* document system that NetKit does not use — it only uses the
    internal one. A "generate client report" button producing a
@@ -240,7 +285,8 @@ Ordered by how often I think they would get used.
    system to work, and reuse the reference-numbering scheme (`SW-AU-2026-nnnn`).
 7. **Bulk address check.** Paste a list of postcodes, get availability for
    each. Needs the fair-use conversation with Zen first (§5.3) — they offer to
-   arrange bulk checking.
+   arrange bulk checking. The per-user budget is now in place, so the guard
+   rail exists; what is missing is Zen's permission.
 8. **Dark mode.** The brand guide has no dark palette, so this needs a brand
    decision before a code one.
 

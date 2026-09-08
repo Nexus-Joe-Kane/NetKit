@@ -1,15 +1,26 @@
 import { normaliseCli, type AccessTechnology, type AddressRecord } from '@sw/shared';
 import type {
+  AddressMatch,
+  AddressRegistration,
   AppointmentSlot,
   CallRecord,
+  EstateUsageReport,
+  EstateUsageRow,
   EthernetQuote,
   EthernetQuoteSet,
+  NetworkConfiguration,
+  NetworkOption,
   NumberPortCheck,
   OrderQuote,
   OrderRecord,
   OrderState,
+  PlaceOrderRequest,
+  PlaceOrderResult,
+  ProviderNotification,
   PriceLine,
   RdnsRecord,
+  ServiceHistory,
+  ServiceHistoryEvent,
   SimEstate,
   SimRecord,
   SimState,
@@ -178,6 +189,87 @@ export async function cancelOrder(zenReference: string, reason: string): Promise
   return {
     ok: true,
     ...(pickString(json, 'message', 'status') ? { message: pickString(json, 'message', 'status') } : {}),
+  };
+}
+
+/**
+ * Places a real order.
+ *
+ * The only write in NetKit that spends money, so it is the only one that
+ * refuses to guess: every field is passed through as given, nothing is
+ * defaulted on the operator's behalf, and the provider's own validation
+ * messages are returned verbatim rather than being summarised.
+ */
+export async function placeOrder(request: PlaceOrderRequest): Promise<PlaceOrderResult> {
+  // The appointment token is the opaque JSON handed back by
+  // `fetchAppointments`, so a slot can only be booked as the provider
+  // offered it. A token we cannot parse is dropped rather than invented.
+  let appointment: Record<string, unknown> | undefined;
+  if (request.appointmentToken) {
+    try {
+      const parsed: unknown = JSON.parse(request.appointmentToken);
+      if (parsed && typeof parsed === 'object') appointment = parsed as Record<string, unknown>;
+    } catch {
+      appointment = undefined;
+    }
+  }
+
+  const json = await zenCall<unknown>('/api/order', {
+    scope: 'indirect-placeorder',
+    method: 'POST',
+    body: {
+      availabilityReference: request.availabilityReference,
+      productCode: request.productCode,
+      ...(request.productName ? { productName: request.productName } : {}),
+      installationDetails: {
+        goldAddressKey: request.goldAddressKey,
+        districtCode: request.districtCode,
+        ...(request.uprn ? { uprn: request.uprn } : {}),
+        address: request.addressLine,
+        postCode: request.postcode,
+        ...(request.phoneNumber ? { phoneNumber: request.phoneNumber } : {}),
+        ...(request.accessLineId ? { accessLineId: request.accessLineId } : {}),
+        ...(request.ontSerialNumber ? { ontDetails: { serialNumber: request.ontSerialNumber } } : {}),
+      },
+      ...(appointment ? { appointment } : {}),
+      ...(request.workingLineTakeover != null ? { workingLineTakeover: request.workingLineTakeover } : {}),
+      ...(request.contractTermMonths != null ? { contractTerm: request.contractTermMonths } : {}),
+      ...(request.preferredActivationDate ? { preferredActivationDate: request.preferredActivationDate } : {}),
+      ...(request.customerReference ? { customerReference: request.customerReference } : {}),
+      ...(request.contactName || request.contactNumber || request.contactEmail
+        ? {
+            contactDetails: {
+              ...(request.contactName ? { name: request.contactName } : {}),
+              ...(request.contactNumber ? { phoneNumber: request.contactNumber } : {}),
+              ...(request.contactEmail ? { emailAddress: request.contactEmail } : {}),
+            },
+          }
+        : {}),
+      ...(request.notes ? { notes: request.notes } : {}),
+    },
+    emptyAsNull: true,
+  });
+
+  const zenReference = text(pickString(json, 'zenReference', 'reference', 'fulfilmentReference'));
+  const messages = pickArray(json, 'messages', 'validationMessages', 'errors')
+    .map((m) => text(pickString(m, 'description', 'message', 'text')) ?? (typeof m === 'string' ? m : undefined))
+    .filter((m): m is string => Boolean(m));
+
+  // A reference is the only unambiguous evidence the order landed. Zen
+  // return 200 with validation messages and no reference when it did not.
+  const accepted = Boolean(zenReference);
+
+  return {
+    accepted,
+    ...(zenReference ? { zenReference } : {}),
+    ...(text(pickString(json, 'orderReference', 'customerReference')) ? { orderReference: text(pickString(json, 'orderReference', 'customerReference')) } : {}),
+    ...(accepted ? { state: orderState(json) } : {}),
+    ...(text(pickString(json, 'message', 'status', 'statusDescription'))
+      ? { message: text(pickString(json, 'message', 'status', 'statusDescription')) }
+      : {}),
+    ...(messages.length ? { messages } : {}),
+    ...(pickDate(json, 'committedDate', 'promisedDate') ? { committedDate: pickDate(json, 'committedDate', 'promisedDate') } : {}),
+    source: 'zen:self-service',
   };
 }
 
@@ -512,4 +604,296 @@ export async function fetchRdns(zenReference?: string): Promise<RdnsRecord[]> {
     .filter((r): r is RdnsRecord => r !== null);
 }
 
-export const __selfServiceTesting = { orderState, orderType, simState };
+/* ------------------------------------------------------------------ *
+ * Address references and Openreach registration
+ * ------------------------------------------------------------------ */
+
+/**
+ * Resolves one address against both wholesale databases.
+ *
+ * Openreach and BT Wholesale keep separate address lists and disagree over
+ * subdivided buildings often enough that a rejected order is usually this.
+ */
+export async function matchAddress(query: {
+  postcode: string;
+  postTown?: string;
+  premiseName?: string;
+  thoroughfareNumber?: string;
+}): Promise<AddressMatch> {
+  const json = await zenCall<unknown>('/api/address/match', {
+    scope: 'indirect-availability',
+    query: {
+      'request.postCode': query.postcode,
+      ...(query.postTown ? { 'request.postTown': query.postTown } : {}),
+      ...(query.premiseName ? { 'request.premiseName': query.premiseName } : {}),
+      ...(query.thoroughfareNumber ? { 'request.thoroughFareNumber': query.thoroughfareNumber } : {}),
+    },
+    emptyAsNull: true,
+  });
+
+  const bto = text(pickString(json, 'btoAddressReference', 'btoAddressReferenceNumber'));
+  const btw = text(pickString(json, 'btwAddressReference', 'btwAddressReferenceNumber'));
+  const messages = pickArray(json, 'messages', 'availabilityInformation.messages')
+    .map((m) => text(pickString(m, 'description', 'message')))
+    .filter((m): m is string => Boolean(m));
+
+  return {
+    query,
+    ...(bto ? { btoAddressReference: bto } : {}),
+    ...(btw ? { btwAddressReference: btw } : {}),
+    ...(text(pickString(json, 'districtCode')) ? { districtCode: text(pickString(json, 'districtCode')) } : {}),
+    ...(text(pickString(json, 'uprn')) ? { uprn: text(pickString(json, 'uprn')) } : {}),
+    // Only claim agreement when both actually answered. One reference and a
+    // silence is not agreement, and saying so would be the worst kind of
+    // wrong on the screen that exists to spot disagreement.
+    agrees: Boolean(bto && btw),
+    messages,
+    source: 'zen:self-service',
+  };
+}
+
+/** Registers a premises with Openreach and returns the new address key. */
+export async function registerAddress(request: {
+  postcode: string;
+  buildingName?: string;
+  buildingNumber?: string;
+  thoroughfare: string;
+  postTown: string;
+  county?: string;
+  uprn?: string;
+}): Promise<AddressRegistration> {
+  const json = await zenCall<unknown>('/api/bto/addaddress', {
+    scope: 'indirect-availability',
+    method: 'POST',
+    body: {
+      postCode: request.postcode,
+      ...(request.buildingName ? { buildingName: request.buildingName } : {}),
+      ...(request.buildingNumber ? { buildingNumber: request.buildingNumber } : {}),
+      thoroughFareName: request.thoroughfare,
+      postTown: request.postTown,
+      ...(request.county ? { county: request.county } : {}),
+      ...(request.uprn ? { uprn: request.uprn } : {}),
+    },
+    emptyAsNull: true,
+  });
+
+  const reference = text(pickString(json, 'addressReferenceNumber', 'addressReference', 'goldAddressKey'));
+  return {
+    created: Boolean(reference),
+    ...(reference ? { addressReference: reference } : {}),
+    ...(text(pickString(json, 'districtCode')) ? { districtCode: text(pickString(json, 'districtCode')) } : {}),
+    technologyRestrictions: pickArray(json, 'technologyRestrictions', 'restrictions')
+      .map((r) => {
+        const technology = text(pickString(r, 'technology', 'technologyType', 'name')) ?? (typeof r === 'string' ? r : undefined);
+        if (!technology) return null;
+        return {
+          technology,
+          ...(text(pickString(r, 'reason', 'description')) ? { reason: text(pickString(r, 'reason', 'description')) } : {}),
+        };
+      })
+      .filter((r): r is { technology: string; reason?: string } => r !== null),
+    messages: pickArray(json, 'messages', 'errors')
+      .map((m) => text(pickString(m, 'description', 'message')) ?? (typeof m === 'string' ? m : undefined))
+      .filter((m): m is string => Boolean(m)),
+    source: 'zen:self-service',
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * Service history
+ * ------------------------------------------------------------------ */
+
+export async function fetchServiceHistory(zenReference: string): Promise<ServiceHistory> {
+  const json = await zenCall<unknown>(`/api/service/${encodeURIComponent(zenReference)}/history`, {
+    scope: 'indirect-service',
+    emptyAsNull: true,
+  });
+
+  const events = pickArray(json, 'history', 'events', 'results', 'data')
+    .map((e): ServiceHistoryEvent | null => {
+      const at = pickDate(e, 'date', 'changeDate', 'createdDate', 'at');
+      if (!at) return null;
+      return {
+        at,
+        type: text(pickString(e, 'type', 'changeType', 'action')) ?? 'Change',
+        ...(text(pickString(e, 'description', 'detail', 'summary'))
+          ? { description: text(pickString(e, 'description', 'detail', 'summary')) }
+          : {}),
+        ...(text(pickString(e, 'previousValue', 'from', 'oldValue'))
+          ? { from: text(pickString(e, 'previousValue', 'from', 'oldValue')) }
+          : {}),
+        ...(text(pickString(e, 'newValue', 'to', 'currentValue'))
+          ? { to: text(pickString(e, 'newValue', 'to', 'currentValue')) }
+          : {}),
+        ...(text(pickString(e, 'reference', 'orderReference')) ? { reference: text(pickString(e, 'reference', 'orderReference')) } : {}),
+        ...(text(pickString(e, 'user', 'actor', 'raisedBy')) ? { actor: text(pickString(e, 'user', 'actor', 'raisedBy')) } : {}),
+      };
+    })
+    .filter((e): e is ServiceHistoryEvent => e !== null)
+    // Newest first: the last change is nearly always the one being asked about.
+    .sort((a, b) => b.at.localeCompare(a.at));
+
+  return { zenReference, events, source: 'zen:self-service' };
+}
+
+/* ------------------------------------------------------------------ *
+ * Notifications
+ * ------------------------------------------------------------------ */
+
+/** Zen documents severity as an integer with no value table, so read both. */
+function notificationSeverity(raw: unknown): ProviderNotification['severity'] {
+  const value = pickString(raw, 'severity', 'importance', 'level') ?? '';
+  const v = value.toUpperCase();
+  if (v.includes('CRIT') || v.includes('URGENT') || v === '3') return 'critical';
+  if (v.includes('WARN') || v.includes('HIGH') || v === '2') return 'warn';
+  if (v.includes('INFO') || v.includes('LOW') || v === '1' || v === '0') return 'info';
+  return 'unknown';
+}
+
+export async function fetchNotifications(options: { since?: string; searchTerm?: string } = {}): Promise<ProviderNotification[]> {
+  const json = await zenCall<unknown>('/api/notifications/search', {
+    scope: 'indirect-customerengagement',
+    query: {
+      ...(options.since ? { 'searchCriteria.fromDate': options.since } : {}),
+      ...(options.searchTerm ? { 'searchCriteria.searchTerm': options.searchTerm } : {}),
+      'searchCriteria.pageSize': 100,
+    },
+    emptyAsNull: true,
+  });
+
+  return pickArray(json, 'notifications', 'results', 'data', 'items')
+    .map((n, i): ProviderNotification | null => {
+      const title = text(pickString(n, 'title', 'subject', 'summary', 'headline'));
+      if (!title) return null;
+      const publishedAt = pickDate(n, 'publishedDate', 'createdDate', 'date') ?? new Date().toISOString();
+      return {
+        id: text(pickString(n, 'id', 'reference', 'notificationId')) ?? `notification-${i + 1}`,
+        publishedAt,
+        ...(text(pickString(n, 'category', 'type')) ? { category: text(pickString(n, 'category', 'type')) } : {}),
+        severity: notificationSeverity(n),
+        title,
+        ...(text(pickString(n, 'detail', 'body', 'description')) ? { detail: text(pickString(n, 'detail', 'body', 'description')) } : {}),
+        ...(pickArray(n, 'affectedServices', 'services', 'references').length
+          ? {
+              affectedReferences: pickArray(n, 'affectedServices', 'services', 'references')
+                .map((r) => text(pickString(r, 'zenReference', 'reference')) ?? (typeof r === 'string' ? r : undefined))
+                .filter((r): r is string => Boolean(r)),
+            }
+          : {}),
+        ...(pickDate(n, 'actionRequiredBy', 'dueDate') ? { actionRequiredBy: pickDate(n, 'actionRequiredBy', 'dueDate') } : {}),
+        ...(pickBool(n, 'read', 'isRead') != null ? { read: pickBool(n, 'read', 'isRead') } : {}),
+        source: 'zen:self-service',
+      };
+    })
+    .filter((n): n is ProviderNotification => n !== null)
+    .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
+}
+
+/* ------------------------------------------------------------------ *
+ * Network management
+ * ------------------------------------------------------------------ */
+
+export async function fetchNetworkConfiguration(zenReference?: string): Promise<NetworkConfiguration> {
+  // Two endpoints: the catalogue of options, and the configuration of one
+  // service. Either can be missing without the other being useless.
+  const [namesJson, detailsJson] = await Promise.all([
+    zenCall<unknown>('/api/networkmanagement/serviceselectionnames', {
+      scope: 'indirect-broadbandconnection',
+      emptyAsNull: true,
+    }).catch(() => null),
+    zenReference
+      ? zenCall<unknown>('/api/networkmanagement/networkdetails', {
+          scope: 'indirect-broadbandconnection',
+          query: { 'request.zenReference': zenReference },
+          emptyAsNull: true,
+        }).catch(() => null)
+      : Promise.resolve(null),
+  ]);
+
+  const serviceSelectionNames: NetworkOption[] = pickArray(namesJson, 'serviceSelectionNames', 'names', 'results', 'data')
+    .map((o): NetworkOption | null => {
+      const name = text(pickString(o, 'name', 'serviceSelectionName', 'value')) ?? (typeof o === 'string' ? o : undefined);
+      if (!name) return null;
+      const ip = (pickString(o, 'ipVersion', 'addressFamily') ?? '').toLowerCase();
+      return {
+        name,
+        ...(text(pickString(o, 'description')) ? { description: text(pickString(o, 'description')) } : {}),
+        ...(text(pickString(o, 'realm')) ? { realm: text(pickString(o, 'realm')) } : {}),
+        ...(ip.includes('dual') ? { ipVersion: 'dual' as const } : ip.includes('6') ? { ipVersion: 'ipv6' as const } : ip.includes('4') ? { ipVersion: 'ipv4' as const } : {}),
+        ...(text(pickString(o, 'staticBlock', 'subnetSize')) ? { staticBlock: text(pickString(o, 'staticBlock', 'subnetSize')) } : {}),
+        ...(pickBool(o, 'isDefault', 'default') === true ? { default: true } : {}),
+      };
+    })
+    .filter((o): o is NetworkOption => o !== null);
+
+  // The detail payload is a flat bag whose keys differ by product, so it is
+  // rendered as label/value pairs rather than being forced into a shape.
+  const details: Array<{ label: string; value: string }> = [];
+  if (detailsJson && typeof detailsJson === 'object') {
+    for (const [key, value] of Object.entries(detailsJson as Record<string, unknown>)) {
+      if (value === null || value === undefined) continue;
+      if (typeof value === 'object') continue;
+      const rendered = String(value).trim();
+      if (!rendered || rendered === 'string') continue;
+      details.push({ label: key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, (c) => c.toUpperCase()), value: rendered });
+    }
+  }
+
+  return {
+    ...(zenReference ? { zenReference } : {}),
+    serviceSelectionNames,
+    details,
+    source: 'zen:self-service',
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * Estate-wide usage
+ * ------------------------------------------------------------------ */
+
+export async function fetchEstateUsage(period?: string): Promise<EstateUsageReport> {
+  const [reportJson, periodsJson] = await Promise.all([
+    zenCall<unknown>('/api/monthlyusage/report', {
+      scope: 'indirect-service',
+      query: { ...(period ? { 'request.period': period } : {}) },
+      emptyAsNull: true,
+    }),
+    zenCall<unknown>('/api/monthlyusage/reports', { scope: 'indirect-service', emptyAsNull: true }).catch(() => null),
+  ]);
+
+  const rows: EstateUsageRow[] = pickArray(reportJson, 'usage', 'rows', 'results', 'data', 'services')
+    .map((r): EstateUsageRow | null => {
+      const zenReference = text(pickString(r, 'zenReference', 'reference'));
+      if (!zenReference) return null;
+      const down = pickNumber(r, 'downloadBytes', 'download', 'bytesDown');
+      const up = pickNumber(r, 'uploadBytes', 'upload', 'bytesUp');
+      const total = pickNumber(r, 'totalBytes', 'total') ?? (down != null || up != null ? (down ?? 0) + (up ?? 0) : undefined);
+      return {
+        zenReference,
+        ...(text(pickString(r, 'serviceId')) ? { serviceId: text(pickString(r, 'serviceId')) } : {}),
+        ...(normaliseCli(pickString(r, 'cli', 'phoneNumber') ?? '') ? { cli: normaliseCli(pickString(r, 'cli', 'phoneNumber')!)! } : {}),
+        ...(text(pickString(r, 'address', 'installationAddress')) ? { address: text(pickString(r, 'address', 'installationAddress')) } : {}),
+        ...(down != null ? { downloadBytes: down } : {}),
+        ...(up != null ? { uploadBytes: up } : {}),
+        ...(total != null ? { totalBytes: total } : {}),
+        ...(pickBool(r, 'overAllowance', 'isOverAllowance') != null
+          ? { overAllowance: pickBool(r, 'overAllowance', 'isOverAllowance') }
+          : {}),
+      };
+    })
+    .filter((r): r is EstateUsageRow => r !== null)
+    .sort((a, b) => (b.totalBytes ?? 0) - (a.totalBytes ?? 0));
+
+  return {
+    period: period ?? text(pickString(reportJson, 'period')) ?? new Date().toISOString().slice(0, 7),
+    rows,
+    totalBytes: rows.reduce((sum, r) => sum + (r.totalBytes ?? 0), 0),
+    availablePeriods: pickArray(periodsJson, 'reports', 'periods', 'results', 'data')
+      .map((p) => text(pickString(p, 'period', 'name')) ?? (typeof p === 'string' ? p : undefined))
+      .filter((p): p is string => Boolean(p)),
+    source: 'zen:self-service',
+  };
+}
+
+export const __selfServiceTesting = { orderState, orderType, simState, notificationSeverity };
+

@@ -224,7 +224,11 @@ function buildOffers(rng: Seeded, address: AddressRecord, m: Model, or: Openreac
   let n = 0;
   const id = () => `offer-${(n += 1)}`;
 
-  const push = (o: Omit<BroadbandOffer, 'id'>) => offers.push({ id: id(), ...o });
+  // A demo offer is orderable exactly when it is available, so the ordering
+  // flow can be exercised end to end without credentials — it still refuses
+  // to place anything, but the whole path up to that point is real.
+  const push = (o: Omit<BroadbandOffer, 'id'>) =>
+    offers.push({ id: id(), orderable: o.status === 'available', ...o });
 
   // ---- Openreach FTTP -------------------------------------------------
   if (m.maturity === 'rfs') {
@@ -437,6 +441,9 @@ export function buildFixtureAvailability(address: AddressRecord): BroadbandAvail
     offers,
     openreach,
     headline: headlineOf(offers),
+    // Shaped like Zen's own reference so nothing downstream has to special-case
+    // demo mode, and obviously a demo value to anyone reading it.
+    availabilityReference: `DEMO-AV-${rng.digits(10)}`,
     checkedAt: new Date().toISOString(),
     sources: ['fixture:openreach', 'fixture:altnet'],
   };

@@ -109,6 +109,67 @@ export function emailLayout(title: string, bodyHtml: string): string {
 </body></html>`;
 }
 
+/**
+ * Escalation email — an integration has been failing long enough that
+ * automatic recovery has demonstrably not fixed it, so a person needs to
+ * know. Sent once per incident, not once per sweep.
+ */
+export function escalationEmail(input: {
+  name: string;
+  key: string;
+  failingSince: string;
+  lastError?: string;
+  recoveryAttempts: number;
+  capability: string;
+}): { subject: string; html: string; text: string } {
+  const minutes = Math.max(1, Math.round((Date.now() - new Date(input.failingSince).getTime()) / 60_000));
+
+  return {
+    subject: `NetKit: ${input.name} has been failing for ${minutes} minutes`,
+    html: emailLayout(
+      'An integration needs attention',
+      `<p><strong style="color:#101317;">${input.name}</strong> has been failing for about
+       ${minutes} minutes. Automatic recovery has been attempted
+       ${input.recoveryAttempts} time${input.recoveryAttempts === 1 ? '' : 's'} and has not fixed it, so it needs a
+       person.</p>
+
+       <p style="margin:18px 0;padding:14px 16px;background:#F6F7F8;border:1px solid #E4E6E8;border-radius:8px;">
+         <strong style="color:#101317;">What it provides</strong><br>${input.capability}<br><br>
+         <strong style="color:#101317;">Last error</strong><br>
+         <span style="font-family:Consolas,monospace;font-size:12px;">${input.lastError ?? 'not recorded'}</span>
+       </p>
+
+       <p>Lookups are still working — that integration is being skipped and the next provider in the chain, or demo
+       data, is being used instead. Nothing is down for users, but the data they see is not live.</p>
+
+       <p style="color:#66707A;font-size:13px;">Open the admin portal, Recovery &amp; self-test, to see the probe
+       history and what recovery has tried. This is sent once per incident, not once per check.</p>`,
+    ),
+    text:
+      `${input.name} has been failing for about ${minutes} minutes. Recovery has been attempted ` +
+      `${input.recoveryAttempts} time(s) without success. Last error: ${input.lastError ?? 'not recorded'}. ` +
+      `Lookups still work — the integration is being skipped and demo data or the next provider is used instead.`,
+  };
+}
+
+/** Sent when an escalated integration comes back on its own. */
+export function recoveryEmail(input: { name: string; downForMinutes: number }): {
+  subject: string;
+  html: string;
+  text: string;
+} {
+  return {
+    subject: `NetKit: ${input.name} is working again`,
+    html: emailLayout(
+      'Back to normal',
+      `<p><strong style="color:#101317;">${input.name}</strong> is responding again after about
+       ${input.downForMinutes} minutes. No action is needed.</p>
+       <p style="color:#66707A;font-size:13px;">Lookups are back on live data for this integration.</p>`,
+    ),
+    text: `${input.name} is responding again after about ${input.downForMinutes} minutes. No action needed.`,
+  };
+}
+
 /** The 2FA code email. */
 export function twoFactorEmail(code: string): { subject: string; html: string; text: string } {
   return {

@@ -1,7 +1,8 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
-import { formatPostcode, identify, normaliseCli, type ApiResult, type LineTestType } from '@sw/shared';
-import { badRequest, notFound } from '../lib/errors';
+import { confirmMatches, formatPostcode, identify, normaliseCli, type ApiResult, type LineTestType } from '@sw/shared';
+import { badRequest, forbidden, notFound, rateLimited } from '../lib/errors';
+import { consumeQuota, refundQuota } from '../services/quota';
 import { addressByUprn, addressesByPostcode } from '../services/resolve';
 import * as ops from '../services/operations';
 import { audit } from '../auth/store';
@@ -38,6 +39,65 @@ const raiseFaultSchema = z.object({
   siteNotes: z.string().trim().max(2000).optional(),
   hazardNotes: z.string().trim().max(2000).optional(),
 });
+
+/**
+ * The order payload.
+ *
+ * Every field that identifies the premises comes from an availability check
+ * the operator already ran, so none of it is typed by hand — except
+ * `confirmAddressLine`, which is typed by hand *on purpose*. See below.
+ */
+const placeOrderSchema = z.object({
+  availabilityReference: z.string().trim().min(1, 'Run an availability check first.').max(120),
+  productCode: z.string().trim().min(1, 'Pick a product.').max(64),
+  productName: z.string().trim().max(200).optional(),
+  goldAddressKey: z.string().trim().min(1, 'The premises has no Gold Address Key.').max(64),
+  districtCode: z.string().trim().max(16).default(''),
+  uprn: z.string().trim().regex(/^\d{1,12}$/, 'A UPRN is up to 12 digits.').optional(),
+  addressLine: z.string().trim().min(1).max(300),
+  postcode: z.string().trim().min(5).max(10),
+  phoneNumber: z.string().trim().max(40).optional(),
+  accessLineId: z.string().trim().max(64).optional(),
+  ontSerialNumber: z.string().trim().max(64).optional(),
+  workingLineTakeover: z.boolean().optional(),
+  appointmentToken: z.string().trim().max(400).optional(),
+  contractTermMonths: z.coerce.number().int().min(1).max(60).optional(),
+  preferredActivationDate: z.string().trim().max(40).optional(),
+  customerReference: z.string().trim().max(120).optional(),
+  contactName: z.string().trim().max(120).optional(),
+  contactNumber: z.string().trim().max(40).optional(),
+  contactEmail: z.string().trim().email().max(320).optional(),
+  notes: z.string().trim().max(2000).optional(),
+  /**
+   * The operator retypes the first line of the address before the order goes.
+   * The same guard the user-removal dialog uses, for the same reason: an
+   * order to the wrong premises costs money, books an engineer and is slow
+   * and embarrassing to unwind. Ticking a box does not make anyone read.
+   */
+  confirmAddressLine: z.string().trim().min(1, 'Retype the address to confirm the order.').max(300),
+});
+
+/**
+ * Registering an Openreach address.
+ *
+ * Thoroughfare and post town are required because Openreach reject anything
+ * without them, and a building name *or* number is required because an
+ * address with neither identifies a street rather than a premises.
+ */
+const registerAddressSchema = z
+  .object({
+    postcode: z.string().trim().min(5).max(10),
+    buildingName: z.string().trim().max(120).optional(),
+    buildingNumber: z.string().trim().max(20).optional(),
+    thoroughfare: z.string().trim().min(2, 'Give the street name.').max(160),
+    postTown: z.string().trim().min(2, 'Give the post town.').max(80),
+    county: z.string().trim().max(80).optional(),
+    uprn: z.string().trim().regex(/^\d{1,12}$/, 'A UPRN is up to 12 digits.').optional(),
+  })
+  .refine((v) => Boolean(v.buildingName?.trim() || v.buildingNumber?.trim()), {
+    message: 'Give a building name or a building number — a street on its own is not a premises.',
+    path: ['buildingNumber'],
+  });
 
 /** Pulls a phone number out of a query string, normalised. */
 function requireCli(raw: unknown, field = 'q'): string {
@@ -234,6 +294,100 @@ export function operationsRouter(): Router {
     }),
   );
 
+  /**
+   * Why the "place order" button is or is not available. The UI reads this
+   * before showing the flow, so the reason is on screen rather than in a
+   * disabled tooltip.
+   */
+  router.get(
+    '/orders/gate',
+    handler(async (req) => ops.orderingGate(req.user?.id ?? '')),
+  );
+
+  /**
+   * Places a real order. The only endpoint in NetKit that spends money.
+   *
+   * Five guards, in order: the environment flag, the admin switch, the
+   * per-user daily cap, the retyped address, and an audit line written
+   * *before* the call as well as after — so a request that vanishes still
+   * leaves evidence of what was attempted.
+   */
+  router.post(
+    '/orders',
+    handler(async (req) => {
+      const parsed = placeOrderSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw badRequest(parsed.error.issues[0]?.message ?? 'The order is incomplete.', parsed.error.issues);
+      }
+      const { confirmAddressLine, ...request } = parsed.data;
+      const userId = req.user?.id ?? '';
+
+      const gate = ops.orderingGate(userId);
+      if (!gate.allowed) {
+        // The cap is a rate limit; the switches are a permission.
+        throw gate.usedToday >= gate.dailyCap && gate.dailyCap > 0
+          ? rateLimited(gate.reason ?? 'Your daily order limit has been reached.', gate)
+          : forbidden(gate.reason ?? 'Ordering is not enabled.', gate);
+      }
+
+      if (!confirmMatches(confirmAddressLine, request.addressLine)) {
+        throw badRequest(
+          `That does not match the address on the order. Retype it exactly: "${request.addressLine}"`,
+        );
+      }
+
+      // Charged before the call, not after. If the request is the one that
+      // hangs, the budget has still been spent — which is the safe direction
+      // for a cap whose whole job is to stop a loop. A rehearsal with no
+      // credentials spends nothing, so it costs nothing.
+      if (!gate.demo) consumeQuota('order', userId);
+
+      audit({
+        actorId: req.user?.id,
+        actorEmail: req.user?.email,
+        action: 'order.submitting',
+        detail: {
+          ...request,
+          ...(gate.demo
+            ? { demo: true, note: 'No provider credentials — nothing will be sent.' }
+            : { ordersToday: gate.usedToday + 1, dailyCap: gate.dailyCap }),
+        },
+        ip: req.ip,
+      });
+
+      const result = await ops.placeOrder(request);
+
+      audit({
+        actorId: req.user?.id,
+        actorEmail: req.user?.email,
+        action: result.data.accepted ? 'order.placed' : 'order.rejected',
+        detail: {
+          productCode: request.productCode,
+          addressLine: request.addressLine,
+          postcode: request.postcode,
+          mode: result.mode,
+          accepted: result.data.accepted,
+          ...(result.data.zenReference ? { zenReference: result.data.zenReference } : {}),
+          ...(result.data.messages ? { messages: result.data.messages } : {}),
+          ...(result.error ? { error: result.error } : {}),
+        },
+        ip: req.ip,
+      });
+
+      // A rejection that the provider explicitly returned created nothing, so
+      // the cap gives the unit back. An *unconfirmed* failure does not: the
+      // order may well have landed, and re-trying is the wrong instinct.
+      if (!gate.demo && !result.data.accepted && !result.error) refundQuota('order', userId);
+
+      return {
+        ...result.data,
+        mode: result.mode,
+        gate: ops.orderingGate(userId),
+        ...(result.error ? { providerError: result.error } : {}),
+      };
+    }),
+  );
+
   router.get(
     '/orders/pricing',
     handler(async (req) => {
@@ -363,6 +517,125 @@ export function operationsRouter(): Router {
       const zenReference = String(req.query.zenReference ?? '').trim() || undefined;
       const result = await ops.rdns(zenReference);
       return { records: result.data, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+    }),
+  );
+
+  /* ---- Address references ------------------------------------------ */
+
+  router.get(
+    '/tools/address-match',
+    handler(async (req) => {
+      const postcode = String(req.query.postcode ?? '').trim();
+      if (!postcode) throw badRequest('Provide ?postcode=');
+      const result = await ops.addressMatch({
+        postcode: formatPostcode(postcode),
+        ...(String(req.query.postTown ?? '').trim() ? { postTown: String(req.query.postTown).trim() } : {}),
+        ...(String(req.query.premiseName ?? '').trim() ? { premiseName: String(req.query.premiseName).trim() } : {}),
+        ...(String(req.query.thoroughfareNumber ?? '').trim()
+          ? { thoroughfareNumber: String(req.query.thoroughfareNumber).trim() }
+          : {}),
+      });
+      return { ...result.data, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+    }),
+  );
+
+  /**
+   * Registers a premises with Openreach.
+   *
+   * A write against the national address database, so it is audited — an
+   * address key created in error is a support call for someone else later.
+   */
+  router.post(
+    '/tools/address-register',
+    handler(async (req) => {
+      const parsed = registerAddressSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw badRequest(parsed.error.issues[0]?.message ?? 'The address is incomplete.', parsed.error.issues);
+      }
+      const request = { ...parsed.data, postcode: formatPostcode(parsed.data.postcode) };
+
+      const result = await ops.registerAddress(request);
+      audit({
+        actorId: req.user?.id,
+        actorEmail: req.user?.email,
+        action: result.data.created ? 'address.registered' : 'address.register_failed',
+        detail: {
+          ...request,
+          mode: result.mode,
+          ...(result.data.addressReference ? { addressReference: result.data.addressReference } : {}),
+          ...(result.error ? { error: result.error } : {}),
+        },
+        ip: req.ip,
+      });
+      return { ...result.data, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+    }),
+  );
+
+  /* ---- Service history --------------------------------------------- */
+
+  router.get(
+    '/diagnostics/:zenReference/history',
+    handler(async (req) => {
+      const result = await ops.serviceHistory(String(req.params.zenReference));
+      return { ...result.data, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+    }),
+  );
+
+  /* ---- Provider notifications -------------------------------------- */
+
+  router.get(
+    '/network/notifications',
+    handler(async (req) => {
+      const searchTerm = String(req.query.q ?? '').trim();
+      const days = Number.parseInt(String(req.query.days ?? ''), 10);
+      const since = Number.isFinite(days) && days > 0
+        ? new Date(Date.now() - days * 86_400_000).toISOString()
+        : undefined;
+      const result = await ops.notifications({
+        ...(searchTerm ? { searchTerm } : {}),
+        ...(since ? { since } : {}),
+      });
+      return {
+        notifications: result.data,
+        mode: result.mode,
+        ...(result.error ? { providerError: result.error } : {}),
+        checkedAt: new Date().toISOString(),
+      };
+    }),
+  );
+
+  /* ---- Network management ------------------------------------------ */
+
+  router.get(
+    '/tools/network-config',
+    handler(async (req) => {
+      const zenReference = String(req.query.zenReference ?? '').trim() || undefined;
+      const result = await ops.networkConfiguration(zenReference);
+      return { ...result.data, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+    }),
+  );
+
+  /* ---- Company context --------------------------------------------- */
+
+  router.get(
+    '/tools/companies',
+    handler(async (req) => {
+      const postcode = String(req.query.postcode ?? '').trim();
+      if (!postcode) throw badRequest('Provide ?postcode=');
+      const result = await ops.companies(formatPostcode(postcode));
+      return { ...result.data, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
+    }),
+  );
+
+  /* ---- Estate-wide usage ------------------------------------------- */
+
+  router.get(
+    '/tools/estate-usage',
+    handler(async (req) => {
+      const period = String(req.query.period ?? '').trim();
+      if (period && !/^\d{4}-\d{2}$/.test(period)) throw badRequest('A period looks like 2026-09.');
+      const result = await ops.estateUsage(period || undefined);
+      return { ...result.data, mode: result.mode, ...(result.error ? { providerError: result.error } : {}) };
     }),
   );
 

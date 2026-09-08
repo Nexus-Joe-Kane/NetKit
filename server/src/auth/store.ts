@@ -46,6 +46,18 @@ export interface Settings {
   providers: Record<string, ProviderToggle>;
   /** Set once a Resend test email has actually been delivered. */
   resend: { verified: boolean; verifiedAt?: string; lastError?: string; lastTestTo?: string };
+  /**
+   * Placing orders needs two independent locks: `ZEN_ALLOW_ORDERING` in the
+   * environment and this switch. Off by default, and off is the value a
+   * missing settings file gives you.
+   */
+  ordering: {
+    enabled: boolean;
+    /** Orders per user per day. `0` means unlimited. */
+    dailyCapPerUser: number;
+    updatedAt?: string;
+    updatedBy?: string;
+  };
   updatedAt: string;
 }
 
@@ -66,6 +78,7 @@ interface Database {
 const EMPTY_SETTINGS: Settings = {
   providers: {},
   resend: { verified: false },
+  ordering: { enabled: false, dailyCapPerUser: 3 },
   updatedAt: new Date().toISOString(),
 };
 
@@ -245,6 +258,29 @@ export function setProviderEnabled(name: string, enabled: boolean, actor?: strin
   return enqueue(() => {
     db().settings.providers[name] = {
       enabled,
+      updatedAt: new Date().toISOString(),
+      ...(actor ? { updatedBy: actor } : {}),
+    };
+    db().settings.updatedAt = new Date().toISOString();
+    persistSettings();
+    return db().settings;
+  });
+}
+
+/**
+ * The ordering switch and its daily cap. Both are audited by the caller;
+ * this only persists.
+ */
+export function setOrdering(
+  patch: { enabled?: boolean; dailyCapPerUser?: number },
+  actor?: string,
+): Promise<Settings> {
+  return enqueue(() => {
+    const current = db().settings.ordering ?? EMPTY_SETTINGS.ordering;
+    db().settings.ordering = {
+      enabled: patch.enabled ?? current.enabled,
+      dailyCapPerUser:
+        patch.dailyCapPerUser != null ? Math.max(0, Math.min(50, Math.trunc(patch.dailyCapPerUser))) : current.dailyCapPerUser,
       updatedAt: new Date().toISOString(),
       ...(actor ? { updatedBy: actor } : {}),
     };

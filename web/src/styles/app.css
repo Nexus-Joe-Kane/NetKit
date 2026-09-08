@@ -1087,6 +1087,7 @@ table.data td.num {
 .flag--info { background: var(--sw-info-bg); border-color: #ccd8f0; color: var(--sw-info-ink); }
 .flag--warn { background: var(--sw-warn-bg); border-color: #f2dfb4; color: var(--sw-amber-ink); }
 .flag--critical { background: var(--sw-crit-bg); border-color: #f5c9d1; color: var(--sw-crit-ink); }
+.flag--ok { background: var(--sw-ok-bg); border-color: #c3e0d0; color: var(--sw-ok); }
 
 .flag__marker {
   flex: none;
@@ -1797,4 +1798,10 @@ table.data td.num {
 .probe-strip__tick--bad {
   background: var(--sw-crimson);
   opacity: 1;
+}
+
+/* A recent-lookup chip that is an action on the list, not an entry in it. */
+.search__example--muted {
+  color: var(--sw-muted);
+  border-style: dashed;
 }

@@ -3,7 +3,7 @@ import type { LineRecord, LineStatus } from '@sw/shared';
 import { Card, Cell, Chip, CopyButton, Label, formatBytes, formatDateTime, formatDate, formatDuration, type ChipTone } from './ui';
 import { Tabs, TabPanel, type TabDef } from './Tabs';
 import { Modal } from './overlay';
-import { LineDiagnostics, LineStability, LineUsage } from './LineDiagnostics';
+import { LineDiagnostics, LineHistory, LineStability, LineUsage } from './LineDiagnostics';
 
 /**
  * Lines at a premises.
@@ -55,7 +55,8 @@ type LineTab =
   | 'faults'
   | 'diagnostics'
   | 'stability'
-  | 'usage';
+  | 'usage'
+  | 'history';
 
 function LineDetail({ line }: { line: LineRecord }): ReactElement {
   const [tab, setTab] = useState<LineTab>('identity');
@@ -79,6 +80,7 @@ function LineDetail({ line }: { line: LineRecord }): ReactElement {
     { id: 'diagnostics', label: 'Test the line' },
     { id: 'stability', label: 'Stability' },
     { id: 'usage', label: 'Usage' },
+    { id: 'history', label: 'What changed' },
   ];
 
   return (
@@ -231,6 +233,7 @@ function LineDetail({ line }: { line: LineRecord }): ReactElement {
           {tab === 'diagnostics' && <LineDiagnostics line={line} />}
           {tab === 'stability' && <LineStability line={line} />}
           {tab === 'usage' && <LineUsage line={line} />}
+          {tab === 'history' && <LineHistory line={line} />}
 
           {tab === 'faults' &&
             (faultCount === 0 ? (

@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react';
-import type { AvailableTests, LineRecord, LineTestResult, LineTestType, StabilityReport, UsageReport } from '@sw/shared';
+import type {
+  AvailableTests,
+  LineRecord,
+  LineTestResult,
+  LineTestType,
+  ServiceHistory,
+  StabilityReport,
+  UsageReport,
+} from '@sw/shared';
 import { ApiClientError, api } from '../lib/api';
-import { Alert, Cell, Chip, Label, Spinner, formatBytes, formatDateTime, type ChipTone } from './ui';
+import { Alert, Cell, Chip, Label, Spinner, formatBytes, formatDate, formatDateTime, type ChipTone } from './ui';
 import { Modal, useConfirm } from './overlay';
 import { RaiseFaultModal } from '../pages/Faults';
 
@@ -447,6 +455,84 @@ export function LineUsage({ line }: { line: LineRecord }): ReactElement {
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Service history
+ * ------------------------------------------------------------------ */
+
+/**
+ * Every recorded change to this service, newest first.
+ *
+ * The question this answers is "what changed?", which is the first thing
+ * worth asking when a line that worked for two years stops working. A
+ * regrade or a care-level change dated the day before the complaint is
+ * usually the whole answer.
+ */
+export function LineHistory({ line }: { line: LineRecord }): ReactElement {
+  const zenReference = line.orderRef ?? line.id;
+  const [history, setHistory] = useState<ServiceHistory | null>(null);
+  const [mode, setMode] = useState<'live' | 'mock'>('mock');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const result = await api.serviceHistory(zenReference);
+        setHistory(result);
+        setMode(result.mode);
+      } catch (err) {
+        setError(err instanceof ApiClientError ? err.message : 'Could not load the service history.');
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [zenReference]);
+
+  if (loading) return <Spinner label="Loading service history…" />;
+  if (error) return <Alert tone="error">{error}</Alert>;
+  if (!history || history.events.length === 0) {
+    return <Alert tone="info">No changes are recorded against this service.</Alert>;
+  }
+
+  return (
+    <div className="stack stack--tight">
+      {mode === 'mock' && <Alert tone="warn">Demo data.</Alert>}
+      <div className="table-wrap">
+        <table className="data">
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>Change</th>
+              <th>From</th>
+              <th>To</th>
+              <th>Reference</th>
+            </tr>
+          </thead>
+          <tbody>
+            {history.events.map((event, i) => (
+              <tr key={`${event.at}-${i}`}>
+                <td style={{ whiteSpace: 'nowrap', fontSize: 12.5 }}>{formatDate(event.at) ?? '—'}</td>
+                <td>
+                  <strong style={{ color: 'var(--sw-ink)' }}>{event.type}</strong>
+                  {event.description && (
+                    <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>{event.description}</div>
+                  )}
+                  {event.actor && (
+                    <div className="muted" style={{ fontSize: 11 }}>by {event.actor}</div>
+                  )}
+                </td>
+                <td style={{ fontSize: 12.5 }}>{event.from ?? '—'}</td>
+                <td style={{ fontSize: 12.5 }}>{event.to ?? '—'}</td>
+                <td className="sw-mono" style={{ fontSize: 12 }}>{event.reference ?? '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

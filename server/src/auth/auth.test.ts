@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { checkPasswordPolicy, hashPassword, numericCode, randomToken, verifyPassword } from './passwords';
+import { needsRefresh } from './sessions';
 
 test('a password round-trips through scrypt', async () => {
   const hash = await hashPassword('correct horse battery staple');
@@ -49,4 +50,23 @@ test('tokens are url-safe and unique', () => {
   const tokens = new Set(Array.from({ length: 200 }, () => randomToken(32)));
   assert.equal(tokens.size, 200);
   for (const token of tokens) assert.match(token, /^[A-Za-z0-9_-]+$/);
+});
+
+/* ---- Session sliding refresh ------------------------------------- */
+
+test('a session is only re-issued once it is past halfway', () => {
+  const twelveHours = 12 * 60 * 60 * 1000;
+  const now = Date.UTC(2026, 0, 1, 12, 0, 0);
+
+  // Freshly issued: nothing to do.
+  assert.equal(needsRefresh(now + twelveHours, now), false);
+
+  // Five hours in, still under halfway.
+  assert.equal(needsRefresh(now + twelveHours - 5 * 60 * 60 * 1000, now), false);
+
+  // Exactly halfway is the trigger, so a long session never drifts past it.
+  assert.equal(needsRefresh(now + twelveHours / 2, now), true);
+
+  // Nearly expired: definitely refresh.
+  assert.equal(needsRefresh(now + 60_000, now), true);
 });

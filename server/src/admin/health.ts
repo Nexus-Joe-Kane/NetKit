@@ -19,7 +19,16 @@ export interface ServiceStatus {
   /** Stable key used by the toggle endpoint. */
   key: string
   name: string;
-  vendor: 'Zen' | 'BT' | 'Jola' | 'Ofcom' | 'Ordnance Survey' | 'postcodes.io' | 'Resend' | 'Internal';
+  vendor:
+    | 'Zen'
+    | 'BT'
+    | 'Jola'
+    | 'Ofcom'
+    | 'Ordnance Survey'
+    | 'postcodes.io'
+    | 'Companies House'
+    | 'Resend'
+    | 'Internal';
   /** What this integration gives the portal. */
   capability: string;
   state: ServiceState;
@@ -80,6 +89,18 @@ function probes(): Probe[] {
     zenScopeProbe('zen-placeorder', 'Zen — Product ordering', 'Placing provide orders and retrieving pricing', 'indirect-placeorder'),
     zenScopeProbe('zen-cdr', 'Zen — Call records', 'Call data records for voice services', 'indirect-cdr'),
     zenScopeProbe('zen-quote', 'Zen — Ethernet quotes', 'Ethernet / leased line quotations', 'indirect-quote'),
+    zenScopeProbe(
+      'zen-customerengagement',
+      'Zen — Provider notices',
+      'Price changes, product withdrawals, stop-sell and migration notices',
+      'indirect-customerengagement',
+    ),
+    zenScopeProbe(
+      'zen-changeservice',
+      'Zen — Service changes',
+      'Regrades and configuration changes to an existing service',
+      'indirect-changeservice',
+    ),
 
     // ---- Ordnance Survey ------------------------------------------------
     {
@@ -101,6 +122,37 @@ function probes(): Probe[] {
         return {
           state: res ? ('ok' as const) : ('degraded' as const),
           detail: res ? 'Reachable and authenticated.' : 'Reachable but returned no results for the probe postcode.',
+          meta: { probeMs: Date.now() - started },
+        };
+      },
+    },
+
+    // ---- Companies House ------------------------------------------------
+    {
+      key: 'companies-house',
+      name: 'Companies House',
+      vendor: 'Companies House',
+      capability: 'Company status, incorporation, SIC codes and overdue filings at a premises',
+      docsUrl: 'https://developer.company-information.service.gov.uk/',
+      configured: () => cfg.companiesHouse.configured,
+      run: async () => {
+        const started = Date.now();
+        // The API key is the Basic username with an empty password.
+        const basic = Buffer.from(`${cfg.companiesHouse.apiKey}:`).toString('base64');
+        const res = await fetchJson<{ company_name?: string }>(
+          // Companies House's own company number, which will always exist.
+          `${cfg.companiesHouse.baseUrl}/company/00000006`,
+          {
+            label: 'Companies House',
+            headers: { Authorization: `Basic ${basic}` },
+            timeoutMs: 8000,
+            retries: 0,
+            notFoundAsNull: true,
+          },
+        );
+        return {
+          state: res ? ('ok' as const) : ('degraded' as const),
+          detail: res ? 'Reachable and authenticated.' : 'Reachable but the probe company was not returned.',
           meta: { probeMs: Date.now() - started },
         };
       },

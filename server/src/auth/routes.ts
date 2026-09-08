@@ -14,7 +14,7 @@ import {
   type PublicUser,
   type User,
 } from './store';
-import { clearSession, currentUser, issuePendingSession, issueSession, pendingUser } from './sessions';
+import { clearSession, currentUser, issuePendingSession, issueSession, pendingUser, refreshSession } from './sessions';
 
 /**
  * Authentication routes.
@@ -98,6 +98,9 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
     return;
   }
   req.user = user;
+  // Keep a session that is being used alive, rather than expiring it under
+  // someone mid-task.
+  refreshSession(req, res, user);
   next();
 }
 
@@ -115,6 +118,7 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction): v
     return;
   }
   req.user = user;
+  refreshSession(req, res, user);
   next();
 }
 

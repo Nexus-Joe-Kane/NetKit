@@ -4,11 +4,26 @@ import {
   api,
   type AdminStatus,
   type AuditEntry,
+  type OrderingSettings,
+  type QuotaSummary,
   type PublicUser,
   type ServiceState,
   type ServiceStatus,
 } from '../lib/api';
-import { Alert, Card, Cell, Chip, CopyButton, Label, Spinner, Switch, formatDateTime, type ChipTone } from './ui';
+import {
+  Alert,
+  Card,
+  Cell,
+  Chip,
+  CopyButton,
+  ExportButtons,
+  Label,
+  Spinner,
+  Switch,
+  formatDateTime,
+  type ChipTone,
+} from './ui';
+import type { CsvColumn } from '../lib/csv';
 import { Tabs, TabPanel, type TabDef } from './Tabs';
 import { Modal, useConfirm } from './overlay';
 import { RecoveryPage } from '../pages/Recovery';
@@ -38,13 +53,14 @@ const STATE_LABEL: Record<ServiceState, string> = {
   disabled: 'Switched off',
 };
 
-type Tab = 'status' | 'recovery' | 'users' | 'audit';
+type Tab = 'status' | 'ordering' | 'recovery' | 'users' | 'audit';
 
 export function AdminPortal({ me }: { me: PublicUser }): ReactElement {
   const [tab, setTab] = useState<Tab>('status');
 
   const tabs: Array<TabDef<Tab>> = [
     { id: 'status', label: 'Service status' },
+    { id: 'ordering', label: 'Ordering & limits' },
     { id: 'recovery', label: 'Recovery & self-test' },
     { id: 'users', label: 'Users' },
     { id: 'audit', label: 'Audit log' },
@@ -55,6 +71,7 @@ export function AdminPortal({ me }: { me: PublicUser }): ReactElement {
       <Tabs tabs={tabs} active={tab} onChange={setTab} variant="primary" label="Admin sections" />
       <TabPanel>
         {tab === 'status' && <StatusBoard />}
+        {tab === 'ordering' && <OrderingBoard />}
         {tab === 'recovery' && <RecoveryPage />}
         {tab === 'users' && <UsersBoard me={me} />}
         {tab === 'audit' && <AuditBoard />}
@@ -398,8 +415,249 @@ function StatusBoard(): ReactElement {
 }
 
 /* ------------------------------------------------------------------ *
+ * Ordering and limits
+ * ------------------------------------------------------------------ */
+
+/**
+ * The ordering lock, the daily order cap and today's fair-use counters.
+ *
+ * Two switches guard ordering and only one of them is here — the other is an
+ * environment variable that needs a deploy. That is on purpose, and the panel
+ * says so rather than leaving someone to wonder why "On" did not take effect.
+ */
+function OrderingBoard(): ReactElement {
+  const [ordering, setOrdering] = useState<OrderingSettings | null>(null);
+  const [quotas, setQuotas] = useState<QuotaSummary | null>(null);
+  const [cap, setCap] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const { confirm, dialog } = useConfirm();
+
+  const load = useCallback(async () => {
+    try {
+      const [status, quota] = await Promise.all([api.adminStatus(), api.quotas()]);
+      setOrdering(status.ordering);
+      setQuotas(quota);
+      setCap(String(status.ordering.dailyCapPerUser));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'Could not load the ordering settings.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const toggle = async (next: boolean) => {
+    if (next) {
+      const ok = await confirm({
+        title: 'Unlock ordering?',
+        tone: 'danger',
+        confirmLabel: 'Unlock ordering',
+        requireTyping: 'UNLOCK ORDERING',
+        message: (
+          <>
+            <p>
+              Any signed-in user will be able to place real orders against the Zen account, up to the daily cap. Orders
+              spend money and book engineer appointments.
+            </p>
+            <p style={{ marginBottom: 0 }}>
+              Each order still needs the address retyped, and every attempt is written to the audit log.
+            </p>
+          </>
+        ),
+      });
+      if (!ok) return;
+    }
+    setBusy(true);
+    try {
+      const result = await api.setOrdering({ enabled: next });
+      setOrdering(result.ordering);
+      setNote(result.note ?? null);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'Could not change the ordering switch.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveCap = async () => {
+    const value = Number.parseInt(cap, 10);
+    if (!Number.isFinite(value) || value < 0 || value > 50) {
+      setError('The cap must be a whole number between 0 and 50. Use 0 for no cap.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await api.setOrdering({ dailyCapPerUser: value });
+      setOrdering(result.ordering);
+      setError(null);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'Could not change the cap.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (loading) return <Spinner label="Loading ordering settings…" />;
+
+  const live = Boolean(ordering?.enabled && ordering?.environmentAllows);
+
+  return (
+    <div className="stack">
+      {error && <Alert tone="error">{error}</Alert>}
+      {note && <Alert tone="warn">{note}</Alert>}
+
+      <Card title="Placing orders" eyebrow="Two independent locks" index="01" accent={live ? 3 : 1}>
+        <div className={live ? 'flag flag--critical' : 'flag flag--info'}>
+          <span className="flag__marker" aria-hidden="true" />
+          <span>
+            <strong>{live ? 'Ordering is UNLOCKED — orders placed here are real' : 'Ordering is locked'}</strong>
+            <span className="flag__detail">
+              {live
+                ? 'Both locks are open. Every order needs the address retyped and is capped per user per day.'
+                : 'Both the environment flag and this switch must be on before any order can be sent.'}
+            </span>
+          </span>
+        </div>
+
+        <div className="kv" style={{ marginTop: 12 }}>
+          <Cell
+            label="Environment (ZEN_ALLOW_ORDERING)"
+            value={ordering?.environmentAllows ? 'Allows ordering' : 'Blocks ordering'}
+          />
+          <Cell label="Admin switch" value={ordering?.enabled ? 'On' : 'Off'} />
+          <Cell label="Daily cap per user" value={ordering?.dailyCapPerUser === 0 ? 'No cap' : String(ordering?.dailyCapPerUser)} />
+          <Cell label="Last changed" value={formatDateTime(ordering?.updatedAt)} />
+          <Cell label="Changed by" value={ordering?.updatedBy} />
+        </div>
+
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'flex-end',
+            gap: 18,
+            flexWrap: 'wrap',
+            marginTop: 16,
+            paddingTop: 16,
+            borderTop: '1px solid var(--sw-hairline)',
+          }}
+        >
+          <div>
+            {/* The row above reports the state; this is the control. Giving
+                both the same label made the panel read as a duplicate. */}
+            <Label>Change the switch</Label>
+            <div style={{ marginTop: 5 }}>
+              <Switch
+                checked={Boolean(ordering?.enabled)}
+                onChange={(next) => void toggle(next)}
+                busy={busy}
+                label="Allow orders to be placed"
+              />
+            </div>
+            {!ordering?.environmentAllows && (
+              <p className="muted" style={{ fontSize: 11.5, margin: '6px 0 0', maxWidth: 320 }}>
+                Turning this on will not be enough on its own — the server also needs
+                <span className="sw-mono"> ZEN_ALLOW_ORDERING=true</span>.
+              </p>
+            )}
+          </div>
+
+          <label className="field" style={{ maxWidth: 200, marginBottom: 0 }}>
+            <Label>Orders per user per day</Label>
+            <input
+              className="field__input"
+              type="number"
+              min={0}
+              max={50}
+              value={cap}
+              onChange={(e) => setCap(e.target.value)}
+            />
+            <span className="field__hint">0 removes the cap. Keep it low.</span>
+          </label>
+          <button
+            type="button"
+            className="btn btn--ghost"
+            onClick={() => void saveCap()}
+            disabled={busy || cap === String(ordering?.dailyCapPerUser ?? '')}
+          >
+            Save cap
+          </button>
+        </div>
+      </Card>
+
+      <Card
+        title="Today's usage"
+        eyebrow="Fair use"
+        index="02"
+        accent={2}
+        meta={quotas ? <Chip tone="idle">{quotas.day}</Chip> : undefined}
+        flush
+      >
+        <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--sw-hairline)' }}>
+          <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>
+            Premises lookups are rationed because the provider's availability quota is per account, not per user — one
+            person working through a list can spend everyone's allowance. Repeat looks at a premises already checked
+            today are free. Counts reset at midnight UTC.
+          </p>
+          <div className="kv" style={{ marginTop: 10 }}>
+            <Cell
+              label="Lookup budget per user"
+              value={quotas?.limits.availability === 0 ? 'No limit' : String(quotas?.limits.availability)}
+            />
+            <Cell label="Order cap per user" value={quotas?.limits.order === 0 ? 'No cap' : String(quotas?.limits.order)} />
+          </div>
+        </div>
+
+        {!quotas || quotas.rows.length === 0 ? (
+          <div className="empty">
+            <h3>Nothing used yet today</h3>
+            <p>Counters appear here as soon as someone runs a lookup.</p>
+          </div>
+        ) : (
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Kind</th>
+                  <th style={{ textAlign: 'right' }}>Used</th>
+                  <th style={{ textAlign: 'right' }}>Limit</th>
+                </tr>
+              </thead>
+              <tbody>
+                {quotas.rows.map((row) => (
+                  <tr key={`${row.kind}:${row.userId}`}>
+                    <td>{row.email ?? row.userId}</td>
+                    <td>{row.kind === 'availability' ? 'Premises lookups' : 'Orders placed'}</td>
+                    <td className="sw-mono" style={{ textAlign: 'right' }}>{row.used}</td>
+                    <td className="sw-mono" style={{ textAlign: 'right' }}>
+                      {row.limit === 0 ? '—' : row.limit}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      {dialog}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ *
  * Users
  * ------------------------------------------------------------------ */
+
 
 function UsersBoard({ me }: { me: PublicUser }): ReactElement {
   const [users, setUsers] = useState<PublicUser[]>([]);
@@ -780,6 +1038,16 @@ function UsersBoard({ me }: { me: PublicUser }): ReactElement {
  * Audit log
  * ------------------------------------------------------------------ */
 
+/** The audit log is evidence, so the export keeps the detail verbatim. */
+const AUDIT_COLUMNS: Array<CsvColumn<AuditEntry>> = [
+  { header: 'When', value: (e) => e.at },
+  { header: 'Who', value: (e) => e.actorEmail },
+  { header: 'User id', value: (e) => e.actorId },
+  { header: 'Action', value: (e) => e.action },
+  { header: 'Detail', value: (e) => (e.detail ? JSON.stringify(e.detail) : '') },
+  { header: 'IP', value: (e) => e.ip },
+];
+
 function AuditBoard(): ReactElement {
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -797,7 +1065,14 @@ function AuditBoard(): ReactElement {
 
   return (
     <>
-      <Card title="Audit log" eyebrow="Newest first · append only" index="03" accent={3} flush>
+      <Card
+        title="Audit log"
+        eyebrow="Newest first · append only"
+        index="03"
+        accent={3}
+        flush
+        meta={<ExportButtons rows={entries} columns={AUDIT_COLUMNS} filenamePrefix="audit" label="the audit log" />}
+      >
         {error && (
           <div style={{ padding: 18 }}>
             <Alert tone="error">{error}</Alert>

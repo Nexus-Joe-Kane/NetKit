@@ -2,7 +2,9 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import { z } from 'zod';
 import { formatPostcode, identify, toSuggestion, type ApiResult } from '@sw/shared';
 import { config } from '../config';
-import { badRequest, HttpError, notFound } from '../lib/errors';
+import { badRequest, HttpError, notFound, rateLimited } from '../lib/errors';
+import { consumeQuota, quotaState } from '../services/quota';
+import { clearRecentLookups, recentLookups, recordLookup } from '../services/recents';
 import { providers } from '../providers/registry';
 import { autocompletePostcode } from '../providers/address/postcodesIo';
 import {
@@ -29,6 +31,54 @@ const handler =
       next(err);
     }
   };
+
+/**
+ * The fair-use budget, as a hook the resolver calls only when a lookup will
+ * actually cost an upstream availability check.
+ *
+ * Zen are explicit that availability is not for bulk work, and the quota is
+ * per account rather than per user — so one operator working through a list
+ * of postcodes can spend everyone else's allowance. This makes that a refusal
+ * with a number in it rather than a silent degradation later in the day.
+ */
+function availabilityBudget(req: Request): { budget: () => void } | Record<string, never> {
+  const userId = req.user?.id;
+  if (!userId) return {};
+  return {
+    budget: () => {
+      const state = quotaState('availability', userId);
+      if (!state.allowed) {
+        throw rateLimited(
+          `You have used your ${state.limit} premises lookups for today. The budget resets at midnight UTC — ask an administrator if you need it raised.`,
+          { used: state.used, limit: state.limit },
+        );
+      }
+      consumeQuota('availability', userId);
+    },
+  };
+}
+
+/**
+ * Files a completed lookup in the user's recent list.
+ *
+ * Only called once a search actually landed on something, so a typo that
+ * returned nothing does not clutter the list.
+ */
+function remember(req: Request, query: string, kind: string, report?: { address: { singleLine: string; postcode: string; uprn?: string } }): void {
+  const userId = req.user?.id;
+  if (!userId) return;
+  recordLookup(userId, {
+    query,
+    kind,
+    ...(report
+      ? {
+          label: report.address.singleLine,
+          postcode: report.address.postcode,
+          ...(report.address.uprn ? { uprn: report.address.uprn } : {}),
+        }
+      : {}),
+  });
+}
 
 const searchSchema = z.object({
   q: z.string().trim().min(1, 'Enter something to search for').max(200),
@@ -65,7 +115,15 @@ export function apiRouter(): Router {
         throw badRequest(parsed.error.issues[0]?.message ?? 'Invalid search', parsed.error.issues);
       }
       const { q, uprn, limit } = parsed.data;
-      return resolveQuery(q, { ...(uprn ? { uprn } : {}), ...(limit ? { limit } : {}) });
+      const result = await resolveQuery(q, {
+        ...(uprn ? { uprn } : {}),
+        ...(limit ? { limit } : {}),
+        ...availabilityBudget(req),
+      });
+      // Only a lookup that resolved to a premises is worth remembering; a
+      // postcode that returned a picker is still mid-question.
+      if (result.report) remember(req, uprn ? result.report.address.singleLine : q, result.query.kind, result.report);
+      return result;
     }),
   );
 
@@ -123,7 +181,9 @@ export function apiRouter(): Router {
       const uprn = String(req.params.uprn);
       const address = await addressByUprn(uprn);
       if (!address) throw notFound(`No premises found for UPRN ${uprn}.`);
-      return buildSiteReport(address, identify(uprn));
+      const report = await buildSiteReport(address, identify(uprn), availabilityBudget(req));
+      remember(req, address.singleLine, 'uprn', report);
+      return report;
     }),
   );
 
@@ -133,7 +193,10 @@ export function apiRouter(): Router {
     handler(async (req) => {
       const address = await addressByUprn(String(req.params.uprn));
       if (!address) throw notFound(`No premises found for UPRN ${req.params.uprn}.`);
-      const report = await buildSiteReport(address, identify(String(req.params.uprn)), { includeSiblings: false });
+      const report = await buildSiteReport(address, identify(String(req.params.uprn)), {
+        includeSiblings: false,
+        ...availabilityBudget(req),
+      });
       if (!report.broadband) throw notFound('No broadband availability data for this premises.');
       return report.broadband;
     }),
@@ -144,7 +207,10 @@ export function apiRouter(): Router {
     handler(async (req) => {
       const address = await addressByUprn(String(req.params.uprn));
       if (!address) throw notFound(`No premises found for UPRN ${req.params.uprn}.`);
-      const report = await buildSiteReport(address, identify(String(req.params.uprn)), { includeSiblings: false });
+      const report = await buildSiteReport(address, identify(String(req.params.uprn)), {
+        includeSiblings: false,
+        ...availabilityBudget(req),
+      });
       if (!report.signal) throw notFound('No mobile coverage data for this premises.');
       return report.signal;
     }),
@@ -176,6 +242,20 @@ export function apiRouter(): Router {
         checkedAt: new Date().toISOString(),
         sources: ['registry'],
       };
+    }),
+  );
+
+  // ---- Recent lookups, per user -------------------------------------
+  router.get(
+    '/recent',
+    handler(async (req) => ({ recent: recentLookups(req.user?.id ?? '') })),
+  );
+
+  router.delete(
+    '/recent',
+    handler(async (req) => {
+      clearRecentLookups(req.user?.id ?? '');
+      return { cleared: true };
     }),
   );
 

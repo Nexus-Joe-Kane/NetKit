@@ -1,5 +1,6 @@
 import { config } from '../config';
-import { audit, isProviderEnabled } from '../auth/store';
+import { audit, isProviderEnabled, listUsers } from '../auth/store';
+import { escalationEmail, recoveryEmail, sendEmail, twoFactorAvailable } from '../auth/email';
 import { probeService, serviceStatuses, type ServiceStatus } from './health';
 import { resetZenTokens } from '../providers/zen/client';
 import { clearZenCaches } from '../providers/zen/adapters';
@@ -8,6 +9,7 @@ import { clearPostcodeCache } from '../providers/address/postcodesIo';
 import { clearOsPlacesCache } from '../providers/address/osPlaces';
 import { loadDataset } from '../providers/signal/ofcom';
 import { clearReportCache } from '../services/resolve';
+import { clearCompaniesCache } from '../providers/companies/companiesHouse';
 
 /**
  * The recovery supervisor.
@@ -50,6 +52,12 @@ export interface IntegrationHealth {
   key: string;
   name: string;
   vendor: string;
+  /** What it provides, carried through for the escalation email. */
+  capability?: string;
+  /** When the current run of failures began. */
+  failingSince?: string;
+  /** When a human was told, so they are told once per incident. */
+  escalatedAt?: string;
   state: HealthState;
   consecutiveFailures: number
   consecutiveSuccesses: number;
@@ -123,6 +131,10 @@ function recoveryActionsFor(key: string): RecoveryAction[] {
     return [{ name: 'Drop cached OS Places results', run: () => clearOsPlacesCache() }];
   }
 
+  if (key === 'companies-house') {
+    return [{ name: 'Drop cached company records', run: () => clearCompaniesCache() }];
+  }
+
   if (key === 'postcodes-io') {
     return [{ name: 'Drop cached postcode geography', run: () => clearPostcodeCache() }];
   }
@@ -162,6 +174,7 @@ function blank(status: ServiceStatus): IntegrationHealth {
     key: status.key,
     name: status.name,
     vendor: status.vendor,
+    capability: status.capability,
     state: 'healthy',
     consecutiveFailures: 0,
     consecutiveSuccesses: 0,
@@ -245,6 +258,7 @@ export async function sweep(): Promise<SweepResult> {
       state.set(status.key, health);
       health.name = status.name;
       health.vendor = status.vendor;
+      health.capability = status.capability;
       health.lastCheckedAt = status.checkedAt;
       if (status.latencyMs != null) health.latencyMs = status.latencyMs;
 
@@ -275,6 +289,20 @@ export async function sweep(): Promise<SweepResult> {
             detail: { key: status.key, name: status.name },
           });
         }
+        // If a person was told about this, tell them it is back.
+        if (health.escalatedAt && health.failingSince) {
+          const downForMinutes = Math.max(
+            1,
+            Math.round((Date.now() - new Date(health.failingSince).getTime()) / 60_000),
+          );
+          void notifyAdmins(recoveryEmail({ name: health.name, downForMinutes }), 'supervisor.escalation_cleared', {
+            key: status.key,
+            downForMinutes,
+          });
+          delete health.escalatedAt;
+        }
+        delete health.failingSince;
+
         health.state = 'healthy';
         continue;
       }
@@ -283,6 +311,7 @@ export async function sweep(): Promise<SweepResult> {
       health.consecutiveSuccesses = 0;
       health.consecutiveFailures += 1;
       health.lastError = status.detail;
+      health.failingSince ??= new Date().toISOString();
       result.failing += 1;
       health.state = status.state === 'degraded' ? 'degraded' : 'failing';
 
@@ -330,6 +359,10 @@ export async function sweep(): Promise<SweepResult> {
         health.circuit.nextAttemptAt = new Date(Date.now() + backoffSeconds * 1000).toISOString();
         health.state = 'circuit_open';
       }
+
+      // Recovery has had its chance and the breaker is doing its job; past a
+      // point this is no longer something automation can fix.
+      await maybeEscalate(health);
     }
 
     lastSweepAt = result.at;
@@ -390,6 +423,65 @@ async function attemptRecovery(health: IntegrationHealth): Promise<boolean> {
 
   health.state = health.circuit.open ? 'circuit_open' : 'failing';
   return false;
+}
+
+/* ------------------------------------------------------------------ *
+ * Escalation
+ * ------------------------------------------------------------------ */
+
+/** Emails every active administrator. Failures are logged, never thrown. */
+async function notifyAdmins(
+  message: { subject: string; html: string; text: string },
+  action: string,
+  detail: Record<string, unknown>,
+): Promise<void> {
+  // Only when email has actually been proved to work — an unverified key
+  // would turn every escalation into a silent no-op.
+  if (!twoFactorAvailable()) return;
+
+  const admins = listUsers().filter((u) => u.role === 'admin' && !u.disabled);
+  if (!admins.length) return;
+
+  const results = await Promise.all(
+    admins.map((admin) => sendEmail(admin.email, message.subject, message.html, message.text)),
+  );
+  const sent = results.filter((r) => r.ok).length;
+
+  audit({
+    action,
+    detail: { ...detail, recipients: admins.length, sent, ...(sent === 0 ? { emailFailed: results[0]?.error } : {}) },
+  });
+}
+
+/**
+ * Tells a human once an integration has been failing long enough that
+ * recovery has demonstrably not worked. Once per incident, not per sweep.
+ */
+async function maybeEscalate(health: IntegrationHealth): Promise<void> {
+  if (health.escalatedAt || !health.failingSince) return;
+
+  const failingForMs = Date.now() - new Date(health.failingSince).getTime();
+  if (failingForMs < config().supervisor.escalateAfterMinutes * 60_000) return;
+
+  health.escalatedAt = new Date().toISOString();
+  await notifyAdmins(
+    escalationEmail({
+      name: health.name,
+      key: health.key,
+      failingSince: health.failingSince,
+      ...(health.lastError ? { lastError: health.lastError } : {}),
+      recoveryAttempts: health.recoveries.length,
+      capability: health.capability ?? 'not recorded',
+    }),
+    'supervisor.escalated',
+    {
+      key: health.key,
+      name: health.name,
+      failingSince: health.failingSince,
+      recoveryAttempts: health.recoveries.length,
+      error: health.lastError,
+    },
+  );
 }
 
 /* ------------------------------------------------------------------ *

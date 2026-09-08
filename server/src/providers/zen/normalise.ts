@@ -566,6 +566,8 @@ export function offersFromProducts(res: ZenAvailabilityResponse): BroadbandOffer
         ...(isoDate(p.minimumActivationDate) ? { rfsDate: isoDate(p.minimumActivationDate) } : {}),
         ...(line?.exchangeWorkRequired ? { installCategory: 'Exchange work required' } : {}),
         ...(p.allowedAppointmentTypes?.length ? { appointmentRequired: true } : {}),
+        orderable,
+        ...(orderable ? {} : { orderableReason: text(p.isOrderableDescription) ?? 'Not currently orderable.' }),
         notes: [
           ...(orderable ? [] : [text(p.isOrderableDescription) ?? 'Not currently orderable.']),
           ...(text(p.marketLocation) ? [`Market location ${text(p.marketLocation)}`] : []),

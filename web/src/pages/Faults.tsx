@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react';
 import type { FaultCategory, FaultRecord } from '@sw/shared';
 import { ApiClientError, api } from '../lib/api';
-import { Alert, Card, Cell, Chip, Label, Spinner, formatDateTime, type ChipTone } from '../components/ui';
+import { Alert, Card, Cell, Chip, ExportButtons, Label, Spinner, formatDateTime, type ChipTone } from '../components/ui';
+import type { CsvColumn } from '../lib/csv';
 import { Tabs, TabPanel, type TabDef } from '../components/Tabs';
 import { Modal } from '../components/overlay';
 
@@ -29,6 +30,30 @@ const CATEGORY_LABEL: Record<FaultCategory, string> = {
   voice: 'Voice',
   other: 'Other',
 };
+
+const FAULT_COLUMNS: Array<CsvColumn<FaultRecord>> = [
+  { header: 'Reference', value: (f) => f.reference },
+  { header: 'Service reference', value: (f) => f.zenReference },
+  { header: 'Service ID', value: (f) => f.serviceId },
+  { header: 'CLI', value: (f) => f.cli },
+  { header: 'Category', value: (f) => CATEGORY_LABEL[f.category] },
+  { header: 'Frequency', value: (f) => f.frequency },
+  { header: 'State', value: (f) => f.state },
+  { header: 'Provider status', value: (f) => f.status },
+  { header: 'Summary', value: (f) => f.summary },
+  { header: 'Raised', value: (f) => f.raisedAt },
+  { header: 'Raised by', value: (f) => f.raisedBy },
+  { header: 'Cleared', value: (f) => f.clearedAt },
+  { header: 'Care level', value: (f) => f.careLevel },
+  { header: 'SLA target', value: (f) => f.slaTarget },
+  { header: 'Committed fix', value: (f) => f.committedAt },
+  { header: 'Appointment date', value: (f) => f.appointment?.date },
+  { header: 'Appointment slot', value: (f) => f.appointment?.slot },
+  { header: 'Chargeable risk', value: (f) => f.chargeableRisk },
+  { header: 'Address', value: (f) => f.address?.singleLine },
+  { header: 'Postcode', value: (f) => f.address?.postcode },
+  { header: 'Updates', value: (f) => f.updates?.length ?? 0 },
+];
 
 type Tab = 'open' | 'closed';
 
@@ -122,6 +147,7 @@ export function FaultsPage(): ReactElement {
         meta={
           <>
             {mode === 'mock' ? <Chip tone="warn" dot>Demo data</Chip> : <Chip tone="ok" dot>Live</Chip>}
+            <ExportButtons rows={faults} columns={FAULT_COLUMNS} filenamePrefix={`faults-${tab}`} label="the fault book" />
             <button className="btn btn--primary btn--small" onClick={() => setRaising(true)}>
               Raise a fault
             </button>

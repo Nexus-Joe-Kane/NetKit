@@ -14,6 +14,7 @@ import {
   findUserById,
   listUsers,
   readAudit,
+  setOrdering,
   setProviderEnabled,
   settings,
   toPublicUser,
@@ -23,6 +24,7 @@ import { serviceStatuses } from './health';
 import { runSelfTest } from './selftest';
 import { sweep, supervisorState } from './supervisor';
 import { config } from '../config';
+import { quotaSummary } from '../services/quota';
 
 /**
  * Admin portal API.
@@ -57,6 +59,12 @@ const patchUserSchema = z.object({
 
 const toggleSchema = z.object({ enabled: z.boolean() });
 
+const orderingSchema = z.object({
+  enabled: z.boolean().optional(),
+  /** Kept deliberately small. Fifty provides in a day is not a support tool. */
+  dailyCapPerUser: z.coerce.number().int().min(0).max(50).optional(),
+});
+
 export function adminRouter(): Router {
   const router = Router();
   router.use(requireAdmin);
@@ -85,6 +93,12 @@ export function adminRouter(): Router {
           sessionSecretSet: Boolean(cfg.sessionSecret),
         },
         resend: settings().resend,
+        ordering: {
+          ...settings().ordering,
+          /** Read-only here: only a deploy can change the environment flag. */
+          environmentAllows: cfg.allowOrdering,
+        },
+        quotas: quotaSummary(),
       });
     } catch (err) {
       next(err);
@@ -162,6 +176,57 @@ export function adminRouter(): Router {
     } catch (err) {
       next(err);
     }
+  });
+
+  /* ---- Ordering ----------------------------------------------------- */
+
+  /**
+   * The admin half of the ordering lock, and the daily cap.
+   *
+   * The environment flag is not settable from here by design — two locks that
+   * the same person can open from the same screen are one lock.
+   */
+  router.post('/ordering', async (req, res, next) => {
+    try {
+      const parsed = orderingSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw badRequest(parsed.error.issues[0]?.message ?? 'Provide { enabled } and/or { dailyCapPerUser }.');
+      }
+      if (parsed.data.enabled === undefined && parsed.data.dailyCapPerUser === undefined) {
+        throw badRequest('Nothing to change — provide "enabled" or "dailyCapPerUser".');
+      }
+
+      const updated = await setOrdering(parsed.data, req.user!.email);
+      audit({
+        actorId: req.user!.id,
+        actorEmail: req.user!.email,
+        action: 'admin.ordering_changed',
+        detail: { ...parsed.data, environmentAllows: config().allowOrdering },
+        ip: req.ip,
+      });
+      send(res, {
+        ordering: { ...updated.ordering, environmentAllows: config().allowOrdering },
+        // Worth saying plainly: switching this on does nothing on its own if
+        // the deploy has not also set ZEN_ALLOW_ORDERING.
+        ...(parsed.data.enabled && !config().allowOrdering
+          ? { note: 'Ordering stays blocked until ZEN_ALLOW_ORDERING=true is set in the server environment.' }
+          : {}),
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /** Today's fair-use and ordering counters, per user. */
+  router.get('/quotas', (_req, res) => {
+    const summary = quotaSummary();
+    send(res, {
+      ...summary,
+      rows: summary.rows.map((r) => ({
+        ...r,
+        email: findUserById(r.userId)?.email ?? 'unknown user',
+      })),
+    });
   });
 
   /* ---- Resend delivery test ---------------------------------------- */

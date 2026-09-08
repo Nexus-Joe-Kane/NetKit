@@ -50,6 +50,9 @@ time**, so tokens are cached per scope, not globally.
   and `btwAddressReference` (BT Wholesale).
 - `POST /api/bto/addaddress` — creates an Openreach NAD address key for an
   address not already in the database. Returns `technologyRestrictions[]`.
+  Surfaced as a second step inside the address-reference tool: it only appears
+  once a match has failed, and it is audited as a write against the national
+  address database.
 - `POST /api/availability/check` —
   body `{ phoneNumber, goldAddressKeyAvailabilityRequest: { addressReferenceNumber, districtCode }, uprn }`.
   If both CLI and address are supplied, **the CLI check wins** (it is more accurate).
@@ -140,6 +143,36 @@ time**, so tokens are cached per scope, not globally.
 - `GET /api/pricingDetails`, `GET /api/orders/search`, `GET /api/orders/status`, `GET /api/orders/WipReport`
 - `POST /api/orders/{zenReference}/Cancel`
 
+> `POST /api/order` is wired and reachable, but behind five guards:
+> `ZEN_ALLOW_ORDERING` in the environment, the admin-portal switch, a per-user
+> daily cap, the installation address retyped by hand, and an audit line
+> written *before* the call as well as after. A failed call is never reported
+> as "nothing was sent" — a request that timed out may well have reached Zen,
+> so the wording sends the operator to the order book rather than to the
+> button again.
+
+**Service changes and history** (`indirect-service`)
+
+- `GET /api/service/{ref}/history` — every recorded change to a service.
+  Surfaced as the **What changed** tab on a line.
+- `GET /api/monthlyusage/report`, `GET /api/monthlyusage/reports` — usage
+  across the whole base, and the periods available. Surfaced under Tools.
+
+**Network management** (`indirect-broadbandconnection`)
+
+- `GET /api/networkmanagement/serviceselectionnames` — the realms on offer.
+- `GET /api/networkmanagement/networkdetails?request.zenReference=` — how one
+  service is actually configured. The detail payload is a flat bag whose keys
+  differ by product, so it is rendered as label/value pairs rather than being
+  forced into a shape.
+
+**Notifications** (`indirect-customerengagement`)
+
+- `GET /api/notifications/search` — price changes, product withdrawals,
+  stop-sell and migration notices. Surfaced as **Provider notices** on the
+  network status page. Severity is documented as a bare integer, so it is read
+  as string-or-integer and falls back to `unknown`.
+
 **Number porting** (`indirect-availability`)
 
 - `POST /api/numberPort/availability` — `{phoneNumber, exchangePrefix, cupid}` → `{reference, canBePorted}`
@@ -187,3 +220,28 @@ and credentials and they come alive.
 management. Note that **Zen's `/api/cellular/*` endpoints are Jola-backed**,
 so SIM data may be reachable through the existing Zen credentials without a
 separate Jola integration.
+
+---
+
+## Companies House
+
+`https://developer.company-information.service.gov.uk/` — free with a
+registration key.
+
+- `GET /advanced-search/companies?location=<postcode>&size=40` — every company
+  registered at a postcode.
+- `GET /company/{number}` — one company. Used by the health probe, against
+  Companies House's own company number (`00000006`), which will always exist.
+
+Auth is **HTTP Basic with the API key as the username and an empty password**,
+which is unusual enough to be worth stating plainly.
+
+Statuses treated as concerning — flagged red and sorted to the top —
+are `liquidation`, `receivership`, `administration`, `voluntary-arrangement`,
+`insolvency-proceedings`, `dissolved`, `converted-closed`, `closed` and
+`removed`. Overdue accounts and confirmation statements are surfaced
+separately: they are a warning, not a reason to stop.
+
+Companies are indexed by postcode rather than premises, so the ones whose
+registered office postcode matches the premises being looked at are marked
+**This address**.

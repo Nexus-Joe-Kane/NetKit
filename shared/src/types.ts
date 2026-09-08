@@ -179,6 +179,10 @@ export interface BroadbandOffer {
   /** Openreach install category: `Category A` / `B` / `C`. */
   installCategory?: string;
   appointmentRequired?: boolean;
+  /** False when the provider says this product cannot be ordered today. */
+  orderable?: boolean;
+  /** The provider's own words for why not. */
+  orderableReason?: string;
   /** FTTP-on-Demand style excess construction charge, in pounds. */
   excessConstructionCharge?: number;
   contentionRatio?: string;
@@ -280,6 +284,14 @@ export interface BroadbandAvailability {
   address: AddressRecord;
   offers: BroadbandOffer[];
   openreach?: OpenreachDetail;
+  /**
+   * The provider's handle on this check. Required to book an appointment or
+   * place an order — an order cannot be built without one, which is why
+   * ordering always starts from a check rather than from typed detail.
+   */
+  availabilityReference?: string;
+  /** Fair-use checks left on the account, where the provider reports it. */
+  remainingChecks?: number;
   /** Best available technology, precomputed for the summary strip. */
   headline?: {
     technology: AccessTechnology;
