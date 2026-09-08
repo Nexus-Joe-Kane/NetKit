@@ -8,6 +8,8 @@ import type {
   CompanyOfficer,
   CompanyPsc,
   CompanyRecord,
+  CompanyDisqualification,
+  OfficerAppointment,
 } from '@sw/shared';
 import { config } from '../../config';
 import { fetchJson } from '../../lib/http';
@@ -478,6 +480,10 @@ export async function fetchCompanyDetail(companyNumber: string): Promise<Company
         Number(b.active) - Number(a.active) || (b.appointedOn ?? '').localeCompare(a.appointedOn ?? ''),
     );
 
+  // Officer depth costs a call per officer, so it runs after the six
+  // parallel fetches rather than inside them.
+  const officersEnriched = await enrichOfficers(officers, number);
+
   const psc = (pscRes?.items ?? [])
     .map(mapPsc)
     .filter((p): p is CompanyPsc => p !== null)
@@ -529,7 +535,7 @@ export async function fetchCompanyDetail(companyNumber: string): Promise<Company
     ...(previousNames.length ? { previousNames } : {}),
     ...(clean(profile.jurisdiction) ? { jurisdiction: humanise(profile.jurisdiction) } : {}),
     ...(Object.keys(filingDates).length ? { filingDates } : {}),
-    officers,
+    officers: officersEnriched,
     ...(officersRes?.total_results != null ? { officerCount: officersRes.total_results } : {}),
     psc,
     ...(pscRes?.total_results != null ? { pscCount: pscRes.total_results } : {}),
@@ -558,4 +564,151 @@ export const __companiesHouseTesting = {
   mapInsolvencyCase,
   humanise,
   bornOn,
+  mapDisqualification,
+  mapAppointments,
 };
+
+/* ------------------------------------------------------------------ *
+ * Officer depth: disqualification and other appointments
+ * ------------------------------------------------------------------ */
+
+/**
+ * Two more free Companies House resources, both keyed on an officer.
+ *
+ * These are fetched only for the officers still serving, and only a handful
+ * of them. Both are one call per officer, so pulling them for a company with
+ * forty historic directors would cost eighty requests to answer a question
+ * nobody asked -- a resigned director is not going to sign anything.
+ */
+
+interface ChDisqualification {
+  disqualifications?: Array<{
+    disqualified_from?: string;
+    disqualified_until?: string;
+    reason?: { description_identifier?: string; act?: string; section?: string };
+    company_names?: string[];
+    court_name?: string;
+    case_identifier?: string;
+  }>;
+}
+
+interface ChAppointmentList {
+  items?: Array<{
+    appointed_to?: { company_name?: string; company_number?: string; company_status?: string };
+    officer_role?: string;
+    appointed_on?: string;
+    resigned_on?: string;
+  }>;
+}
+
+/** How many serving officers to enrich. Beyond this the cost outruns the value. */
+const ENRICH_LIMIT = 6;
+
+export function mapDisqualification(payload: ChDisqualification | null): CompanyDisqualification | null {
+  const rows = payload?.disqualifications ?? [];
+  if (!rows.length) return null;
+
+  // The most recent order is the one that matters; Companies House do not
+  // guarantee an order, so pick by date rather than trusting position.
+  const latest = [...rows].sort((a, b) =>
+    (b.disqualified_from ?? '').localeCompare(a.disqualified_from ?? ''),
+  )[0]!;
+
+  const until = clean(latest.disqualified_until);
+  // A ban with no end date is in force; one with an end date is in force
+  // until that date passes.
+  const active = !until || new Date(until).getTime() > Date.now();
+
+  const reasonParts = [
+    clean(latest.reason?.act),
+    clean(latest.reason?.section) ? `section ${clean(latest.reason?.section)}` : undefined,
+    clean(latest.reason?.description_identifier)
+      ? humanise(latest.reason?.description_identifier)
+      : undefined,
+  ].filter(Boolean);
+
+  return {
+    active,
+    ...(clean(latest.disqualified_from) ? { from: clean(latest.disqualified_from) } : {}),
+    ...(until ? { to: until } : {}),
+    ...(reasonParts.length ? { reason: reasonParts.join(', ') } : {}),
+    ...(clean(latest.court_name) ? { authority: clean(latest.court_name) } : {}),
+    ...(latest.company_names?.length ? { companies: latest.company_names } : {}),
+  };
+}
+
+export function mapAppointments(
+  payload: ChAppointmentList | null,
+  excludeCompanyNumber: string,
+): OfficerAppointment[] {
+  return (payload?.items ?? [])
+    .map((item) => {
+      const companyNumber = clean(item.appointed_to?.company_number);
+      const companyName = clean(item.appointed_to?.company_name);
+      if (!companyNumber || !companyName) return null;
+      // The company being viewed is not an "other" appointment.
+      if (companyNumber.toUpperCase() === excludeCompanyNumber.toUpperCase()) return null;
+
+      const status = clean(item.appointed_to?.company_status);
+      const resignedOn = clean(item.resigned_on);
+      return {
+        companyName,
+        companyNumber,
+        ...(status ? { companyStatus: status } : {}),
+        ...(clean(item.officer_role) ? { role: humanise(item.officer_role) } : {}),
+        ...(clean(item.appointed_on) ? { appointedOn: clean(item.appointed_on) } : {}),
+        ...(resignedOn ? { resignedOn } : {}),
+        active: !resignedOn,
+        concerning: Boolean(status && CONCERNING.some((c) => status.toLowerCase().includes(c))),
+      };
+    })
+    .filter((a): a is OfficerAppointment => a !== null)
+    // Live appointments at troubled companies first: that is the pattern
+    // worth seeing -- a director of three dissolved companies and one new one.
+    .sort(
+      (a, b) =>
+        Number(b.active) - Number(a.active) ||
+        Number(b.concerning) - Number(a.concerning) ||
+        a.companyName.localeCompare(b.companyName),
+    );
+}
+
+/**
+ * Fills in disqualification and other appointments for the serving officers.
+ *
+ * Failures are swallowed per officer. This is enrichment: a company record
+ * without it is still the company record, and one officer's appointments
+ * endpoint timing out should not lose the other five.
+ */
+async function enrichOfficers(officers: CompanyOfficer[], companyNumber: string): Promise<CompanyOfficer[]> {
+  const candidates = officers.filter((o) => o.active && o.officerId).slice(0, ENRICH_LIMIT);
+  if (!candidates.length) return officers;
+
+  const enriched = new Map<string, { disqualification?: CompanyDisqualification; otherRoles?: OfficerAppointment[] }>();
+
+  await Promise.all(
+    candidates.map(async (officer) => {
+      const id = officer.officerId!;
+      const [dq, appointments] = await Promise.all([
+        // A person with no disqualification is a 404 here, which is the
+        // answer for almost everybody.
+        chGet<ChDisqualification>(`/disqualified-officers/natural/${encodeURIComponent(id)}`).catch(() => null),
+        chGet<ChAppointmentList>(`/officers/${encodeURIComponent(id)}/appointments?items_per_page=50`).catch(
+          () => null,
+        ),
+      ]);
+
+      const disqualification = mapDisqualification(dq);
+      const otherRoles = mapAppointments(appointments, companyNumber);
+      enriched.set(id, {
+        ...(disqualification ? { disqualification } : {}),
+        ...(otherRoles.length ? { otherRoles } : {}),
+      });
+    }),
+  );
+
+  return officers.map((officer) => {
+    const extra = officer.officerId ? enriched.get(officer.officerId) : undefined;
+    return extra ? { ...officer, ...extra } : officer;
+  });
+}

@@ -8,3 +8,4 @@ export * from './operations';
 export * from "./addressMatch";
 export * from "./rate";
 export * from "./companies";
+export * from "./sla";

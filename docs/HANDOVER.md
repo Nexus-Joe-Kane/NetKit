@@ -7,29 +7,32 @@ Written 08 September 2026. `main` at the merge of #35.
 
 ---
 
-## Read this first: Ofcom sell no mobile API
+## Ofcom mobile: a request is in
 
-You mentioned applying for "both Ofcom broadband and mobile API keys". **There
-is no Ofcom mobile API to apply for**, so do not wait on that key — nothing is
-coming.
+There **is** an Ofcom mobile API, on a different platform from the broadband
+one, and a request for access has been submitted.
 
-Their developer portal offers exactly two products, Broadband Coverage (Basic)
-and Broadband Coverage (Premium). This was checked against the portal's own
-Products page, and I got it wrong once in the other direction before that
-screenshot settled it. Mobile coverage is published only as Connected Nations
-open data files, which need no key at all.
+Worth recording what was and was not true here, because I had this wrong for a
+while in both directions. On `api.ofcom.org.uk` — the developer portal that
+serves the broadband API — the only products are Broadband Coverage (Basic)
+and (Premium). That is why a mobile key never appeared there and why the
+speculative mobile branch in this codebase was removed: it called that portal
+with a guessed endpoint and the wrong subscription header, so it could never
+have worked. What does not follow, and what I asserted anyway, is that no
+Ofcom mobile API exists anywhere.
 
-So:
+**When the request is granted, send me the base URL, the auth scheme and
+whatever field documentation comes with it and I will wire it in.** I am not
+going to guess the shape a second time — guessing is what produced the dead
+branch, and a provider that looks configured but silently answers nothing is
+worse than one that is honestly absent.
 
-- **Broadband key** — real, worth having, `OFCOM_BROADBAND_API_KEY`.
-- **Mobile key** — does not exist. Mobile coverage comes from the CSV you have
-  already placed on the server. See item 2 below, which is a one-line change.
+`server/src/providers/signal/ofcom.ts` is structured to take it: it reads a
+dataset today, keyed by postcode where one is available and by area
+otherwise, and a live source slots in ahead of the file with the file staying
+as the offline fallback.
 
-If Ofcom ever do publish a mobile API, the provider is structured to take it:
-`server/src/providers/signal/ofcom.ts` reads a dataset today and a
-postcode-keyed source would drop straight in.
-
----
+Until then the CSV route below works and needs no key at all.
 
 ## Part 1 — Outstanding, in the order I would do them
 

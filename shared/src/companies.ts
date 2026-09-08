@@ -37,6 +37,46 @@ export interface CompanyOfficer {
   otherAppointments?: number;
   officerId?: string;
   url?: string;
+  /**
+   * Set when Companies House hold a disqualification for this officer.
+   *
+   * The one fact on this panel that should stop an order outright: a person
+   * disqualified from acting as a director is barred by court order, and
+   * taking a contract signed by them is a different problem from taking one
+   * from a company with late accounts.
+   */
+  disqualification?: CompanyDisqualification;
+  /** Other companies this officer holds an appointment at. */
+  otherRoles?: OfficerAppointment[];
+}
+
+/** A live or historic disqualification against an officer. */
+export interface CompanyDisqualification {
+  /** True while the ban is in force. */
+  active: boolean;
+  from?: string;
+  to?: string;
+  /** What they were disqualified under, e.g. "Company Directors Disqualification Act 1986". */
+  reason?: string;
+  /** The court or authority that made the order. */
+  authority?: string;
+  /** Companies the disqualification arose from. */
+  companies?: string[];
+}
+
+/** One appointment an officer holds at another company. */
+export interface OfficerAppointment {
+  companyName: string;
+  companyNumber: string;
+  /** Companies House status of that company, e.g. `active`, `dissolved`. */
+  companyStatus?: string;
+  role?: string;
+  appointedOn?: string;
+  resignedOn?: string;
+  /** True while the appointment stands. */
+  active: boolean;
+  /** True for statuses that mean the company is not trading normally. */
+  concerning: boolean;
 }
 
 /** A person or entity with significant control -- the real owner. */

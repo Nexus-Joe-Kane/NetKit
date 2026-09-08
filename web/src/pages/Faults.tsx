@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react';
 import type { FaultCategory, FaultRecord } from '@sw/shared';
+import { slaState } from '@sw/shared';
 import { ApiClientError, api } from '../lib/api';
 import { Alert, Card, Cell, Chip, ExportButtons, Label, Spinner, formatDateTime, type ChipTone } from '../components/ui';
 import type { CsvColumn } from '../lib/csv';
@@ -46,6 +47,7 @@ const FAULT_COLUMNS: Array<CsvColumn<FaultRecord>> = [
   { header: 'Cleared', value: (f) => f.clearedAt },
   { header: 'Care level', value: (f) => f.careLevel },
   { header: 'SLA target', value: (f) => f.slaTarget },
+  { header: 'SLA remaining', value: (f) => slaState(f)?.label },
   { header: 'Committed fix', value: (f) => f.committedAt },
   { header: 'Appointment date', value: (f) => f.appointment?.date },
   { header: 'Appointment slot', value: (f) => f.appointment?.slot },
@@ -179,6 +181,7 @@ export function FaultsPage(): ReactElement {
                     <th>Category</th>
                     <th>Summary</th>
                     <th>State</th>
+                    <th>SLA</th>
                     <th>Raised</th>
                   </tr>
                 </thead>
@@ -196,6 +199,7 @@ export function FaultsPage(): ReactElement {
                         )}
                       </td>
                       <td style={{ maxWidth: 300 }}>{fault.summary}</td>
+                      <td><SlaChip fault={fault} /></td>
                       <td>
                         <Chip tone={STATE_TONE[fault.state]} dot>
                           {fault.status}
@@ -523,5 +527,34 @@ export function RaiseFaultModal({
         </label>
       </form>
     </Modal>
+  );
+}
+
+/**
+ * Time left on a fault's SLA.
+ *
+ * A date tells an operator nothing at a glance; "1h 30m" tells them whether
+ * to chase now. Recomputed on a timer so a board left open on a wall does
+ * not quietly go stale -- the whole point is the number counting down.
+ */
+function SlaChip({ fault }: { fault: FaultRecord }): ReactElement {
+  const [now, setNow] = useState(() => new Date());
+
+  const state = slaState(fault, now);
+
+  useEffect(() => {
+    // Only while a clock is actually running.
+    if (!state?.live) return;
+    const timer = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(timer);
+  }, [state?.live]);
+
+  if (!state) return <span className="muted">—</span>;
+
+  const tone = state.tone === 'breached' ? 'crit' : state.tone === 'soon' ? 'warn' : 'ok';
+  return (
+    <Chip tone={tone} dot={state.live} title={`Target ${formatDateTime(fault.committedAt ?? fault.slaTarget) ?? ''}`}>
+      {state.label}
+    </Chip>
   );
 }
