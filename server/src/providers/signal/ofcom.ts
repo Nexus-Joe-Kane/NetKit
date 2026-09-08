@@ -127,12 +127,23 @@ export interface HeaderMeaning {
   areaNameIndex: number;
   /** The ONS code, e.g. `E14000898`. Preferred when present: names collide. */
   areaCodeIndex: number;
+  /**
+   * The publication a row belongs to, where the file carries more than one.
+   *
+   * A single Ofcom release has one row per area, but a file combining
+   * releases -- which is the practical way to keep pcon and laua together --
+   * has the same area several times over. Without reading this, whichever
+   * row happened to sit last in the file would win, and the answer would
+   * depend on sort order rather than on which figures are newest.
+   */
+  releaseIndex: number;
   columns: ColumnMeaning[];
 }
 
 /** Column names Ofcom and the combining script use for the area key. */
 const AREA_NAME_HEADERS = ['AREANAME', 'AREA', 'PCONNAME', 'LAUANAME', 'DEVCONNAME', 'NAME', 'CONSTITUENCY', 'LOCALAUTHORITY'];
 const AREA_CODE_HEADERS = ['AREACODE', 'PCON', 'PCONCODE', 'LAUA', 'LAUACODE', 'DEVCON', 'DEVCONCODE', 'CODE', 'ONSCODE', 'GSSCODE'];
+const RELEASE_HEADERS = ['RELEASE', 'PUBLICATION', 'EDITION', 'VERSION', 'PERIOD', 'REPORTDATE'];
 
 /**
  * Reads a header row and works out what each column means.
@@ -146,6 +157,7 @@ export function interpretHeader(headers: string[]): HeaderMeaning {
   let postcodeIndex = -1;
   let areaNameIndex = -1;
   let areaCodeIndex = -1;
+  let releaseIndex = -1;
   const columns: ColumnMeaning[] = [];
 
   headers.forEach((raw, index) => {
@@ -165,6 +177,10 @@ export function interpretHeader(headers: string[]): HeaderMeaning {
       areaNameIndex = index;
       return;
     }
+    if (releaseIndex < 0 && RELEASE_HEADERS.includes(joined)) {
+      releaseIndex = index;
+      return;
+    }
 
     const operator = operatorFrom(header);
     const service = serviceFrom(header);
@@ -180,7 +196,7 @@ export function interpretHeader(headers: string[]): HeaderMeaning {
     postcodeIndex = guess >= 0 ? guess : 0;
   }
 
-  return { postcodeIndex, areaNameIndex, areaCodeIndex, columns };
+  return { postcodeIndex, areaNameIndex, areaCodeIndex, releaseIndex, columns };
 }
 
 /** Area names are compared case- and punctuation-insensitively. */
@@ -263,9 +279,11 @@ export function loadDataset(force = false): DatasetIndex | null {
   const lines = text.split(/\r?\n/).filter((l) => l.trim() !== '');
   if (lines.length < 2) return null;
 
-  const { postcodeIndex, areaNameIndex, areaCodeIndex, columns } = interpretHeader(splitCsvLine(lines[0]!));
+  const { postcodeIndex, areaNameIndex, areaCodeIndex, releaseIndex, columns } = interpretHeader(splitCsvLine(lines[0]!));
   const byPostcode = new Map<string, CoverageRow>();
   const byArea = new Map<string, CoverageRow>();
+  /** Which release each area key currently holds, so newer rows win. */
+  const releaseByArea = new Map<string, string>();
   const keyedBy: 'postcode' | 'area' = postcodeIndex >= 0 ? 'postcode' : 'area';
 
   for (let i = 1; i < lines.length; i += 1) {
@@ -288,10 +306,21 @@ export function loadDataset(force = false): DatasetIndex | null {
     // name is what postcodes.io returns, and the two disagree often enough
     // (boundary reviews rename constituencies) that keeping both costs
     // nothing and saves a miss.
-    const code = normaliseArea(cells[areaCodeIndex] ?? '');
-    if (code) byArea.set(code, row);
-    const name = normaliseArea(cells[areaNameIndex] ?? '');
-    if (name) byArea.set(name, row);
+    //
+    // Where a key already has a row, the newer release keeps it. Release
+    // labels sort lexically in the form Ofcom use (`2025-07`, `2026-01`), and
+    // a file with no release column keeps first-wins, which is the old
+    // behaviour for a single-release file.
+    const release = releaseIndex >= 0 ? (cells[releaseIndex] ?? '').trim() : '';
+    const claim = (key: string): void => {
+      if (!key) return;
+      const held = releaseByArea.get(key);
+      if (held !== undefined && release <= held) return;
+      byArea.set(key, row);
+      releaseByArea.set(key, release);
+    };
+    claim(normaliseArea(cells[areaCodeIndex] ?? ''));
+    claim(normaliseArea(cells[areaNameIndex] ?? ''));
   }
 
   index = {
