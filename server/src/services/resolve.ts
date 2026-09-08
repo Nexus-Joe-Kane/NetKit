@@ -14,6 +14,7 @@ import {
   type SectionStatus,
   type SignalReport,
   type SiteReport,
+  samePremises,
 } from '@sw/shared';
 import { config } from '../config';
 import { TtlCache } from '../lib/cache';
@@ -101,16 +102,39 @@ export async function findLines(id: ResolvedIdentifier): Promise<{ lines: LineRe
 
   if (!runner) return { lines: [], status: { ok: true, mode: 'skipped' } };
 
-  const result = await firstResult(reg.lines, runner, (v) => v.length > 0);
-  if (result.value === null) {
-    // No line found is a legitimate answer, not a failure — the premises may
-    // simply not be ours. Only report an error if a provider actually threw.
-    return {
-      lines: [],
-      status: result.errors.length ? failed(result.errors) : ok('mock', Date.now() - started),
-    };
-  }
-  return { lines: result.value, status: ok(result.mode, Date.now() - started) };
+  // Every provider is asked, and the answers are merged.
+  //
+  // This was first-wins, which meant a CLI search that Zen answered never
+  // reached Giacom and vice versa — so the two wholesale accounts could
+  // never be searched in one place, which is the whole point of the box.
+  const seen = new Map<string, LineRecord>();
+  const errors: Error[] = [];
+  let mode: 'live' | 'mock' = 'mock';
+  let answered = false;
+
+  await Promise.all(
+    reg.lines.map(async (provider) => {
+      try {
+        for (const line of await runner(provider)) {
+          const key = line.serviceId ?? line.lineAccessId ?? line.cli ?? line.id;
+          const existing = seen.get(key);
+          if (!existing || (existing.discoveredVia === 'mock' && line.discoveredVia !== 'mock')) {
+            seen.set(key, line);
+          }
+        }
+        answered = true;
+        if (provider.mode === 'live') mode = 'live';
+      } catch (err) {
+        errors.push(err instanceof Error ? err : new Error(String(err)));
+      }
+    }),
+  );
+
+  const lines = [...seen.values()];
+  // No line found is a legitimate answer, not a failure — the identifier may
+  // simply not be ours. Only report an error if every provider threw.
+  if (!answered && errors.length) return { lines, status: failed(errors) };
+  return { lines, status: ok(mode, Date.now() - started) };
 }
 
 /**
@@ -139,25 +163,30 @@ function belongsToPremises(line: LineRecord, address: AddressRecord): boolean {
   const lineKey = line.lineAccessId?.trim().toUpperCase();
   if (premisesKey && lineKey && premisesKey === lineKey) return true;
 
-  if (!line.address.uprn && line.address.singleLine) {
-    return line.address.singleLine.trim().toLowerCase() === address.singleLine.trim().toLowerCase();
-  }
-  return false;
+  // Field by field, rather than comparing formatted strings. The previous
+  // fallback demanded byte equality of the whole single line, which a Zen
+  // address and an OS Places address for the same building never satisfy —
+  // so a real Openreach circuit was reported as "no lines found".
+  return samePremises(line.address, address);
 }
 
 export async function allLinesAtPremises(
   address: AddressRecord,
-): Promise<{ lines: LineRecord[]; status: SectionStatus }> {
+): Promise<{ lines: LineRecord[]; nearby: LineRecord[]; status: SectionStatus }> {
   const reg = providers();
   const started = Date.now();
   const seen = new Map<string, LineRecord>();
+  const unmatched = new Map<string, LineRecord>();
   const errors: Error[] = [];
   let mode: 'live' | 'mock' = 'mock';
   let answered = false;
 
+  const identity = (line: LineRecord): string =>
+    line.serviceId ?? line.lineAccessId ?? line.cli ?? line.id;
+
   const add = (line: LineRecord) => {
     // Prefer a live record over a fixture for the same line identity.
-    const key = line.serviceId ?? line.lineAccessId ?? line.cli ?? line.id;
+    const key = identity(line);
     const existing = seen.get(key);
     if (!existing || (existing.discoveredVia === 'mock' && line.discoveredVia !== 'mock')) {
       seen.set(key, line);
@@ -175,6 +204,13 @@ export async function allLinesAtPremises(
         if (!direct.length && p.byPostcode && address.postcode) {
           for (const line of await p.byPostcode(address.postcode)) {
             if (belongsToPremises(line, address)) add(line);
+            // Kept rather than discarded. A line at this postcode that
+            // cannot be tied to this premises is usually a neighbour — but
+            // it is sometimes this customer with an address the supplier
+            // records differently, and silently dropping it is what made a
+            // real circuit look like no circuit at all. Shown separately so
+            // it is never mistaken for a line at this address.
+            else unmatched.set(identity(line), line);
           }
         }
         answered = true;
@@ -186,8 +222,11 @@ export async function allLinesAtPremises(
   );
 
   const lines = [...seen.values()];
-  if (!answered && errors.length) return { lines, status: failed(errors) };
-  return { lines, status: ok(mode, Date.now() - started) };
+  // Anything that did match is not also "nearby".
+  const nearby = [...unmatched.values()].filter((line) => !seen.has(identity(line)));
+
+  if (!answered && errors.length) return { lines, nearby, status: failed(errors) };
+  return { lines, nearby, status: ok(mode, Date.now() - started) };
 }
 
 /* ------------------------------------------------------------------ *
@@ -433,6 +472,7 @@ export async function buildSiteReport(
     ...(availability.value ? { broadband: availability.value } : {}),
     ...(signal.value ? { signal: signal.value } : {}),
     lines: lines.lines,
+    ...(lines.nearby.length ? { nearbyLines: lines.nearby } : {}),
     siblings: siblings
       .filter((a) => a.uprn !== address.uprn)
       .slice(0, 60)

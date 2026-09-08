@@ -533,6 +533,15 @@ export interface SiteReport {
   broadband?: BroadbandAvailability;
   signal?: SignalReport;
   lines: LineRecord[];
+  /**
+   * Lines found at this postcode that could not be tied to this premises.
+   *
+   * Usually a neighbour, occasionally this customer under an address the
+   * supplier records differently. Kept separate from `lines` so it is never
+   * read as a line at this address, and kept at all because discarding them
+   * silently is what made a real Openreach circuit look like none.
+   */
+  nearbyLines?: LineRecord[];
   /** Other addresses at the same postcode, for quick hopping. */
   siblings?: AddressSuggestion[];
   status: {

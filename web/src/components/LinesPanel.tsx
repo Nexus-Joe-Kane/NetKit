@@ -312,7 +312,22 @@ function LineDetail({ line }: { line: LineRecord }): ReactElement {
  * All the lines at a premises
  * ------------------------------------------------------------------ */
 
-export function LinesPanel({ lines }: { lines: LineRecord[] }): ReactElement {
+export function LinesPanel({
+  lines,
+  nearbyLines = [],
+}: {
+  lines: LineRecord[];
+  /**
+   * Lines at this postcode that could not be tied to this premises.
+   *
+   * Shown because "no lines found" was wrong often enough to matter: a
+   * supplier recording the address differently from AddressBase meant a real
+   * circuit was dropped and the panel said the site had nothing. Listed
+   * apart from the matched lines, and labelled, so nobody reads one as a
+   * line at this address.
+   */
+  nearbyLines?: LineRecord[];
+}): ReactElement {
   const [active, setActive] = useState(0);
 
   if (!lines.length) {
@@ -325,6 +340,7 @@ export function LinesPanel({ lines }: { lines: LineRecord[] }): ReactElement {
             by another provider, or has never had a fixed line. Availability under Broadband still applies.
           </p>
         </div>
+        {nearbyLines.length > 0 && <NearbyLines lines={nearbyLines} />}
       </Card>
     );
   }
@@ -348,6 +364,60 @@ export function LinesPanel({ lines }: { lines: LineRecord[] }): ReactElement {
         label="Lines at this premises"
       />
       <LineDetail key={lines[active]!.id} line={lines[active]!} />
+    </div>
+  );
+}
+
+/**
+ * Lines at the postcode that did not match this premises.
+ *
+ * Deliberately plain: a table, a caption saying what it is, and the address
+ * the supplier gave for each so the discrepancy is visible. If one of these
+ * is the customer, the address on the row is what to correct with the
+ * supplier.
+ */
+function NearbyLines({ lines }: { lines: LineRecord[] }): ReactElement {
+  return (
+    <div style={{ padding: '0 18px 18px' }}>
+      <div className="flag flag--warn">
+        <span className="flag__marker" aria-hidden="true" />
+        <span>
+          <strong>
+            {lines.length === 1
+              ? '1 line at this postcode could not be matched to this premises'
+              : `${lines.length} lines at this postcode could not be matched to this premises`}
+          </strong>
+          <span className="flag__detail">
+            Usually a neighbour. Occasionally it is this customer, recorded by the supplier under a different
+            address — compare the addresses below.
+          </span>
+        </span>
+      </div>
+
+      <div className="table-wrap" style={{ marginTop: 12 }}>
+        <table className="data">
+          <thead>
+            <tr>
+              <th>Provider</th>
+              <th>Service</th>
+              <th>CLI</th>
+              <th>Address the supplier holds</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lines.map((line) => (
+              <tr key={line.serviceId ?? line.lineAccessId ?? line.cli ?? line.id}>
+                <td style={{ fontSize: 12.5 }}>{line.provider}</td>
+                <td className="sw-mono" style={{ fontSize: 12 }}>
+                  {line.serviceId ?? line.lineAccessId ?? '—'}
+                </td>
+                <td className="sw-mono" style={{ fontSize: 12 }}>{line.cli ?? '—'}</td>
+                <td style={{ fontSize: 12 }}>{line.address.singleLine || '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

@@ -184,3 +184,63 @@ test('a footprint row is never promoted to confirmed', () => {
   assert.equal(marked?.serviceability, 'footprint');
   assert.equal(marked?.orderable, undefined, 'must not gain an orderable flag');
 });
+
+test('a line whose supplier address differs still matches the premises', () => {
+  // Willow Estate Agents: a real Openreach circuit through Zen that the
+  // premises report said did not exist, because matching demanded byte
+  // equality of the whole formatted address.
+  const premises = {
+    uprn: '100023253338',
+    organisation: 'Willow Estate Agents Ltd',
+    buildingNumber: '45',
+    thoroughfare: 'Brockley Rise',
+    postTown: 'LONDON',
+    postcode: 'SE23 1JG',
+    lines: ['Willow Estate Agents Ltd', '45 Brockley Rise', 'LONDON'],
+    singleLine: 'Willow Estate Agents Ltd, 45 Brockley Rise, LONDON, SE23 1JG',
+    source: 'os-places',
+  } as never;
+
+  const line = {
+    id: 'x',
+    address: {
+      buildingNumber: '45',
+      thoroughfare: 'BROCKLEY RISE',
+      postTown: 'LONDON',
+      postcode: 'SE23 1JG',
+      lines: ['45 BROCKLEY RISE', 'LONDON'],
+      singleLine: '45 BROCKLEY RISE, LONDON, SE23 1JG',
+      source: 'zen',
+    },
+    provider: 'Zen Internet',
+  } as never;
+
+  assert.equal(__resolveTesting.belongsToPremises(line, premises), true);
+});
+
+test('a neighbour is still excluded from the premises', () => {
+  const premises = {
+    uprn: '100023253338',
+    buildingNumber: '45',
+    thoroughfare: 'Brockley Rise',
+    postTown: 'LONDON',
+    postcode: 'SE23 1JG',
+    lines: [],
+    singleLine: '45 Brockley Rise, LONDON, SE23 1JG',
+    source: 'os-places',
+  } as never;
+  const neighbour = {
+    id: 'y',
+    address: {
+      buildingNumber: '47',
+      thoroughfare: 'Brockley Rise',
+      postTown: 'LONDON',
+      postcode: 'SE23 1JG',
+      lines: [],
+      singleLine: '47 Brockley Rise, LONDON, SE23 1JG',
+      source: 'zen',
+    },
+    provider: 'Zen Internet',
+  } as never;
+  assert.equal(__resolveTesting.belongsToPremises(neighbour, premises), false);
+});

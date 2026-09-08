@@ -56,18 +56,36 @@ const SYNONYMS: Record<string, string[]> = {
 const NOISE = new Set(['the', 'of', 'and', 'at', 'in', 'on', 'to', 'nr', 'near']);
 
 /**
+ * Apostrophes are removed rather than split on.
+ *
+ * `Megan's` split on punctuation gives `megan` and `s`, and that orphan `s`
+ * can never match anything -- a one-character token has to match a whole
+ * word, and no address contains the word "s". So every search for a
+ * possessive name failed to match completely and fell back to guesswork.
+ * Removing the apostrophe first gives `megans`, and doing the same to the
+ * address means `Megans` and `Megan's` match each other in both directions.
+ *
+ * Both straight and curly apostrophes, because a name typed on a phone and
+ * the same name in AddressBase rarely agree about which one to use.
+ */
+const deapostrophe = (value: string): string => value.replace(/['\u2018\u2019\u02BC]/g, '');
+
+/**
  * Splits what the person typed into tokens worth matching.
  *
  * Punctuation goes -- commas especially, since `13 Hill St, Richmond` is how
  * people actually type an address -- and so do filler words, which would
  * otherwise be impossible to satisfy and would sink every result to a partial
  * match.
+ *
+ * Single characters go too. They carry no signal on their own and, being
+ * matched whole, are usually impossible to satisfy.
  */
 export function tokeniseQuery(query: string): string[] {
-  return query
+  return deapostrophe(query)
     .toLowerCase()
     .split(/[^a-z0-9]+/)
-    .filter((t) => t.length > 0 && !NOISE.has(t));
+    .filter((t) => t.length > 1 && !NOISE.has(t));
 }
 
 /** Every word in the address, including postcode, locality and post town. */
@@ -87,9 +105,9 @@ export function addressWords(address: AddressRecord): string[] {
     address.county,
     address.localAuthority,
   ];
-  return parts
-    .filter((p): p is string => typeof p === 'string' && p.length > 0)
-    .join(' ')
+  return deapostrophe(
+    parts.filter((p): p is string => typeof p === 'string' && p.length > 0).join(' '),
+  )
     .toLowerCase()
     .split(/[^a-z0-9]+/)
     .filter((w) => w.length > 0);
@@ -121,6 +139,14 @@ export function tokenMatches(token: string, words: string[]): boolean {
       continue;
     }
     if (words.some((w) => w.startsWith(candidate))) return true;
+    // And the other direction, by one character only: someone typing
+    // `Maru's Mayfair` produces `marus`, which is not a prefix of the
+    // `Maru` in the address. A possessive or a plural the address does not
+    // carry should not lose the match. One character, so `richmond` still
+    // cannot match `richmon`.
+    if (words.some((w) => w.length >= 3 && candidate.startsWith(w) && candidate.length - w.length <= 1)) {
+      return true;
+    }
   }
   return false;
 }
@@ -176,4 +202,118 @@ export function rankAddresses(addresses: AddressRecord[], query: string, limit: 
   const complete = ranked.filter((m) => m.complete);
   const chosen = complete.length > 0 ? complete : ranked;
   return chosen.slice(0, limit).map((m) => m.address);
+}
+
+/* ------------------------------------------------------------------ *
+ * Is this the same premises?
+ * ------------------------------------------------------------------ */
+
+/** Words that name a kind of unit rather than identify one. */
+const UNIT_WORDS = new Set([
+  'flat',
+  'apartment',
+  'apt',
+  'unit',
+  'room',
+  'suite',
+  'floor',
+  'the',
+  'no',
+  'number',
+]);
+
+/**
+ * What distinguishes one unit within a building.
+ *
+ * Single characters are kept here, unlike the general tokeniser: in
+ * "Flat 1" the `1` is the whole point. Generic words are dropped so the
+ * comparison is between `1` and `2` rather than between two strings that
+ * both contain "flat".
+ */
+function unitKey(value?: string): string[] {
+  return deapostrophe(value ?? '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length > 0 && !UNIT_WORDS.has(w));
+}
+
+/**
+ * Whether two address records describe the same doorstep.
+ *
+ * This exists because a real line went missing. Willow Estate Agents have an
+ * Openreach fibre circuit through Zen, and the site report said "No lines
+ * found" -- because the only fallback for matching a line to a premises was
+ * exact string equality on the whole formatted address. Zen's address for a
+ * service and OS Places' address for the same building are never byte
+ * identical: OS carry the organisation name and Zen do not, capitalisation
+ * differs, and street types are abbreviated on one side and not the other.
+ * So the comparison could only ever succeed by accident.
+ *
+ * The order below is deliberate. Postcode is a gate, not a score: two
+ * different postcodes are two different premises, always. Within a postcode
+ * the building number is the strongest signal, and where a number is absent
+ * on both sides the building name stands in. The street is checked only to
+ * separate the rare case of the same number on two streets sharing one
+ * postcode.
+ *
+ * Where a field is missing on one side it is not held against the match --
+ * Zen routinely omit a flat number that AddressBase carries -- but a field
+ * present on both and disagreeing is decisive.
+ */
+export function samePremises(a: AddressRecord, b: AddressRecord): boolean {
+  // A UPRN on both sides settles it outright.
+  if (a.uprn && b.uprn) return a.uprn === b.uprn;
+
+  const postcode = (v?: string): string => (v ?? '').replace(/\s+/g, '').toUpperCase();
+  const pcA = postcode(a.postcode);
+  const pcB = postcode(b.postcode);
+  // Without a postcode on both sides there is not enough to be sure.
+  if (!pcA || !pcB || pcA !== pcB) return false;
+
+  const numberOf = (r: AddressRecord): string =>
+    (r.buildingNumber ?? '').trim().toUpperCase().replace(/\s+/g, '');
+  const numA = numberOf(a);
+  const numB = numberOf(b);
+  if (numA && numB && numA !== numB) return false;
+
+  const words = (v?: string): string[] =>
+    deapostrophe(v ?? '')
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((w) => w.length > 1);
+
+  // Sub-building: a flat number both sides carry must agree, or two flats in
+  // one block read as the same premises and a neighbour's circuit lands on
+  // the report.
+  //
+  // Compared on what distinguishes the unit, not the whole string. "Flat 1"
+  // and "Flat 2" share the word "flat", so a plain word-overlap test passes
+  // them -- and dropping single characters, as the general tokeniser does,
+  // throws away the only part that matters.
+  const subA = unitKey(a.subBuilding);
+  const subB = unitKey(b.subBuilding);
+  if (subA.length && subB.length && !subA.some((w) => subB.includes(w))) return false;
+
+  // Street, where both name one. Synonyms so `Rd` and `Road` agree.
+  const streetA = a.thoroughfare ?? a.dependentThoroughfare;
+  const streetB = b.thoroughfare ?? b.dependentThoroughfare;
+  if (streetA && streetB) {
+    const bWords = words(streetB);
+    const shared = words(streetA).some((w) => tokenMatches(w, bWords));
+    if (!shared) return false;
+  }
+
+  // With a number agreeing on both sides, and postcode and street already
+  // checked, this is the same doorstep.
+  if (numA && numB) return true;
+
+  // No number to go on: fall back to the building name sharing a word.
+  const nameA = [...words(a.buildingName), ...words(a.organisation)];
+  const nameB = [...words(b.buildingName), ...words(b.organisation)];
+  if (nameA.length && nameB.length) return nameA.some((w) => nameB.includes(w));
+
+  // One side is a bare street and postcode. That is not enough to claim a
+  // premises match, and claiming it would put a neighbour's circuit on the
+  // report.
+  return false;
 }
