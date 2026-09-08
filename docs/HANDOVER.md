@@ -170,63 +170,58 @@ number rather than approving on the spot.
 
 ## Part 3 — Worth building next
 
-Ordered by what I think buys the most. Estimates are rough.
+Five of these have shipped since this document was written. What is left, and
+why, is below them.
 
-### Strong candidates
+### Shipped
 
-**Zen `indirect-changeservice` — half a day.** The scope is already in your
-`ZEN_SCOPES` and no endpoint calls it. This is the regrade job: moving a line
-from 80/20 to FTTP 500. Currently a portal task, and the single largest
-remaining "why am I logging into Zen" gap.
+- **Bulk lookup.** Top of Tools. Paste a column of postcodes, UPRNs,
+  addresses or CLIs, get a row each with best technology, speed, orderable
+  count and lines in place, exportable. Built around the fair-use budget:
+  three at a time, the budget reserved atomically per row, and anything the
+  budget could not cover marked `skipped` rather than attempted.
+- **Fault SLA countdowns.** Time remaining on the faults board, coloured,
+  ticking, and in the CSV. The supplier's own commitment wins over a generic
+  target; a cleared fault is judged when it cleared rather than drifting
+  further past its target every time the page opens.
+- **Officer disqualification.** A critical flag on the company record and a
+  badge on the officer. Free on the Companies House key.
+- **Other appointments.** The companies an officer runs elsewhere, live and
+  troubled first — a director of four dissolved companies and one new one is
+  the pattern worth seeing before agreeing credit.
+- **Print the whole report.** Printing used to capture only the open tab.
+  There is now an A4 layout covering every section, plain enough to survive
+  black and white.
 
-**Bulk lookup — one day.** Paste a column of postcodes, UPRNs or CLIs, get a
-CSV back with availability, best speed and lines for each. The per-premises
-report is excellent for one site and useless for a bid across forty. The
-export machinery already exists.
+### Still worth doing
 
-**Watch a premises — one to two days.** A "build planned 20 Sept 2027" FTTP
-row is worth nothing unless somebody remembers to look again. Save a premises,
-and get told when a planned build becomes orderable or an RFS date moves. The
-supervisor already runs on a schedule and Resend is wired for email.
+**Watch a premises — one to two days.** Not built. A "build planned 20 Sept
+2027" FTTP row is worth nothing unless somebody remembers to look again. Save
+a premises, and be told when a planned build becomes orderable or an RFS date
+moves. The supervisor already runs on a schedule and Resend is wired for
+email, so the pieces exist; what it needs is a watch store, a comparison
+against a stored snapshot, and the discipline to not send a wrong email —
+which is why it has not been rushed in alongside the others.
 
-**Nearest masts, per operator — one day.** OpenCelliD is free and gives cell
-sites by location. Ofcom's area-level prediction says a constituency is fine;
-"the nearest EE site is 4.2 km away across a hill" explains why this customer
-is not. Genuinely useful on a mobile complaint, and it is the honest
-counterweight to a figure published per constituency.
+### Blocked on something from you
 
-### Nice to have
+**Nearest masts, per operator — one day, needs a token.** OpenCelliD is free
+and gives cell sites by location, which is the honest counterweight to
+coverage published per constituency: "the nearest EE site is 4.2 km away
+across a hill" explains what an area-level figure cannot. It needs a free
+OpenCelliD API token. Get one and I will wire it.
 
-**Disqualified officers — half a day.** Companies House publish a
-disqualified-officers API, free on the same key. A director you are about to
-give credit to being disqualified is exactly the kind of thing this panel
-exists to surface.
+**Zen `indirect-changeservice` — half a day, needs the endpoint paths.** The
+scope is in your `ZEN_SCOPES` and no endpoint calls it, because Zen do not
+publish the paths for it and this is precisely where guessing has already
+cost us once: the dead Ofcom mobile branch called a guessed endpoint with the
+wrong header and could never have worked. Ask Zen for the changeservice
+endpoint documentation and this becomes a short job.
 
-**Other companies at this premises, and elsewhere.** The officer records
-already carry an appointments count and a link. Following it would show the
-other companies a director runs — useful when a customer dissolves one company
-and reappears as another at the same address.
+### Deliberately not done
 
-**Fault SLA countdown.** Fault records carry `slaTarget` and `committedAt` and
-neither is shown as time remaining. A "4h 20m left on this SLA" chip on the
-faults board is small and would get looked at every day.
-
-**Print a site report to PDF.** There is a Print button and browser print
-styling, but no proper one-page PDF for attaching to a quote.
-
-### Cool, lower value
-
-**A command palette.** Ctrl-K to jump to a premises, a line, a fault. For
-someone living in this all day it would be faster than the mouse.
-
-**Teams or Slack alerts for MSOs that touch your customers.** The network
-status board knows about outages and the lines table knows whose they are;
-crossing the two and posting to a channel would mean nobody finds out from the
-customer first.
-
-**A dark theme.** Cosmetic, and this is a tool people stare at for hours.
-
----
+The three lowest-value items from the original list — a command palette,
+Teams or Slack alerts, and a dark theme — were dropped as agreed.
 
 ## Part 4 — State of the thing
 
