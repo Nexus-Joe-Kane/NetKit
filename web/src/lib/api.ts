@@ -37,6 +37,7 @@ import type {
   SiteReport,
   StabilityReport,
   UsageReport,
+  CompanyDetail,
 } from '@sw/shared';
 
 /** One premises or identifier this user looked up recently. */
@@ -306,6 +307,9 @@ export const api = {
 
   companies: (postcode: string) =>
     request<Sourced & CompanyContext>(`/api/tools/companies?postcode=${encodeURIComponent(postcode)}`),
+  /** The full register record for one company. Fetched only when opened. */
+  companyDetail: (companyNumber: string) =>
+    request<Sourced & CompanyDetail>(`/api/tools/companies/${encodeURIComponent(companyNumber)}`),
 
   /* ---- SIMs -------------------------------------------------------- */
 
