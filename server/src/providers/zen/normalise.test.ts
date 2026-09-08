@@ -217,3 +217,31 @@ test('technology is inferred from product naming', () => {
   assert.equal(technologyFromProduct('Ethernet 1Gb'), 'EAD');
   assert.equal(technologyFromProduct('Mystery Product'), 'Unknown');
 });
+
+test('Openreach kbit/s speeds do not become gigabits', () => {
+  // The live symptom: Apartment 1, 113 Newton Street rendered "80 Gb down /
+  // 18.2 Gb up". Zen published 80000 / 18200, which is kbit/s.
+  const offers = offersFromLineDetails({
+    fttc: {
+      rangeADownstreamTopSpeedValue: 80000,
+      rangeADownstreamBottomSpeedValue: 55000,
+      rangeAUpstreamTopSpeedValue: 18200,
+      rangeAUpstreamBottomSpeedValue: 12000,
+    },
+  } as never);
+
+  const fttc = offers.find((o) => o.technology === 'FTTC');
+  assert.ok(fttc, 'expected an FTTC offer');
+  assert.equal(fttc?.speeds.downMbpsHigh, 80);
+  assert.equal(fttc?.speeds.downMbpsLow, 55);
+  assert.equal(fttc?.speeds.upMbpsHigh, 18.2);
+  assert.equal(fttc?.speeds.upMbpsLow, 12);
+});
+
+test('a genuine gigabit FTTP figure in Mbit/s is left alone', () => {
+  const offers = offersFromLineDetails({
+    fttp: { maxDownstreamSpeedValue: 1000, maxUpstreamSpeedValue: 1000 },
+  } as never);
+  const fttp = offers.find((o) => o.technology === 'FTTP');
+  assert.equal(fttp?.speeds.downMbpsHigh, 1000, '1000 Mb must stay 1000 Mb');
+});

@@ -1256,7 +1256,6 @@ export function buildFixtureCompanies(postcode: string): CompanyContext {
       registeredHere: true,
       sicCodes: [seed.pick(['62020', '43320', '86230', '70229', '56102', '68209'])],
       ...(seed.bool(0.25) ? { overdue: ['Confirmation statement overdue'] } : {}),
-      officerCount: seed.int(1, 5),
       url: 'https://find-and-update.company-information.service.gov.uk/',
       source: 'fixture:companies-house',
     });

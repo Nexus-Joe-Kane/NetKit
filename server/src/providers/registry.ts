@@ -48,6 +48,22 @@ export interface Registry {
  * toggle a provider off at any moment and the next lookup must respect it.
  * Construction is only a handful of object literals.
  */
+/**
+ * True when a premises search would be answered from fixtures.
+ *
+ * The lookup page used to offer worked examples -- a postcode, a UPRN, a CLI
+ * -- taken from the fixture set. On a live deployment those UPRNs and CLIs do
+ * not exist, so the one thing offered as a guaranteed starting point answered
+ * "No premises found". The examples are only shown when they can actually
+ * work, and this is how the client is told.
+ */
+export function addressLookupsAreFixtures(): boolean {
+  // The first provider in the chain is the one that answers, so it is the one
+  // that decides. An empty chain means no examples are safe either -- that is
+  // DATA_MODE=live with no credentials, where nothing resolves at all.
+  return providers().address[0]?.mode === 'mock';
+}
+
 export function providers(): Registry {
   const cfg = config();
   const allowFixtures = cfg.dataMode !== 'live';

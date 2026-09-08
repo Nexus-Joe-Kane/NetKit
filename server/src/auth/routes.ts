@@ -15,6 +15,7 @@ import {
   type User,
 } from './store';
 import { clearSession, currentUser, issuePendingSession, issueSession, pendingUser, refreshSession } from './sessions';
+import { addressLookupsAreFixtures } from '../providers/registry';
 
 /**
  * Authentication routes.
@@ -151,12 +152,18 @@ export interface SessionResponse {
   /** True when the user must set a new password before continuing. */
   mustChangePassword: boolean;
   twoFactorAvailable: boolean;
+  /**
+   * True when premises lookups are answered from fixtures, so the lookup page
+   * knows whether its worked examples would actually resolve.
+   */
+  demoData: boolean;
 }
 
 const sessionBody = (user: User): SessionResponse => ({
   user: toPublicUser(user),
   mustChangePassword: user.mustChangePassword,
   twoFactorAvailable: twoFactorAvailable(),
+  demoData: addressLookupsAreFixtures(),
 });
 
 const send = <T>(res: Response, data: T, status = 200): void => {

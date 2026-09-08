@@ -13,7 +13,7 @@ the code there, and **Node.js** enabled on the domain to run it.
 ## 1. Create the domain
 
 1. **Websites & Domains → Add Domain → Deploy using Git.**
-2. Repository URL: `https://github.com/Nexus-Joe-Kane/HotTub`
+2. Repository URL: `https://github.com/Nexus-Joe-Kane/NetKit`
    Branch: `claude/supportwizard-networking-toolkit-0ltkzx` (or `main` once merged).
 3. Let Plesk do the initial pull.
 
@@ -155,8 +155,13 @@ keeping it, and prunes anything older than `KEEP_DAYS`.
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `DATA_DIR` | from `.env`, else `data` | What gets backed up |
-| `BACKUP_DIR` | `backups` | Point this inside the Plesk backup set so archives leave the machine |
+| `DATA_DIR` | from `.env`; **required, absolute** | What gets backed up |
+| `BACKUP_DIR` | **required, absolute** | Point this inside the Plesk backup set so archives leave the machine |
+
+Both must be absolute paths, and the script refuses to run otherwise. The
+relative defaults these once had (`data` and `backups`) resolved against the
+Git working tree, so backups were written where the next deploy would delete
+them — and where `git add -A` would commit them.
 | `KEEP_DAYS` | `14` | Long enough to notice a bad change, short enough not to become its own problem |
 
 **To restore:** stop the app (**Node.js → Disable**), extract the archive over

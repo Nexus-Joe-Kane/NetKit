@@ -22,8 +22,45 @@ cd "$(dirname "$0")"
 if [ -z "${DATA_DIR:-}" ] && [ -f .env ]; then
   DATA_DIR="$(grep -E '^DATA_DIR=' .env | tail -n1 | cut -d= -f2- | tr -d '"'"'"' ' || true)"
 fi
-DATA_DIR="${DATA_DIR:-data}"
-BACKUP_DIR="${BACKUP_DIR:-backups}"
+DATA_DIR="${DATA_DIR:-}"
+BACKUP_DIR="${BACKUP_DIR:-}"
+
+# No relative defaults, and no relative values at all.
+#
+# `data` and `backups` both resolve against whatever directory this runs
+# from, which for a Plesk deployment action or a cron line is the Git working
+# tree. A backup written inside the tree is destroyed by the same deploy it
+# exists to survive, and it would be committed on the next `git add -A`.
+if [ -z "$DATA_DIR" ]; then
+  echo "!! DATA_DIR is not set." >&2
+  echo "   Set it in .env or the environment, as an absolute path -- e.g." >&2
+  echo "   /var/www/vhosts/<domain>/netkit-data" >&2
+  exit 1
+fi
+case "$DATA_DIR" in
+  /*) ;;
+  *)
+    echo "!! DATA_DIR must be an absolute path, got \"$DATA_DIR\"." >&2
+    echo "   A relative path resolves inside the deployment directory." >&2
+    exit 1
+    ;;
+esac
+
+if [ -z "$BACKUP_DIR" ]; then
+  echo "!! BACKUP_DIR is not set." >&2
+  echo "   Set it to an absolute path OUTSIDE the Git working tree -- e.g." >&2
+  echo "   /var/www/vhosts/<domain>/netkit-backups" >&2
+  exit 1
+fi
+case "$BACKUP_DIR" in
+  /*) ;;
+  *)
+    echo "!! BACKUP_DIR must be an absolute path, got \"$BACKUP_DIR\"." >&2
+    echo "   Backups inside the deployment directory are destroyed by the" >&2
+    echo "   next deploy, which defeats the point of taking them." >&2
+    exit 1
+    ;;
+esac
 # Two weeks is enough to notice a bad change and still roll back, without the
 # archives becoming their own storage problem.
 KEEP_DAYS="${KEEP_DAYS:-14}"

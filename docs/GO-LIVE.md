@@ -16,7 +16,7 @@ which integrations are still waiting on keys.
 
 **Websites & Domains → Add Domain → Deploy using Git**
 
-- Repository: `https://github.com/Nexus-Joe-Kane/HotTub`
+- Repository: `https://github.com/Nexus-Joe-Kane/NetKit`
 - Branch: `main`
 
 Let Plesk take the first pull.
@@ -172,6 +172,9 @@ Two routes, in the order worth trying:
    data, quite apart from this build.
 
 2. **Add a Node 20 built for the old glibc**, if the OS cannot move yet.
+   This works, but not the way you would expect, and the obvious approach
+   does not work at all. What follows was established on the live server.
+
    Take the `glibc-217` variant for the Node 20 line from
    `unofficial-builds.nodejs.org` (check the release listing — that variant
    is published for some lines and not others), unpack it into
@@ -182,12 +185,46 @@ Two routes, in the order worth trying:
    ```
 
    That must print a version. If it prints another `GLIBC_` error you have
-   the wrong variant. Plesk's Node.js extension lists what it finds under
-   `/opt/plesk/node/`, so it should then appear in the dropdown; if it does
-   not, register it with `plesk sbin nodemng` (check `--help` on your Plesk
-   version for the exact subcommand). Treat this as a stopgap: unofficial
-   builds are not on the host's update path, so nothing patches that Node
-   for you.
+   the wrong variant, and nothing below will help.
+
+   **Plesk will not discover it.** The Node.js extension only knows versions
+   it installed itself — its cache holds the tarballs it fetched — so a
+   working Node 20 sitting in `/opt/plesk/node/20` never appears in the
+   dropdown. On this server `/opt/plesk/node/18` had sat there unlisted
+   since 2022. Nor can you ask Plesk to adopt it:
+   `plesk ext nodejs --install -version 20.19.0` answers *"The Node.js
+   version 20.19.0 was not found"*, because it only offers builds Plesk
+   packages for the host OS. (The real CLI is `plesk ext nodejs`, with
+   `--versions`, `--enable`, `--disable`, `--install`, `--uninstall`,
+   `--set-version`, `--get-version`. There is no `plesk sbin nodemng`.)
+
+   **Overriding Passenger in Apache directives does not work either.**
+   Passenger takes the *first* `PassengerNodejs` directive it sees, which is
+   the nodejs extension's own line in the generated `httpd.conf`. Anything
+   you add under Additional Apache directives is included later and silently
+   ignored — an `apachectl graceful` plus an app restart still spawned
+   `/opt/plesk/node/17/bin/node`.
+
+   What actually works is to put the new Node where Plesk already looks:
+
+   ```bash
+   cd /opt/plesk/node
+   mv 17 17.node17-orig
+   ln -s 20 17          # check first that no other domain uses 17
+   ```
+
+   Two consequences to know about. The panel still displays the old version
+   number while running the new one — 17.9.1 shown, 20.19.0 executing — and
+   `plesk ext nodejs --versions` still lists the old set. And once `public/`
+   contains a built `index.html`, requests to `/` are served statically and
+   never reach Passenger, so touching `tmp/restart.txt` only takes effect
+   after a request to a dynamic route such as `/healthz`.
+
+   To revert: `rm 17 && mv 17.node17-orig 17`.
+
+   Treat all of this as a stopgap. Unofficial builds are not on the host's
+   update path, so nothing patches that Node for you, and the symlink is a
+   surprise waiting for whoever next looks at the panel.
 
 Either way, `bash plesk-doctor.sh` confirms the result — the new Node should
 appear as `RUNS`, not `BROKEN`.
@@ -243,16 +280,32 @@ call records, Ethernet quotes, number porting.
 Zen grant scopes individually. Defaults request the eleven NetKit uses; trim
 `ZEN_SCOPES` to what you actually hold if any come back refused.
 
-### Ofcom mobile coverage — free, no account, biggest quality win per minute
+### Ofcom mobile coverage — free, no account
 
 ```
-OFCOM_DATASET_PATH=/var/www/vhosts/<domain>/netkit-data/ofcom-mobile.csv
+OFCOM_DATASET_PATH=/var/www/vhosts/<domain>/netkit-data/ofcom-mobile-coverage.csv
 ```
 
-Download the Connected Nations **postcode-level mobile coverage** file and
-point at it. Mobile signal stops being modelled and becomes Ofcom's published
-prediction. Column names are interpreted rather than hard-coded, so a new
-Ofcom release keeps working.
+Mobile signal stops being modelled and becomes Ofcom's published prediction.
+
+**There is no postcode-level mobile file — do not go looking for one.** Ofcom
+publish mobile coverage per parliamentary constituency (`pcon`), per local or
+unitary authority (`laua`), per devolved constituency (`devcon`) and per
+nation. Postcode-unit files exist only for *fixed broadband*. Connected
+Nations 2022, 2025 and the Spring 2026 update were all checked: no CSV in any
+mobile zip carries a postcode column.
+
+So point this at a `pcon` or `laua` CSV from a Connected Nations mobile
+release. A postcode is then answered in two hops — postcodes.io maps it to its
+constituency and local authority, and that area is looked up in the file — and
+every operator row in the UI is labelled with the area the figure describes,
+because a constituency contains both a city centre and a valley with no
+signal and this cannot tell them apart.
+
+Constituency is tried before local authority, being the finer of the two.
+Column names are interpreted rather than hard-coded, so a new Ofcom release
+keeps working, and a postcode-keyed file would be used directly if Ofcom ever
+publish one.
 
 ### Ofcom broadband API — also free, also just a signup
 
@@ -436,14 +489,14 @@ before quoting from it.
 
 ---
 
-## Two things still outstanding
+## One thing still outstanding
 
-1. **Rotate the admin password shared in chat.** It never entered this
-   repository — the account seeds from `ADMIN_PASSWORD` and only a scrypt
-   hash is stored — but it is in that conversation's history.
-2. **Repository Actions is broken and it is not this code.** Every workflow
-   run since 2 August, on `main` and every branch, fails at startup against a
-   *deleted* workflow placeholder (`path: BuildFailed`, `state: deleted`) that
-   still fires on a schedule. `ci.yml` parses correctly and has never been
-   picked up. Worth ten minutes in **Settings → Actions**; the next push after
-   this merge will tell you whether replacing the workflow set cleared it.
+**Rotate the admin password.** It has never been in this repository — the
+account seeds from `ADMIN_PASSWORD` and only a scrypt hash is stored — but it
+has been in a chat conversation and in a screenshot of the Plesk environment
+variables panel. Change it in **Node.js → Custom environment variables** and
+restart the app.
+
+Repository Actions, listed here previously as broken, is fixed: `ci.yml` is
+being picked up, and the `(Unnamed workflow)` startup failures stop at run
+#68.

@@ -2,7 +2,7 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import { z } from 'zod';
 import { formatPostcode, identify, toSuggestion, type ApiResult } from '@sw/shared';
 import { config } from '../config';
-import { badRequest, HttpError, notFound, rateLimited } from '../lib/errors';
+import { badRequest, HttpError, notFound, rateLimited, uprnNotFound } from '../lib/errors';
 import { consumeQuota, quotaState } from '../services/quota';
 import { clearRecentLookups, recentLookups, recordLookup } from '../services/recents';
 import { providers } from '../providers/registry';
@@ -169,7 +169,7 @@ export function apiRouter(): Router {
     handler(async (req) => {
       const uprn = String(req.params.uprn);
       const address = await addressByUprn(uprn);
-      if (!address) throw notFound(`No premises found for UPRN ${uprn}.`);
+      if (!address) throw uprnNotFound(uprn);
       return address;
     }),
   );
@@ -180,7 +180,7 @@ export function apiRouter(): Router {
     handler(async (req) => {
       const uprn = String(req.params.uprn);
       const address = await addressByUprn(uprn);
-      if (!address) throw notFound(`No premises found for UPRN ${uprn}.`);
+      if (!address) throw uprnNotFound(uprn);
       const report = await buildSiteReport(address, identify(uprn), availabilityBudget(req));
       remember(req, address.singleLine, 'uprn', report);
       return report;
@@ -192,7 +192,7 @@ export function apiRouter(): Router {
     '/availability/:uprn',
     handler(async (req) => {
       const address = await addressByUprn(String(req.params.uprn));
-      if (!address) throw notFound(`No premises found for UPRN ${req.params.uprn}.`);
+      if (!address) throw uprnNotFound(String(req.params.uprn));
       const report = await buildSiteReport(address, identify(String(req.params.uprn)), {
         includeSiblings: false,
         ...availabilityBudget(req),
@@ -206,7 +206,7 @@ export function apiRouter(): Router {
     '/signal/:uprn',
     handler(async (req) => {
       const address = await addressByUprn(String(req.params.uprn));
-      if (!address) throw notFound(`No premises found for UPRN ${req.params.uprn}.`);
+      if (!address) throw uprnNotFound(String(req.params.uprn));
       const report = await buildSiteReport(address, identify(String(req.params.uprn)), {
         includeSiblings: false,
         ...availabilityBudget(req),
@@ -224,7 +224,7 @@ export function apiRouter(): Router {
       const uprn = String(req.query.uprn ?? '').trim();
       if (uprn) {
         const address = await addressByUprn(uprn);
-        if (!address) throw notFound(`No premises found for UPRN ${uprn}.`);
+        if (!address) throw uprnNotFound(uprn);
         const { lines, status } = await allLinesAtPremises(address);
         return { address, lines, status, checkedAt: new Date().toISOString(), sources: ['registry'] };
       }

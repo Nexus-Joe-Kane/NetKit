@@ -13,12 +13,24 @@ import { Chip, Label, relativeTime, type ChipTone } from './ui';
  * full premises list so the exact address can be picked.
  */
 
+/**
+ * Worked examples, shown only when the fixture set is answering lookups.
+ *
+ * These are fixture values. On a live deployment the UPRN and the CLI do not
+ * exist, so offering them as a starting point produced "No premises found"
+ * from the one thing on the page that was supposed to be guaranteed. When
+ * live, the hints below describe what can be typed without inventing a
+ * premises that is not there.
+ */
 const EXAMPLES = [
   { label: 'M1 1AE', hint: 'postcode' },
   { label: '4 High Street', hint: 'first line of address' },
   { label: '148575287842', hint: 'UPRN' },
   { label: '01614969790', hint: 'CLI' },
 ];
+
+/** What the box accepts, for when there are no safe examples to offer. */
+const ACCEPTED = ['postcode', 'first line of address', 'UPRN', 'CLI', 'line access ID'];
 
 const TONE_BY_KIND: Record<IdentifierKind, ChipTone> = {
   postcode: 'info',
@@ -36,11 +48,14 @@ export function SearchBar({
   onPickAddress,
   busy,
   initialValue = '',
+  demoData = false,
 }: {
   onSubmit: (query: string) => void;
   onPickAddress: (suggestion: AddressSuggestion) => void;
   busy: boolean;
   initialValue?: string;
+  /** True when fixtures answer lookups, so the worked examples resolve. */
+  demoData?: boolean;
 }): ReactElement {
   const [value, setValue] = useState(initialValue);
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
@@ -244,7 +259,7 @@ export function SearchBar({
             </>
           ) : (
             <div>
-              <Label>{recent.length > 0 ? 'Recent' : 'Try'}</Label>
+              <Label>{recent.length > 0 ? 'Recent' : demoData ? 'Try' : 'You can type'}</Label>
               <div className="search__examples">
                 {recent.length > 0
                   ? recent.slice(0, 5).map((entry) => (
@@ -258,7 +273,8 @@ export function SearchBar({
                         {entry.label ?? entry.query}
                       </button>
                     ))
-                  : EXAMPLES.map((ex) => (
+                  : demoData
+                  ? EXAMPLES.map((ex) => (
                       <button
                         key={ex.label}
                         type="button"
@@ -271,6 +287,13 @@ export function SearchBar({
                       >
                         {ex.label}
                       </button>
+                    ))
+                  : ACCEPTED.map((kind) => (
+                      // Not buttons: there is no live value to prefill, and a
+                      // dead example is worse than none.
+                      <span key={kind} className="search__example search__example--muted">
+                        {kind}
+                      </span>
                     ))}
                 {recent.length > 0 && (
                   <button
