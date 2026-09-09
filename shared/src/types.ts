@@ -1,4 +1,5 @@
 import type { MatchConfidence } from './siteMatch';
+import type { UnitQuestion } from './unitChoice';
 import type { AreaCoverage } from './areaCoverage';
 /**
  * SupportWizard NetKit — shared domain model.
@@ -686,6 +687,14 @@ export interface SearchResponse {
   query: ResolvedIdentifier;
   /** Populated when the query narrows to many premises (postcode search). */
   suggestions: AddressSuggestion[];
+  /**
+   * Which unit, where the candidates differ by nothing else.
+   *
+   * Decided on the server because it needs the sub-building and the
+   * organisation, and a suggestion carries neither — only a label. Present
+   * only when there is genuinely a question to ask.
+   */
+  unitChoice?: UnitQuestion;
   /** Populated when the query resolves to exactly one thing. */
   report?: SiteReport;
   /** Populated when the query was a CLI / line id. */

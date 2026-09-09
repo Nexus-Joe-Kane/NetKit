@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ReactElement } from 'react';
-import type { AddressSuggestion, LookupSuggestion, SearchResponse, SiteReport, PrintSection } from '@sw/shared';
+import type {
+  AddressRecord,
+  AddressSuggestion,
+  LookupSuggestion,
+  SearchResponse,
+  SiteReport,
+  PrintSection,
+} from '@sw/shared';
 import { ApiClientError, api, type PublicUser, type SessionState } from './lib/api';
 import { SearchBar } from './components/SearchBar';
 import { IdentityBox } from './components/IdentityBox';
@@ -251,6 +258,20 @@ function Portal({
     }
   }
 
+  /*
+   * The unit question, if the server asked one.
+   *
+   * Read straight off the response rather than recomputed here: the decision
+   * needs the sub-building and a suggestion carries only a label.
+   */
+  const unitAsk = result?.unitChoice ?? { ask: false as const, distinction: 'none' as const };
+
+  /** Picking a unit is picking a premises, so it goes the same way. */
+  const pickUnit = (address: AddressRecord): void => {
+    if (address.uprn) void loadSite(address.uprn);
+    else void runSearch(address.singleLine);
+  };
+
   const pickAddress = async (suggestion: AddressSuggestion) => {
     if (suggestion.uprn) return loadSite(suggestion.uprn);
     return runSearch(suggestion.label);
@@ -370,6 +391,42 @@ function Portal({
                 <Spinner label="Checking address, availability, coverage and lines" />
               </Card>
             )}
+
+            {/*
+              Which unit?
+
+              Asked before the address list, and only where the candidates
+              differ by nothing but their sub-building or their business
+              name. A building of forty premises shares one street address,
+              and picking the door number means every lookup after it — the
+              UPRN, the lines, the availability — is about the wrong place,
+              with nothing to say so because a plausible answer came back.
+            */}
+            {!report && unitAsk.ask ? (
+              <Card
+                title={unitAsk.question ?? 'Which one?'}
+                eyebrow={`${unitAsk.options?.length ?? 0} premises share this address`}
+                index="01"
+                accent={1}
+              >
+                <p className="muted" style={{ fontSize: 13, margin: '0 0 12px', maxWidth: 640 }}>
+                  {unitAsk.because}
+                </p>
+                <div className="unit-grid">
+                  {(unitAsk.options ?? []).map((option) => (
+                    <button
+                      key={option.address.uprn ?? option.label}
+                      type="button"
+                      className="unit"
+                      onClick={() => pickUnit(option.address)}
+                    >
+                      <span className="unit__label">{option.label}</span>
+                      <span className="unit__address">{option.address.singleLine}</span>
+                    </button>
+                  ))}
+                </div>
+              </Card>
+            ) : null}
 
             {/* Address picker — a postcode always resolves to a choice. */}
             {!report && result?.suggestions?.length ? (
