@@ -162,7 +162,18 @@ export function handoverState(input: HandoverInput): HandoverState {
   };
 }
 
-const bold = (label: string, value: string): string => `**${label}:** ${value}`;
+/**
+ * One labelled line: bold capitals, then the value in italics.
+ *
+ * The two weights are doing a job rather than decorating. A label in bold
+ * caps scans as a field name, and the value in italics reads as something a
+ * machine printed rather than a person writing prose — which is exactly what
+ * it is, and what stops a pasted block looking like it is trying too hard.
+ *
+ * Asterisks for both, which markdown handles unambiguously when the bold run
+ * closes before the italic one opens.
+ */
+const field = (label: string, value: string): string => `**${label.toUpperCase()}:** *${value}*`;
 
 /**
  * The paste-ready summary.
@@ -188,11 +199,11 @@ export function handoverText(input: HandoverInput): string {
     `Details for ${line.provider}; ${line.technology} line at ${address.whole} provided by ` +
       `${accessProvider(line)}${who ? ` (${who})` : ''}`,
     '',
-    bold('PRODUCT', product),
+    field('PRODUCT', product),
   ];
 
   const maybe = (label: string, value?: string): void => {
-    if (value && value.trim()) out.push(bold(label, value.trim()));
+    if (value && value.trim()) out.push(field(label, value.trim()));
   };
 
   maybe('ACCESS LINE ID', line.lineAccessId);
@@ -210,26 +221,20 @@ export function handoverText(input: HandoverInput): string {
   if (state.online === true) {
     const since = line.radius?.onlineSince;
     out.push(
-      bold(
-        'CURRENT STATUS',
-        since ? `Online since ${formatExact(since)}` : 'Online',
-      ),
+      field('CURRENT STATUS', since ? `Online since ${formatExact(since)}` : 'Online'),
     );
   } else if (state.downtime) {
     out.push(
-      bold(
-        'CURRENT STATUS',
-        `Offline since ${state.downtime.exact} (${state.downtime.elapsed} ago)`,
-      ),
+      field('CURRENT STATUS', `Offline since ${state.downtime.exact} (${state.downtime.elapsed} ago)`),
     );
   } else {
-    out.push(bold('CURRENT STATUS', 'Not reported by the provider'));
+    out.push(field('CURRENT STATUS', 'Not reported by the provider'));
   }
 
-  if (state.radiusLine) out.push(bold('LAST SESSION', state.radiusLine));
+  if (state.radiusLine) out.push(field('LAST SESSION', state.radiusLine));
   if (state.radiusMissing) {
     out.push(
-      bold(
+      field(
         'LAST SESSION',
         'Nothing recorded. A line that should authenticate and never has is usually a provisioning ' +
           'problem rather than a router one — worth raising as a fault if one is not open already.',
@@ -242,7 +247,7 @@ export function handoverText(input: HandoverInput): string {
   if (test) {
     const runAt = test.ranAt ? formatExact(test.ranAt) : 'unknown time';
     const runBy = test.ranBy ?? input.testRunBy;
-    out.push('', bold('RESULTS OF LATEST LINE TEST', `run on ${runAt}${runBy ? ` by ${runBy}` : ''}`));
+    out.push('', field('RESULTS OF LATEST LINE TEST', `run on ${runAt}${runBy ? ` by ${runBy}` : ''}`));
     out.push(`Outcome: ${test.outcome}${test.faultLocation ? ` — ${test.faultLocation}` : ''}`);
     if (test.summary) out.push(test.summary);
 
@@ -257,13 +262,13 @@ export function handoverText(input: HandoverInput): string {
       if (finding.beforeBooking) out.push(`  Before booking a visit: ${finding.beforeBooking}`);
     }
   } else {
-    out.push('', bold('RESULTS OF LATEST LINE TEST', 'None run. Run one before raising a fault.'));
+    out.push('', field('RESULTS OF LATEST LINE TEST', 'None run. Run one before raising a fault.'));
   }
 
   if (input.siteContact) {
     out.push(
       '',
-      bold(
+      field(
         'ON SITE CONTACT',
         [input.siteContact.name, input.siteContact.email, input.siteContact.phone].filter(Boolean).join(' · '),
       ),
