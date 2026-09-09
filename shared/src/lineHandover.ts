@@ -117,7 +117,7 @@ export interface HandoverState {
  * technology should default to being expected to authenticate.
  */
 const NO_AUTH: readonly string[] = ['EAD', 'Leased Line', 'EoFTTC'];
-const AUTHENTICATES = (line: LineRecord): boolean => !NO_AUTH.includes(line.technology);
+export const authenticates = (line: LineRecord): boolean => !NO_AUTH.includes(line.technology);
 
 export function handoverState(input: HandoverInput): HandoverState {
   const { line } = input;
@@ -157,7 +157,7 @@ export function handoverState(input: HandoverInput): HandoverState {
     // A line that should authenticate and has never been seen doing so is
     // itself a finding — it usually means the service was never fully
     // provisioned, and that is worth raising rather than retrying a router.
-    radiusMissing: AUTHENTICATES(line) && !radiusLine,
+    radiusMissing: authenticates(line) && !radiusLine,
     findings: input.latestTest ? translateTest(input.latestTest) : [],
   };
 }
