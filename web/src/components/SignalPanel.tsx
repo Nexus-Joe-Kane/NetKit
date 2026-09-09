@@ -18,7 +18,8 @@ import { Alert, Card, Cell, Chip, Label, formatDate } from './ui';
 import { NetworkAdvicePanel } from './NetworkAdvicePanel';
 import { Tabs, TabPanel, type TabDef } from './Tabs';
 import { formatDistance } from '@sw/shared';
-import type { MastSite } from '@sw/shared';
+import { plotMasts, type MastSite } from '@sw/shared';
+import { MastMap, RankedBars } from './Charts';
 
 /**
  * Mobile signal, one card per network.
@@ -196,6 +197,31 @@ export function SignalPanel({ data }: { data: SignalReport }): ReactElement {
               guide rather than a measurement. A site that reads strong outdoors but weak indoors is usually solved
               with Wi-Fi calling before a repeater.
             </p>
+
+            {/*
+              The plot before the list. Distance and direction is the answer
+              to "why has this customer no signal when the area is fine", and
+              a drawing gives it at a glance where twelve rows of metres do
+              not.
+            */}
+            <div className="chart-grid" style={{ marginTop: 16 }}>
+              <MastMap
+                plot={plotMasts({
+                  premises: {
+                    ...(data.address.latitude !== undefined ? { latitude: data.address.latitude } : {}),
+                    ...(data.address.longitude !== undefined ? { longitude: data.address.longitude } : {}),
+                  },
+                  masts: data.masts ?? [],
+                })}
+              />
+              <RankedBars
+                title="Indoor coverage by network"
+                rows={data.operators}
+                label={(o) => o.operator}
+                value={(o) => gradeScore(o.voice.indoor)}
+                unit="/4"
+              />
+            </div>
 
             {data.masts && data.masts.length > 0 && <NearestMasts masts={data.masts} />}
           </>
