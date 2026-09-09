@@ -295,6 +295,8 @@ export function FaultModal({ fault, onClose }: { fault: FaultRecord | null; onCl
 
         <SiteVisitBooking
           supplier={fault.provider}
+          faultReference={fault.reference}
+          {...(fault.zenReference ? { serviceReference: fault.zenReference } : {})}
           {...(fault.appointment?.date ? { appointment: fault.appointment } : {})}
         />
 

@@ -21,6 +21,7 @@ import type {
   NetworkConfiguration,
   NetworkConnectivityCheck,
   NumberPortCheck,
+  VisitRecord,
   OrderingGate,
   OrderQuote,
   OrderRecord,
@@ -316,6 +317,9 @@ export const api = {
       /** Omitted when the supplier has not confirmed a slot yet. */
       slot?: { date: string; window: string } | null;
       technology?: string;
+      /** Passed to the chase board, which needs a service to test. */
+      serviceReference?: string;
+      faultReference?: string;
       testSide?: 'customer' | 'network' | 'unclear';
       extraChecks?: Array<{ id: string; question: string }>;
       /** The gate. The server rebuilds and re-checks it — this is not the guard. */
@@ -327,6 +331,24 @@ export const api = {
       `/api/tickets/${encodeURIComponent(ticketId)}/site-visit`,
       input,
     ),
+
+  /* ---- Booked visits, and the chase --------------------------------- */
+
+  visits: () => request<{ open: Array<VisitRecord & { due: boolean }>; closed: VisitRecord[] }>('/api/visits'),
+
+  askApprover: (id: string) =>
+    post<{ visit: VisitRecord; ticket: TicketNoteOutcome }>(`/api/visits/${encodeURIComponent(id)}/ask`, {}),
+
+  closeVisit: (
+    id: string,
+    input: {
+      outcome: 'cancelled' | 'confirmed' | 'attended';
+      /** Why, in words the customer can read. Only used when cancelling. */
+      because?: string;
+      contactName?: string;
+      evidence?: string[];
+    },
+  ) => post<{ visit: VisitRecord; ticket: TicketNoteOutcome }>(`/api/visits/${encodeURIComponent(id)}/close`, input),
 
   /* ---- Diagnostics -------------------------------------------------- */
 

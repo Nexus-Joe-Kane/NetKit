@@ -2,6 +2,7 @@ import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import {
   GATE_ITEMS,
+  SITE_VISIT_REASONS,
   gateBlockers,
   gateFor,
   gateNote,
@@ -228,4 +229,20 @@ test('the real supplier can never reach the customer’s message', () => {
 test('the private record does name the supplier, because engineers need it', () => {
   const note = visitBookedNote({ reason: 'cabinet', access: 'outside', supplier: 'Zen Internet' });
   assert.match(note, /Supplier: Zen Internet/);
+});
+
+test('every customer wording is a noun phrase, so the sentence reads', () => {
+  // It is dropped into "They are coming out because of ___". A clause there
+  // produces "because of the fibre terminal is not receiving a signal", which
+  // is how a careful email ends up looking careless.
+  const clause = /^(the|a|an)\s+[^,]*?\s(is|are|has|have|was|were)\s/i;
+  for (const reason of SITE_VISIT_REASONS) {
+    assert.doesNotMatch(
+      reason.customerWording,
+      clause,
+      `"${reason.customerWording}" reads as a clause, not a noun phrase`,
+    );
+    const sentence = `They are coming out because of ${reason.customerWording}.`;
+    assert.doesNotMatch(sentence, /because of the \S+ (is|are|has|have)\b/i);
+  }
 });

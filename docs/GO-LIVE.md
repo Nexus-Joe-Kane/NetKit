@@ -405,6 +405,17 @@ With no Resend key at all, NetKit still runs: 2FA is unavailable, new
 accounts get their temporary password shown on screen to the admin who
 created them, and notices become Zendesk tickets.
 
+### The portal's own address
+
+```
+PUBLIC_URL=https://comms.supportwizard.net
+```
+
+Only used for links that leave the app — the note on a Zendesk ticket that
+pulls Sam into a visit decision carries a link straight to that visit. A
+relative link is useless in an email, so with this unset those notes say
+"open NetKit under Visits" instead of printing a broken URL.
+
 ### Zendesk — the ticket side of a fault
 
 ```

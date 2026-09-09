@@ -1355,6 +1355,60 @@ table.data td.num {
 }
 
 /* ------------------------------------------------------------------ *
+ * A booked visit on the chase board
+ *
+ * The left edge carries the urgency, because the thing that matters about a
+ * row here is not when the visit is, it is how long is left to cancel it for
+ * nothing.
+ * ------------------------------------------------------------------ */
+
+.visit {
+  border: 1px solid var(--sw-cell-rule);
+  border-left: 3px solid var(--sw-ok);
+  border-radius: 8px;
+  background: var(--sw-white);
+  overflow: hidden;
+}
+
+/* Past the free-cancellation window: the decision no longer saves the charge. */
+.visit--late {
+  border-left-color: var(--sw-crimson);
+}
+
+.visit__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 11px 14px;
+  background: var(--sw-panel);
+}
+
+.visit__title {
+  flex: 1;
+  min-width: 200px;
+  display: grid;
+  gap: 2px;
+  line-height: 1.4;
+}
+
+.visit__title strong {
+  color: var(--sw-ink);
+  font-size: var(--sw-size-body);
+}
+
+.visit__title .muted {
+  font-size: var(--sw-size-small);
+}
+
+.visit__body {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+  border-top: 1px solid var(--sw-hairline);
+}
+
+/* ------------------------------------------------------------------ *
  * The pre-booking gate
  *
  * Each question sits in its own box with the cost of skipping it next to it,

@@ -54,6 +54,8 @@ export function SiteVisitBooking({
   contactName,
   appointment,
   ticketId: initialTicket,
+  serviceReference,
+  faultReference,
 }: {
   /**
    * The real supplier, for the private record on the ticket.
@@ -70,6 +72,14 @@ export function SiteVisitBooking({
   /** The provider's own appointment, where it has already given one. */
   appointment?: { date: string; slot?: string };
   ticketId?: string;
+  /**
+   * Our service reference and the supplier's fault reference.
+   *
+   * Passed through to the chase board, where the check two days out runs a
+   * line test — and cannot, without a service to test.
+   */
+  serviceReference?: string;
+  faultReference?: string;
 }): ReactElement {
   const supplier = supplierName?.trim() || '';
 
@@ -132,6 +142,8 @@ export function SiteVisitBooking({
         access,
         slot,
         ...(technology ? { technology } : {}),
+        ...(serviceReference ? { serviceReference } : {}),
+        ...(faultReference ? { faultReference } : {}),
         ...(testSide ? { testSide } : {}),
         extraChecks: items
           .filter((i) => i.id.startsWith('test:'))

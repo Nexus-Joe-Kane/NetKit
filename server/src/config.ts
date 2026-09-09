@@ -228,6 +228,15 @@ export interface AppConfig {
   dataDir: string;
   sessionSecret: string;
   resend: { apiKey: string; fromEmail: string; fromName: string; configured: boolean };
+  /**
+   * Where the portal is reachable, for links that leave the app.
+   *
+   * Needed because a note on a Zendesk ticket is read outside NetKit, so a
+   * relative link is useless there. Left empty, those notes say "open NetKit
+   * under Visits" rather than printing a broken URL, which is the better
+   * failure.
+   */
+  publicUrl: string;
   corsOrigins: string[];
   /**
    * `auto`  — use live providers where credentials exist, mock the rest.
@@ -379,6 +388,7 @@ export function config(): AppConfig {
       fromName: str('RESEND_FROM_NAME', 'SupportWizard NetKit'),
       configured: Boolean(str('RESEND_API_KEY')),
     },
+    publicUrl: str('PUBLIC_URL').replace(/\/+$/, ''),
     corsOrigins: str('CORS_ORIGINS')
       .split(',')
       .map((s) => s.trim())
