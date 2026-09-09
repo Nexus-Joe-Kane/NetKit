@@ -1,5 +1,5 @@
 import express, { type Express, type Request, type Response, type NextFunction } from 'express';
-import { bootstrapCredentials } from './services/vault';
+import { bootstrapCredentials, refreshVaultIfChanged } from './services/vault';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import compression from 'compression';
@@ -7,11 +7,12 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { config } from './config';
+import { config, resetConfig } from './config';
 import { apiRouter, errorHandler } from './routes/api';
 import { operationsRouter } from './routes/operations';
 import { authRouter, requireAuth } from './auth/routes';
 import { adminRouter } from './admin/routes';
+import { clearAllProviderCaches } from './admin/supervisor';
 
 /**
  * The Express application.
@@ -63,6 +64,34 @@ export function createApp(): Express {
   if (cfg.corsOrigins.length) {
     app.use(cors({ origin: cfg.corsOrigins, credentials: true }));
   }
+
+  /*
+   * Pick up credentials another worker saved.
+   *
+   * Passenger runs several worker processes. Saving a credential puts it into
+   * the environment of the one process that handled the request, so without
+   * this the others go on answering "not connected" for a key the
+   * Credentials page says is stored — which is exactly what they did.
+   *
+   * One `stat` of the vault file per request, and only on a change does
+   * anything else happen: the config cache and the provider clients are both
+   * holding a view from before the credential existed, so both go.
+   */
+  app.use((_req: Request, _res: Response, next: NextFunction) => {
+    try {
+      const refresh = refreshVaultIfChanged();
+      if (refresh.changed) {
+        resetConfig();
+        clearAllProviderCaches();
+        if (refresh.loaded.length) {
+          console.log(`[netkit] picked up ${refresh.loaded.length} credential(s) saved elsewhere.`);
+        }
+      }
+    } catch {
+      // A settings refresh must never be the reason a request fails.
+    }
+    next();
+  });
 
   // ---- Liveness, before auth so monitoring can reach it --------------
   app.get('/healthz', (_req, res) => {
