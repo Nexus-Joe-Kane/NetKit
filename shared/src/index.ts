@@ -14,6 +14,8 @@ export * from './watchdog';
 export * from './events';
 export * from './charges';
 export * from './providerStatus';
+export * from './ispDirectory';
+export * from './wanLines';
 export * from "./rate";
 export * from "./companies";
 export * from "./sla";
