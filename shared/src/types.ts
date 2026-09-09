@@ -917,3 +917,47 @@ export interface SiteContext {
   };
   generatedAt: string;
 }
+
+/* ------------------------------------------------------------------ *
+ * What the lookup box can find
+ * ------------------------------------------------------------------ */
+
+/**
+ * The three kinds of thing a lookup can land on.
+ *
+ * A premises, a broadband service, or a mobile. They need different icons
+ * and different destinations, and conflating them is why searching a client
+ * name used to find their building and not their circuits.
+ */
+export type LookupKind = 'address' | 'broadband' | 'mobile';
+
+/**
+ * One row in the lookup list.
+ *
+ * A superset of the address suggestion rather than a separate type, so the
+ * typeahead has one list to render and one keyboard path through it. An
+ * address row is exactly what it always was; the other two carry what is
+ * needed to open the right thing.
+ */
+export interface LookupSuggestion {
+  kind: LookupKind;
+  id: string;
+  label: string;
+  /** The second line: postcode for a premises, client and site otherwise. */
+  detail?: string;
+  /** What to put in the search box to open it. */
+  query: string;
+  postcode?: string;
+  postTown?: string;
+  uprn?: string;
+  /** Which system it came from, so a row can say whose record it is. */
+  source: string;
+  /** Broadband: the service reference to look up. */
+  serviceReference?: string;
+  /** Mobile: the SIM's ICCID, which is what its detail view is keyed on. */
+  iccid?: string;
+  /** Mobile: the number, for the label. */
+  cli?: string;
+  /** The customer, where the record names one. */
+  client?: string;
+}

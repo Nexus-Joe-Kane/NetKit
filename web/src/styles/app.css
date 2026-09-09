@@ -339,6 +339,33 @@
   color: var(--sw-body);
 }
 
+/*
+ * The kind marker on a lookup row.
+ *
+ * `currentColor`, so the icon takes the row's colour and inverts with it on
+ * the highlighted row rather than staying grey against navy.
+ */
+.lookup-icon {
+  flex: none;
+  color: var(--sw-muted);
+  align-self: center;
+}
+
+.typeahead__item:hover .lookup-icon,
+.typeahead__item[aria-selected='true'] .lookup-icon {
+  color: currentColor;
+}
+
+.typeahead__kind {
+  flex: none;
+  font-size: 10px;
+  font-weight: var(--sw-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sw-muted);
+  align-self: center;
+}
+
 .typeahead__item {
   display: flex;
   align-items: baseline;

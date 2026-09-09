@@ -3,7 +3,7 @@ import { DEFAULT_SIM_SECTIONS, type SimReportSection } from '@sw/shared';
 import type { SimEstate, SimProviderResult, SimRecord, SimState } from '@sw/shared';
 import { SimEstateReport } from '../components/SimEstateReport';
 import { SimReportDialog } from '../components/SimReportDialog';
-import { useTabRoute } from '../lib/route';
+import { go, toHash, useRoute, useTabRoute } from '../lib/route';
 import { ApiClientError, api } from '../lib/api';
 import {
   Alert,
@@ -90,6 +90,9 @@ export function SimsPage(): ReactElement {
   // to the same one.
   const [tab, setTab] = useTabRoute<Tab>('sims', TABS, 'all');
   const [filter, setFilter] = useState('');
+  /* A SIM named in the URL, so the lookup box can link straight to one. */
+  const route = useRoute();
+  const linkedIccid = route.b;
   /*
    * The SIM that is open, and its full record.
    *
@@ -109,6 +112,26 @@ export function SimsPage(): ReactElement {
   const [reportClient, setReportClient] = useState('');
   const [fullBusy, setFullBusy] = useState(false);
   const [fullError, setFullError] = useState<string | null>(null);
+
+  /*
+   * Opens the SIM the URL names.
+   *
+   * Waits for the estate rather than fetching that one SIM: the detail panel
+   * draws its header from the row and then asks for the full record, so
+   * without the row there is nothing to draw while the request is in flight.
+   * Cleared from the URL once opened, so closing the panel does not
+   * immediately reopen it.
+   */
+  useEffect(() => {
+    if (!linkedIccid || !estate) return;
+    const found = estate.sims.find((sim) => sim.iccid === linkedIccid);
+    if (found) {
+      setDetail(found);
+      setFilter(found.msisdn ?? found.iccid);
+    }
+    go(toHash('sims', tab), true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkedIccid, estate]);
 
   useEffect(() => {
     if (!detail) {

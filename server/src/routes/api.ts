@@ -6,6 +6,7 @@ import { badRequest, HttpError, notFound, rateLimited, uprnNotFound } from '../l
 import { consumeQuota, quotaState } from '../services/quota';
 import { clearRecentLookups, recentLookups, recordLookup } from '../services/recents';
 import { providers } from '../providers/registry';
+import { findServices } from '../services/lookup';
 import { autocompletePostcode } from '../providers/address/postcodesIo';
 import {
   addressByUprn,
@@ -133,15 +134,28 @@ export function apiRouter(): Router {
     handler(async (req) => {
       const q = String(req.query.q ?? '').trim();
       const limit = Number.parseInt(String(req.query.limit ?? '12'), 10) || 12;
-      const result = await suggest(q, limit);
+
+      /*
+       * Premises and services, together.
+       *
+       * In parallel because they are independent and the box is being typed
+       * into: making the address list wait for a supplier's inventory would
+       * make the common case feel worse to fix the rarer one. Either failing
+       * is a shorter list, not an error.
+       */
+      const [result, services] = await Promise.all([
+        suggest(q, limit),
+        findServices(q).catch(() => ({ broadband: [], mobile: [], broadbandNeedsIdentifier: false })),
+      ]);
 
       // Partial postcodes get postcode-level completions so the user can get
       // to a full postcode without knowing it exactly.
-      if (result.query.kind === 'address' && /^[a-z]{1,2}\d/i.test(q) && q.length <= 5) {
-        const postcodes = await autocompletePostcode(q);
-        return { ...result, postcodes: postcodes.slice(0, 8) };
-      }
-      return { ...result, postcodes: [] as string[] };
+      const postcodes =
+        result.query.kind === 'address' && /^[a-z]{1,2}\d/i.test(q) && q.length <= 5
+          ? (await autocompletePostcode(q)).slice(0, 8)
+          : ([] as string[]);
+
+      return { ...result, postcodes, ...services };
     }),
   );
 
