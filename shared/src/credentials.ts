@@ -102,6 +102,15 @@ export const VAULT_KEYS: readonly VaultKeyDef[] = [
   { name: 'THINKBROADBAND_API_KEY', service: 'thinkbroadband', label: 'thinkbroadband key', secret: true },
   { name: 'OFCOM_BROADBAND_API_KEY', service: 'ofcom-broadband', label: 'Ofcom broadband key', secret: true },
   {
+    name: 'OFCOM_MOBILE_API_KEY',
+    service: 'ofcom-mobile',
+    label: 'Ofcom Mobile Checker key',
+    secret: true,
+    hint:
+      'A separate subscription from the broadband one, on a different host. This is the only per-address, ' +
+      'per-operator mobile source — everything else is constituency-level.',
+  },
+  {
     name: 'RESEND_API_KEY',
     service: 'resend',
     label: 'Resend API key',

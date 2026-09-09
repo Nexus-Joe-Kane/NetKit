@@ -129,7 +129,6 @@
 
   OFCOM_MOBILE_API_KEY
       Ofcom Mobile Checker UPRN coverage. A separate subscription from the broadband one.
-      (not read by the current build)
 
   THINKBROADBAND_API_KEY
       thinkbroadband availability.
@@ -278,6 +277,10 @@
   OFCOM_DATASET_PATH
       Endpoint override. The default works.
 
+  OFCOM_MOBILE_BASE_URL
+      Endpoint override. The default works.
+      Default: https://apim-cnapi-shared-prod.azure-api.net/mobilechecker
+
   OPENCELLID_BASE_URL
       Endpoint override. The default works.
       Default: https://opencellid.org
@@ -347,5 +350,5 @@
       Default: https://id.zen.co.uk/connect/token
 
 ==============================================================================
-  72 variables read by this build. Generated 2026-09-09.
+  74 variables read by this build. Generated 2026-09-09.
 ==============================================================================
