@@ -1,8 +1,9 @@
 import { useState, type ReactElement } from 'react';
-import type { LineRecord, LineStatus } from '@sw/shared';
+import type { LineRecord, LineStatus, LineTestResult } from '@sw/shared';
 import { Card, Cell, Chip, CopyButton, Label, formatBytes, formatDateTime, formatDate, formatDuration, type ChipTone } from './ui';
 import { Tabs, TabPanel, type TabDef } from './Tabs';
 import { Modal } from './overlay';
+import { ExternalHandover } from './ExternalHandover';
 import { LineDiagnostics, LineHistory, LineStability, LineUsage } from './LineDiagnostics';
 
 /**
@@ -58,9 +59,10 @@ type LineTab =
   | 'usage'
   | 'history';
 
-function LineDetail({ line }: { line: LineRecord }): ReactElement {
+function LineDetail({ line, latestTest }: { line: LineRecord; latestTest?: LineTestResult }): ReactElement {
   const [tab, setTab] = useState<LineTab>('identity');
   const [raw, setRaw] = useState(false);
+  const [handover, setHandover] = useState(false);
 
   const faultCount = (line.faults?.length ?? 0) + (line.appointments?.length ?? 0);
 
@@ -100,6 +102,16 @@ function LineDetail({ line }: { line: LineRecord }): ReactElement {
             <Chip tone={TONE_BY_STATUS[line.status]} dot>
               {STATUS_LABEL[line.status]}
             </Chip>
+            {/* Everything about this line, for when the next step is on
+                somebody else's website. */}
+            <button
+              type="button"
+              className="btn btn--ghost btn--small"
+              onClick={() => setHandover(true)}
+              title="Every identifier, the state of the line, the last test and the site contact — with a copy button on each"
+            >
+              Take the details with me
+            </button>
             <button type="button" className="btn btn--ghost btn--small" onClick={() => setRaw(true)}>
               Raw record
             </button>
@@ -278,6 +290,14 @@ function LineDetail({ line }: { line: LineRecord }): ReactElement {
             ))}
         </TabPanel>
       </Card>
+
+      <ExternalHandover
+        line={line}
+        {...(latestTest ? { latestTest } : {})}
+        open={handover}
+        onClose={() => setHandover(false)}
+        destination="a supplier's portal"
+      />
 
       <Modal
         open={raw}

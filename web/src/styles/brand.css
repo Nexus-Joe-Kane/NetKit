@@ -598,3 +598,165 @@ table.data tr.row--critical > td:first-child {
   border-radius: 8px;
   background: var(--sw-panel);
 }
+
+/* ---- The external-handover box ---------------------------------------- *
+ * Everything an engineer needs the moment they leave for a supplier's
+ * portal. Dense on purpose: it is read at speed, mid-call.
+ */
+.handover__state {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 11px 13px;
+  border-radius: 9px;
+  border: 1px solid var(--sw-hairline);
+  background: var(--sw-panel);
+  font-size: 13px;
+}
+
+.handover__state--down {
+  border-color: var(--sw-crit-ink);
+  background: var(--sw-crit-bg);
+}
+
+.handover__since {
+  color: var(--sw-ink);
+}
+
+.handover__radius {
+  font-size: 12.5px;
+  color: var(--sw-body);
+  padding: 0 2px;
+}
+
+.handover__fields {
+  display: grid;
+  gap: 1px;
+  margin-top: 5px;
+  border: 1px solid var(--sw-hairline);
+  border-radius: 9px;
+  overflow: hidden;
+  background: var(--sw-hairline);
+}
+
+.handover__row {
+  display: grid;
+  grid-template-columns: 180px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 12px;
+  background: var(--sw-white);
+}
+
+.handover__label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--sw-muted);
+}
+
+.handover__value {
+  font-size: 13px;
+  color: var(--sw-ink);
+  word-break: break-word;
+}
+
+.handover__test {
+  margin-top: 5px;
+  padding: 12px 13px;
+  border: 1px solid var(--sw-hairline);
+  border-radius: 9px;
+  background: var(--sw-white);
+}
+
+.handover__summary {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--sw-ink);
+}
+
+.handover__metrics {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 1px;
+  background: var(--sw-hairline);
+  border: 1px solid var(--sw-hairline);
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.handover__metrics li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 10px;
+  background: var(--sw-white);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.handover__metrics li.is-warn {
+  background: var(--sw-warn-bg);
+  color: var(--sw-warn-ink);
+  font-weight: 600;
+}
+
+.handover__metrics li.is-fail {
+  background: var(--sw-crit-bg);
+  color: var(--sw-crit-ink);
+  font-weight: 600;
+}
+
+.handover__finding {
+  margin-top: 12px;
+  padding: 11px 13px;
+  border-left: 4px solid var(--sw-hairline);
+  border-radius: 7px;
+  background: var(--sw-panel);
+}
+
+.handover__finding--critical {
+  border-left-color: var(--sw-crit-ink);
+}
+
+.handover__finding--warning {
+  border-left-color: var(--sw-warn-ink);
+}
+
+.handover__meaning {
+  margin: 7px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  font-weight: 500;
+  color: var(--sw-ink);
+}
+
+.handover__steps {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--sw-body);
+}
+
+.handover__before {
+  margin: 9px 0 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--sw-crit-ink);
+}
+
+@media (max-width: 620px) {
+  .handover__row {
+    grid-template-columns: 1fr auto;
+  }
+
+  .handover__label {
+    grid-column: 1 / -1;
+  }
+}

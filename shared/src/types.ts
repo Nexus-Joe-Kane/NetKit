@@ -501,6 +501,26 @@ export interface LineRecord {
   productName?: string;
   bearerSpeed?: string;
 
+  /**
+   * The provider's own reference for the customer.
+   *
+   * Zen key their portal on a customer reference and Giacom on an account
+   * name; either is what a supplier asks for on the phone, so whichever the
+   * source gives is carried through.
+   */
+  customerReference?: string;
+  customerName?: string;
+
+  /**
+   * When the line went down, where the provider states it outright.
+   *
+   * Distinct from the RADIUS session fields on purpose. "The last session
+   * ended at" and "the line went down at" are usually the same moment and
+   * occasionally are not — a re-auth loop ends sessions without the line ever
+   * going down — so a provider's own answer is kept separate from ours.
+   */
+  downSince?: string;
+
   address: AddressRecord;
 
   contract?: {
