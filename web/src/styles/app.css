@@ -100,15 +100,37 @@
 }
 
 /* The crimson rule above the navy band — the one place crimson is a fill. */
+/*
+ * The footer.
+ *
+ * It was a dark navy slab under a crimson bar, which is website chrome: it
+ * reads as the bottom of a marketing page rather than the bottom of an
+ * application, and on a light page it lands like a full stop three sizes too
+ * big. Now a pale band with a hairline above it, and the crimson kept as a
+ * short accent rather than a full-width rule -- present, because it is the
+ * brand, and not shouting.
+ */
 .footer__rule {
-  height: 3px;
+  height: 1px;
+  background: var(--sw-cell-rule);
+  position: relative;
+}
+
+/* The crimson, as a mark rather than a bar. */
+.footer__rule::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 96px;
+  height: 2px;
   background: var(--sw-crimson);
 }
 
 .footer__band {
-  background: var(--sw-navy);
-  color: #c9d7fa;
-  padding: 18px 20px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--sw-muted);
+  padding: 16px 20px;
 }
 
 .footer__inner {
@@ -909,7 +931,17 @@ tr.clickable:hover td:first-child {
 
 .kv {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  /*
+   * 200px rather than 180px, and values that wrap rather than clip.
+   *
+   * The reported problem: a box a little too small for its contents that did
+   * not expand enough to fit them. `auto-fit` gives every cell an equal
+   * share of the row, so one long value -- a full single-line address, a
+   * supplier reference with a suffix -- had nowhere to go. The extra 20px
+   * covers the common cases, and `.kv__value` already breaks long words,
+   * which together is what "sized to its content" actually needs.
+   */
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   /* The panel tone shows only where a row does not divide evenly, so the
      leftover space reads as frame rather than a missing cell. */
   background: var(--sw-panel);
@@ -3171,3 +3203,82 @@ table.data td.num {
 }
 
 .print-notes__body { font-size: 12px; white-space: pre-wrap; margin: 0; }
+
+/* ------------------------------------------------------------------ *
+ * Arriving
+ *
+ * A short stagger as a screen's cards come in, and nothing else. The
+ * restraint is the point: motion on everything is the third tell of a
+ * generated interface, after the big corners and the soft shadows. One
+ * considered movement reads as built; six read as a theme.
+ *
+ * Capped at six children, because a stagger long enough to notice on the
+ * seventh card is a page that feels slow.
+ * ------------------------------------------------------------------ */
+
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+.stack > .card {
+  animation: card-in 300ms cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
+}
+
+.stack > .card:nth-child(1) { animation-delay: 0ms; }
+.stack > .card:nth-child(2) { animation-delay: 45ms; }
+.stack > .card:nth-child(3) { animation-delay: 90ms; }
+.stack > .card:nth-child(4) { animation-delay: 135ms; }
+.stack > .card:nth-child(5) { animation-delay: 180ms; }
+.stack > .card:nth-child(n + 6) { animation-delay: 210ms; }
+
+/*
+ * The card's accent strip, on hover.
+ *
+ * The one interactive flourish worth having: the strip is already there as
+ * an identifier, so growing it slightly on hover uses something the design
+ * already says rather than adding a new effect. It moves 1px. That is
+ * deliberate — the difference between expensive and decorated is usually
+ * how far things move.
+ */
+.card {
+  transition: box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.card:hover { box-shadow: var(--sw-shadow-raised); }
+
+@media (prefers-reduced-motion: reduce) {
+  .stack > .card { animation: none; }
+  .card { transition: none; }
+}
+
+/*
+ * The masthead, sitting on a pale ground.
+ *
+ * Now the page behind it is nearly white, the header needs its own edge or
+ * the whole top of the screen reads as one undifferentiated field.
+ */
+.shell__head {
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: saturate(140%) blur(8px);
+  border-bottom: 1px solid var(--sw-cell-rule);
+}
+
+/*
+ * No nav fade added here: `.nav[data-edges=…]` already does it, driven by
+ * `useEdgeFade` in App. An unconditional mask on `.nav` overrides those
+ * rules and fades a rail that fits, which is the opposite of the point.
+ */
+
+/*
+ * The glance tiles.
+ *
+ * One tile has a line of explanation and the others do not, and a grid
+ * equalises heights — so four tiles were stretched to match the fifth and
+ * carried an inch of nothing under their number. A reserved line on every
+ * tile costs 14px and makes the row read as designed rather than as
+ * stretched.
+ */
+.glance__hint {
+  min-height: 1.25em;
+}
