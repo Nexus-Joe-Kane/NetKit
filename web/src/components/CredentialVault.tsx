@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
 import { VAULT_KEYS, credentialServices, type SecretStatus } from '@sw/shared';
-import { ApiClientError, api } from '../lib/api';
+import { ApiClientError, api, type ClientIndexStatus } from '../lib/api';
 import { Alert, Card, Chip, Label, Spinner, formatDateTime } from './ui';
 
 /**
@@ -82,6 +82,8 @@ export function CredentialVault(): ReactElement {
         </p>
       </Card>
 
+      <ClientIndexCard />
+
       {services.map((service, index) => {
         const group = byService.get(service) ?? VAULT_KEYS.filter((k) => k.service === service).map((k) => ({
           ...k,
@@ -92,7 +94,7 @@ export function CredentialVault(): ReactElement {
             key={service}
             service={service}
             keys={group}
-            index={index + 2}
+            index={index + 3}
             disabled={vault ? !vault.ok : false}
             onSaved={load}
           />
@@ -298,6 +300,125 @@ function ServiceCredentials({
           )}
         </div>
       </div>
+    </Card>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * The local client list
+ * ------------------------------------------------------------------ */
+
+/**
+ * How big the local client list is, and which sources filled it.
+ *
+ * Here rather than on its own page because it is what these keys switch on:
+ * with none of them set the lookup box cannot find a customer by name, and
+ * this says so in numbers rather than leaving somebody to notice.
+ */
+function ClientIndexCard(): ReactElement {
+  const [status, setStatus] = useState<ClientIndexStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setStatus(await api.clientIndex());
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'Could not read the client list.');
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const rebuild = async (): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    try {
+      setStatus(await api.rebuildClientIndex());
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'The rebuild failed.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card
+      title="Client list"
+      eyebrow={status ? `${status.entries} clients · ${status.sites} sites` : 'reading…'}
+      index="02"
+      accent={2}
+      meta={
+        <button type="button" className="btn btn--ghost btn--small" disabled={busy} onClick={() => void rebuild()}>
+          {busy ? 'Rebuilding…' : 'Rebuild now'}
+        </button>
+      }
+    >
+      <p className="muted" style={{ fontSize: 13, margin: '0 0 10px', maxWidth: 700 }}>
+        Pulled once a day and searched locally, so typing a customer name in the lookup box costs no API calls at
+        all. Picking a client substitutes the postcode or UPRN behind one of their sites — which is what the
+        suppliers can actually search for.
+      </p>
+
+      {error && <Alert tone="error">{error}</Alert>}
+
+      {status && status.entries === 0 && (
+        <Alert tone="warn">
+          Empty, so the lookup box cannot find a customer by name yet. IT Glue is the source worth adding first —
+          it has the postcodes. Failing that, it fills in on its own as people look premises up.
+        </Alert>
+      )}
+
+      {status && (
+        <>
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Source</th>
+                  <th>Clients</th>
+                  <th>State</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(status.sources).map(([key, source]) => (
+                  <tr key={key}>
+                    <td>{key}</td>
+                    <td>{source.count || '—'}</td>
+                    <td>
+                      {source.ok ? (
+                        <Chip tone={source.count ? 'ok' : 'idle'}>{source.detail ?? 'listed'}</Chip>
+                      ) : (
+                        <Chip tone={source.detail === 'not configured' ? 'idle' : 'crit'}>
+                          {source.detail ?? 'failed'}
+                        </Chip>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <p className="muted" style={{ fontSize: 12.5, margin: '10px 0 0' }}>
+            {status.builtAt ? `Last built ${formatDateTime(status.builtAt)}.` : 'Never built.'}
+            {status.stale ? ' Due a refresh — it happens on its own within the hour.' : ''}
+          </p>
+
+          {status.lastChange && (status.lastChange.added.length > 0 || status.lastChange.removed.length > 0) && (
+            <p className="muted" style={{ fontSize: 12.5, margin: '6px 0 0', maxWidth: 700 }}>
+              Last change: {status.lastChange.added.length} added
+              {status.lastChange.added.length ? ` (${status.lastChange.added.slice(0, 4).join(', ')})` : ''},{' '}
+              {status.lastChange.removed.length} gone
+              {status.lastChange.removed.length ? ` (${status.lastChange.removed.slice(0, 4).join(', ')})` : ''}. A
+              client appearing is usually a new customer; one disappearing is usually a cancellation nobody
+              mentioned.
+            </p>
+          )}
+        </>
+      )}
     </Card>
   );
 }
