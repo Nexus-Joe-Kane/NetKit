@@ -87,8 +87,17 @@ type Tab = 'active' | 'all' | 'overage' | 'barred' | 'suspended' | 'spare';
  */
 const TABS = ['active', 'all', 'overage', 'barred', 'suspended', 'spare'] as const;
 
-/** Share of allowance used, as a percentage. */
+/**
+ * Share of allowance used, as a percentage.
+ *
+ * The provider's own figure first. Jola do not document what unit their
+ * allowance and usage numbers are in, so dividing the two is a guess with a
+ * factor of 1024 riding on it — where their percentage needs no unit at all.
+ * The division stays as the fallback for providers that report sizes and no
+ * percentage.
+ */
 function usedPercent(sim: SimRecord): number | null {
+  if (sim.usedPercentReported != null) return sim.usedPercentReported;
   const allowance = (sim.allowanceBytes ?? 0) + (sim.boltOnBytes ?? 0);
   if (!allowance || sim.usedBytes == null) return null;
   return Math.round((sim.usedBytes / allowance) * 100);

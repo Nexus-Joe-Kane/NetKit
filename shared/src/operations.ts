@@ -749,6 +749,16 @@ export interface SimRecord {
   boltOnBytes?: number;
   usedBytes?: number;
   /**
+   * The share of allowance used, as the provider reports it.
+   *
+   * Preferred over dividing the two byte figures, because Jola do not
+   * document what unit theirs are in. A percentage needs no unit, so the
+   * "near or over allowance" alerting stays right even if the displayed
+   * sizes are out by a factor of 1024 — and a wrong size is visible and
+   * reportable where a wrong alert is not.
+   */
+  usedPercentReported?: number;
+  /**
    * Voice and SMS use for the current period.
    *
    * Only a per-SIM usage call carries these -- an estate listing gives data

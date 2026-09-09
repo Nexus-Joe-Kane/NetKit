@@ -94,12 +94,36 @@ test('order state and type are inferred, with dates as the fallback', () => {
   assert.equal(orderType({ type: 'Cease' }), 'cease');
 });
 
-test('Jola state names map onto ours', () => {
-  // The Zen half of this test went with the Zen SIM estate: mobile is Jola's
-  // job now, and a mapper with no caller is a mapper nothing keeps honest.
-  assert.equal(__jolaTesting.jolaState('Barred'), 'suspended');
-  assert.equal(__jolaTesting.jolaState('Disconnected'), 'ceased');
-  assert.equal(__jolaTesting.jolaState('Spare'), 'pending');
+test('Jola SIM state is an integer, and Active is zero', () => {
+  // This is what made a page of live SIMs read "unknown". Their documented
+  // enum is Active=0, Unactivated=1, Decommissioned=2, ActiveTest=3, and it
+  // serialises as the number — so reading it as a string got nothing, and
+  // Active being falsy meant any `state || 'unknown'` was wrong for exactly
+  // the SIMs that matter.
+  const { jolaState } = __jolaTesting;
+  assert.equal(jolaState(0), 'active');
+  assert.equal(jolaState(1), 'spare', 'Unactivated is a bag of stock, not an unknown');
+  assert.equal(jolaState(2), 'ceased');
+  assert.equal(jolaState(3), 'test');
+});
+
+test('a numeric string works too, for anything that stringifies it', () => {
+  const { jolaState } = __jolaTesting;
+  assert.equal(jolaState('0'), 'active');
+  assert.equal(jolaState('1'), 'spare');
+});
+
+test('the names still map, because the XML form uses them', () => {
+  // Their own samples show <State>Active</State> next to "State": 0, which
+  // is a good way to be misled by the documentation.
+  const { jolaState } = __jolaTesting;
+  assert.equal(jolaState('Active'), 'active');
+  assert.equal(jolaState('Unactivated'), 'spare');
+  assert.equal(jolaState('Decommissioned'), 'ceased');
+  assert.equal(jolaState('ActiveTest'), 'test', 'ActiveTest must not be read as Active');
+  assert.equal(jolaState('Barred'), 'suspended');
+  assert.equal(jolaState(undefined), 'unknown');
+  assert.equal(jolaState(99), 'unknown', 'an enum member we do not know is not a guess');
 });
 
 test('MSISDNs are converted to the international form BT expects', () => {

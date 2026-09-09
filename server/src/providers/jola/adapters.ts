@@ -22,7 +22,14 @@ import { pickArray, pickBool, pickNumber, pickString } from '../zen/map';
  * place for SIMs held directly with Jola.
  */
 
-/** Paging: Jola use skip/take, and every list endpoint accepts them. */
+/**
+ * Paging: skip and take, not page and pageSize.
+ *
+ * Their documented default `take` is **10**, which is small enough to look
+ * like a truncated estate if it is left to default, so it is always sent.
+ * There is no total-count header on the SIM or customer endpoints — only on
+ * orders — so the end of the list is a short page and nothing else.
+ */
 const PAGE_SIZE = 100;
 
 /**
@@ -40,14 +47,64 @@ const MB = 1024 * 1024;
 const bytesFromMb = (mb?: number): number | undefined =>
   mb == null || !Number.isFinite(mb) ? undefined : Math.round(mb * MB);
 
-function jolaState(raw?: string): SimState {
-  const v = (raw ?? '').toUpperCase();
+/**
+ * Jola's `SimState`, which is an integer in JSON.
+ *
+ * This is the cause of a page of SIMs reading "unknown". Their documented
+ * enum is `Active = 0, Unactivated = 1, Decommissioned = 2, ActiveTest = 3`,
+ * and it serialises as the *number* in JSON — so reading it as a string got
+ * nothing, and every live SIM on the account rendered as no state at all.
+ * Worse, `Active` being zero means any `state || 'unknown'` treatment is
+ * wrong for exactly the SIMs that matter.
+ *
+ * The XML representation does use the names, which is a good way to be
+ * misled by their own documentation: the samples show
+ * `<State>Active</State>` next to `"State": 0`.
+ *
+ * `Unactivated` is the bag of stock — a real state, not a missing one — so it
+ * maps to `spare` rather than being guessed at from a label.
+ *
+ * There is no `Barred` or `Suspended` member. A barred SIM is `State = 0`
+ * with a separate `Barred: true` boolean, which is why the caller has to
+ * apply that on top rather than expecting it here.
+ */
+const JOLA_STATE_BY_NUMBER: Record<number, SimState> = {
+  0: 'active',
+  1: 'spare',
+  2: 'ceased',
+  3: 'test',
+};
+
+function jolaState(raw: unknown): SimState {
+  // The number is the documented form, so it is tried first.
+  if (typeof raw === 'number' && JOLA_STATE_BY_NUMBER[raw]) return JOLA_STATE_BY_NUMBER[raw]!;
+  // A numeric string, because a proxy or an export can stringify it.
+  if (typeof raw === 'string' && /^\d+$/.test(raw.trim())) {
+    const mapped = JOLA_STATE_BY_NUMBER[Number(raw.trim())];
+    if (mapped) return mapped;
+  }
+
+  // And the names, for the XML form and for resellers who rename it.
+  const v = typeof raw === 'string' ? raw.toUpperCase() : '';
+  if (v.includes('UNACTIVATED') || v.includes('STOCK') || v.includes('SPARE')) return 'spare';
+  if (v.includes('ACTIVETEST') || v.includes('TEST')) return 'test';
   if (v.includes('ACTIVE') || v.includes('LIVE')) return 'active';
   if (v.includes('SUSPEND') || v.includes('BARRED')) return 'suspended';
-  if (v.includes('CEAS') || v.includes('TERMINAT') || v.includes('DISCONNECT')) return 'ceased';
-  if (v.includes('PENDING') || v.includes('STOCK') || v.includes('SPARE')) return 'pending';
-  if (v.includes('TEST')) return 'test';
+  if (v.includes('DECOMMISSION') || v.includes('CEAS') || v.includes('TERMINAT') || v.includes('DISCONNECT')) {
+    return 'ceased';
+  }
+  if (v.includes('PENDING')) return 'pending';
   return 'unknown';
+}
+
+/** Reads a field without deciding what type it is. */
+function rawField(value: unknown, ...keys: string[]): unknown {
+  if (!value || typeof value !== 'object') return undefined;
+  const record = value as Record<string, unknown>;
+  for (const key of keys) {
+    if (record[key] !== undefined && record[key] !== null) return record[key];
+  }
+  return undefined;
 }
 
 /** The Basic credential, built per call so a rotated key takes effect. */
@@ -149,8 +206,35 @@ export function mapJolaSim(raw: unknown, customer?: JolaCustomer): SimRecord | n
   // Jola's own field is `MobileNumber`; the rest are kept for resellers who
   // rename it.
   const msisdn = pickString(raw, 'MobileNumber', 'msisdn', 'MSISDN', 'Msisdn', 'number', 'phoneNumber');
-  const allowanceMb = pickNumber(raw, 'DataAllowanceMb', 'dataAllowanceMb', 'tariffAllowanceMb', 'DataAllowance', 'tariffAllowance');
-  const usedMb = pickNumber(raw, 'DataMb', 'dataMb', 'DataUsedMb', 'dataUsedMb', 'usageDataMb', 'DataUsed', 'dataUsed');
+  /*
+   * `Allownace`. Their spelling, not a typo of mine.
+   *
+   * It is misspelled in the live contract on both the SIM list and the
+   * single-SIM endpoint, and correctly spelled as `Allowance` on the model
+   * the pool endpoints return — the two genuinely disagree, so both are read.
+   * Missing this is why every allowance came back empty.
+   */
+  const allowanceMb = pickNumber(
+    raw,
+    'Allownace',
+    'Allowance',
+    'TariffAllowance',
+    'DataAllowanceMb',
+    'dataAllowanceMb',
+  );
+  /* Usage is `Usage`, plus `AllowanceUsed` on the pool model. */
+  const usedMb = pickNumber(raw, 'Usage', 'AllowanceUsed', 'DataMb', 'dataMb', 'DataUsedMb');
+  /*
+   * The percentage, straight from the provider.
+   *
+   * Preferred over dividing the two figures above, because Jola do not
+   * document what unit either is in. A percentage needs no unit, so the
+   * "near or over allowance" alerting stays correct even if the sizes are
+   * displayed wrong by a factor of 1024 — and being wrong about the size is
+   * visible and reportable, where being wrong about the alert is not.
+   */
+  const usedPercent = pickNumber(raw, 'AllowanceUsedPercent', 'allowanceUsedPercent');
+  const boltOnMb = pickNumber(raw, 'BoltonAllowance', 'boltOnAllowance');
 
   const tagRaw = pickArray(raw, 'SimTag', 'tags', 'Tags', 'Labels');
   const tags = tagRaw
@@ -190,12 +274,14 @@ export function mapJolaSim(raw: unknown, customer?: JolaCustomer): SimRecord | n
     iccid,
     ...(msisdn ? { msisdn } : {}),
     ...(pickString(raw, 'imsi', 'IMSI') ? { imsi: pickString(raw, 'imsi', 'IMSI') } : {}),
-    state: jolaState(pickString(raw, 'state', 'State', 'status', 'Status', 'simStatus')),
+    state: jolaState(rawField(raw, 'State', 'state', 'status', 'Status', 'simStatus')),
     ...(pickString(raw, 'operator', 'Operator', 'network', 'Network', 'carrier')
       ? { network: pickString(raw, 'operator', 'Operator', 'network', 'Network', 'carrier') }
       : {}),
     ...(bytesFromMb(allowanceMb) != null ? { allowanceBytes: bytesFromMb(allowanceMb) } : {}),
     ...(bytesFromMb(usedMb) != null ? { usedBytes: bytesFromMb(usedMb) } : {}),
+    ...(bytesFromMb(boltOnMb) != null ? { boltOnBytes: bytesFromMb(boltOnMb) } : {}),
+    ...(usedPercent != null ? { usedPercentReported: usedPercent } : {}),
     ...(bars.length ? { bars } : {}),
     ...(labels.length ? { tags: labels } : {}),
     // Whose SIM it is. Known from the customer this list was fetched under,
@@ -246,6 +332,19 @@ export function mapJolaSim(raw: unknown, customer?: JolaCustomer): SimRecord | n
    */
   if (looksSpare(record)) record.state = 'spare';
 
+  /*
+   * Barred is a separate boolean, not a state.
+   *
+   * Jola's state enum has no `Barred` or `Suspended` member at all: a barred
+   * SIM is `State = 0` — active — with `Barred: true` beside it. So the bar
+   * has to be applied on top, or a barred SIM reads as live and the Barred
+   * tab stays empty while the customer cannot get online.
+   */
+  if (pickBool(raw, 'Barred', 'barred') === true) {
+    record.state = 'suspended';
+    record.bars = [...new Set([...(record.bars ?? []), 'Barred at the network'])];
+  }
+
   return record;
 }
 
@@ -290,8 +389,7 @@ export async function fetchJolaEstate(): Promise<SimEstate> {
  * Looks a single SIM up by ICCID or MSISDN, with its usage.
  *
  * The usage call is made only here. This is the one place a single SIM is in
- * hand, and it is where voice and SMS figures are worth the extra request --
- * an estate view would need one call per SIM for the same data.
+ * hand.
  */
 export async function findJolaSim(identifier: string): Promise<SimRecord | null> {
   const estate = await fetchJolaEstate();
@@ -303,53 +401,28 @@ export async function findJolaSim(identifier: string): Promise<SimRecord | null>
         s.iccid.toLowerCase() === needle ||
         (digits.length >= 6 && (s.msisdn ?? '').replace(/\D/g, '').endsWith(digits)),
     ) ?? null;
-  if (!sim) return null;
-
-  // Jola key usage on their SIM id, which the estate row carries in `raw`
-  // only as the id we matched on -- so fall back to the ICCID, which their
-  // API also accepts. Usage never fails the lookup: a SIM with no usage is
-  // still the SIM someone asked for.
-  const usage = await fetchJolaSimUsage(sim.iccid).catch(() => null);
-  return usage ? { ...sim, ...usage } : sim;
+  // Everything Jola publish about a SIM is already on the estate row: the
+  // per-SIM usage call this used to make does not exist, and there are no
+  // voice or SMS figures on this API at all.
+  return sim;
 }
 
 export const __jolaTesting = { jolaState, mapJolaSim, mapJolaCustomer, rowsFrom, bytesFromMb };
 
-/**
- * Current-period usage for one SIM.
+/*
+ * There is no per-SIM usage endpoint at Jola, and this used to call one.
  *
- * The estate listing carries data used and nothing else, so voice minutes and
- * SMS counts are only obtainable here -- and they are the two figures a bill
- * query turns on. One call per SIM, which is why this is not folded into the
- * estate fetch: it is for a SIM someone has actually looked up.
+ * `GET /api/v1/sims/{id}/usage` answers 404 while every real route answers
+ * 401 unauthenticated — auth runs before the action there, so the 404 is a
+ * genuine absence rather than a permissions artefact. So the extra request
+ * this made per SIM was always going to come back empty, and the voice and
+ * SMS figures it claimed to fetch do not exist on this API at all.
  *
- * Returns null when Jola hold no usage for the SIM, which they answer with a
- * 404 and which is a legitimate answer for a SIM that has never attached.
+ * What Jola do publish per SIM is `Usage` on the SIM record itself, which the
+ * estate listing already carries, plus a pool-wide figure on
+ * `GET /api/v1/pools/{id}/usage`. There is no voice or SMS anywhere.
+ *
+ * Removed rather than left in place returning null, because a function that
+ * always answers "no usage" reads on screen as "this SIM has never been
+ * used", which is a different and wrong statement.
  */
-export async function fetchJolaSimUsage(simId: string): Promise<{
-  usedBytes?: number;
-  usedVoiceMinutes?: number;
-  usedSms?: number;
-  usagePeriodStart?: string;
-  usagePeriodEnd?: string;
-} | null> {
-  const payload = await jolaCall<unknown>(`/api/v1/sims/${encodeURIComponent(simId)}/usage/current`);
-  if (payload === null) return null;
-
-  const dataMb = pickNumber(payload, 'DataMb', 'dataMb', 'dataUsedMb', 'DataUsedMb', 'usageDataMb', 'dataUsed', 'DataUsed');
-  const voice = pickNumber(payload, 'VoiceMinutes', 'voiceMinutes', 'voiceUsed', 'VoiceUsed', 'voiceUsageMinutes');
-  const sms = pickNumber(payload, 'SmsCount', 'smsCount', 'sms', 'SMS', 'smsUsed', 'SmsUsed', 'usageSms');
-  const start = pickString(payload, 'periodStart', 'PeriodStart', 'from', 'From', 'startDate', 'StartDate');
-  const end = pickString(payload, 'periodEnd', 'PeriodEnd', 'to', 'To', 'endDate', 'EndDate');
-
-  const usage = {
-    ...(bytesFromMb(dataMb) != null ? { usedBytes: bytesFromMb(dataMb) } : {}),
-    ...(voice != null ? { usedVoiceMinutes: voice } : {}),
-    ...(sms != null ? { usedSms: sms } : {}),
-    ...(start ? { usagePeriodStart: start } : {}),
-    ...(end ? { usagePeriodEnd: end } : {}),
-  };
-
-  // An empty object would claim a usage answer where there is none.
-  return Object.keys(usage).length ? usage : null;
-}
