@@ -1,4 +1,5 @@
 import express, { type Express, type Request, type Response, type NextFunction } from 'express';
+import { bootstrapCredentials } from './services/vault';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import compression from 'compression';
@@ -19,6 +20,10 @@ import { adminRouter } from './admin/routes';
  * Passenger on Plesk, driven by tests, or started directly.
  */
 export function createApp(): Express {
+  // Passenger loads this file directly rather than bin/serve, so the vault
+  // has to be read here too — before the config() below, which is the first
+  // thing that would cache a credential's absence.
+  bootstrapCredentials();
   const cfg = config();
   const app = express();
 

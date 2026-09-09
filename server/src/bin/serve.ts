@@ -1,4 +1,5 @@
 import { createApp } from '../app';
+import { bootstrapCredentials } from '../services/vault';
 import { config } from '../config';
 import { ensureAdminSeed } from '../auth/seed';
 import { selfTestOnBoot } from '../admin/selftest';
@@ -11,6 +12,9 @@ import { startSupervisor, stopSupervisor } from '../admin/supervisor';
  * requires the same modules — so both paths run identical code.
  */
 async function main(): Promise<void> {
+  // Before the first config() read: a credential set in the portal has to
+  // behave exactly as if it had been set in the environment.
+  bootstrapCredentials();
   const cfg = config();
   await ensureAdminSeed();
 

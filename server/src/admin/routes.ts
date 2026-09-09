@@ -1,10 +1,13 @@
 import { Router, type Response } from 'express';
 import { z } from 'zod';
 import type { ApiResult } from '@sw/shared';
+import { vaultKey } from '@sw/shared';
 import { badRequest, HttpError, notFound } from '../lib/errors';
 import { checkPasswordPolicy, hashPassword, randomToken } from '../auth/passwords';
 import { EMAIL_FONT, emailLayout, sendEmail, verifyResend } from '../auth/email';
 import { notifyChannel, notifyChannelDetail } from '../services/notify';
+import { clearSecret, secretStatus, setSecret, vaultUsable, withCandidate } from '../services/vault';
+import { clearAllProviderCaches } from './supervisor';
 import { requireAdmin } from '../auth/routes';
 import {
   audit,
@@ -21,10 +24,10 @@ import {
   toPublicUser,
   updateUser,
 } from '../auth/store';
-import { serviceStatuses } from './health';
+import { probeService, serviceStatuses } from './health';
 import { runSelfTest } from './selftest';
 import { sweep, supervisorState } from './supervisor';
-import { config } from '../config';
+import { config, resetConfig } from '../config';
 import { quotaSummary } from '../services/quota';
 
 /**
@@ -149,6 +152,159 @@ export function adminRouter(): Router {
         ip: req.ip,
       });
       send(res, report);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /* ---- Credentials -------------------------------------------------- */
+
+  /**
+   * Which credentials exist and where each one comes from.
+   *
+   * Never the values. Not even a prefix: four characters of an API key is
+   * four characters an attacker does not have to guess, and there is nothing
+   * a masked value tells an operator that "set, 56 characters, by Joe on
+   * Tuesday" does not tell them better.
+   */
+  router.get('/credentials', (_req, res) => {
+    send(res, { vault: vaultUsable(), keys: secretStatus() });
+  });
+
+  const credentialSchema = z.object({
+    values: z.record(z.string(), z.string().max(4000)),
+  });
+
+  /**
+   * Tries a credential without storing it.
+   *
+   * The order matters: an operator who pastes a key, presses Test, gets a
+   * green light and then saves has proved the thing works. One who saves
+   * first has changed the running system to find out.
+   *
+   * The candidate goes into the environment only for the duration of the
+   * probe, and the previous value is restored whatever happens — including
+   * when the probe throws.
+   */
+  router.post('/credentials/test', async (req, res, next) => {
+    try {
+      const parsed = credentialSchema.safeParse(req.body);
+      if (!parsed.success) throw badRequest('Provide { "values": { "NAME": "value" } }.');
+
+      const names = Object.keys(parsed.data.values);
+      const unknown = names.filter((n) => !vaultKey(n));
+      if (unknown.length) throw badRequest(`Not a credential this application uses: ${unknown.join(', ')}`);
+      if (!names.length) throw badRequest('Nothing to test.');
+
+      // Every named key belongs to one service, or the test has no single
+      // thing to probe.
+      const services = [...new Set(names.map((n) => vaultKey(n)!.service))];
+      if (services.length !== 1) {
+        throw badRequest('Test one integration at a time — these keys belong to different ones.');
+      }
+      const service = services[0]!;
+
+      const result = await withCandidate(parsed.data.values, async () => {
+        // The candidate is only visible to code that re-reads config, so the
+        // cache has to go both before the probe and after it.
+        resetConfig();
+        clearAllProviderCaches();
+        try {
+          return await probeService(service);
+        } finally {
+          resetConfig();
+          clearAllProviderCaches();
+        }
+      });
+
+      audit({
+        actorId: req.user!.id,
+        actorEmail: req.user!.email,
+        action: 'admin.credential_tested',
+        // Names only. The point of the vault is that values do not end up in
+        // places like this.
+        detail: { service, keys: names, state: result?.state ?? 'no_probe' },
+        ip: req.ip,
+      });
+
+      if (!result) {
+        send(res, {
+          service,
+          state: 'unknown',
+          detail: 'There is no probe for that integration, so the key was stored-shape-checked only.',
+        });
+        return;
+      }
+      send(res, { service, state: result.state, detail: result.detail, ...(result.meta ? { meta: result.meta } : {}) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /**
+   * Stores credentials and makes them live.
+   *
+   * No restart: the vault writes each value into the environment, the config
+   * cache is dropped so the next read sees it, and every provider cache goes
+   * with it — a token or a "not configured" answer taken under the old key
+   * would otherwise outlive the change and make the new key look broken.
+   */
+  router.post('/credentials', async (req, res, next) => {
+    try {
+      const parsed = credentialSchema.safeParse(req.body);
+      if (!parsed.success) throw badRequest('Provide { "values": { "NAME": "value" } }.');
+
+      const saved: string[] = [];
+      const failed: Array<{ name: string; error: string }> = [];
+      for (const [name, value] of Object.entries(parsed.data.values)) {
+        const result = setSecret(name, value, req.user!.email);
+        if (result.ok) saved.push(name);
+        else failed.push({ name, error: result.error });
+      }
+
+      resetConfig();
+      clearAllProviderCaches();
+
+      audit({
+        actorId: req.user!.id,
+        actorEmail: req.user!.email,
+        action: 'admin.credentials_saved',
+        detail: { saved, ...(failed.length ? { failed: failed.map((f) => f.name) } : {}) },
+        ip: req.ip,
+      });
+
+      if (!saved.length && failed.length) throw badRequest(failed[0]!.error);
+      send(res, { saved, failed, keys: secretStatus() });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /**
+   * Forgets a credential.
+   *
+   * Where Plesk also sets it, the next boot brings the Plesk value back. That
+   * is the honest behaviour rather than a surprise, and the status list says
+   * which source is live either way.
+   */
+  router.delete('/credentials/:name', async (req, res, next) => {
+    try {
+      const name = String(req.params.name);
+      if (!vaultKey(name)) throw notFound(`No such credential: ${name}`);
+
+      const removed = clearSecret(name);
+      resetConfig();
+      clearAllProviderCaches();
+
+      audit({
+        actorId: req.user!.id,
+        actorEmail: req.user!.email,
+        action: 'admin.credential_cleared',
+        detail: { name, removed },
+        ip: req.ip,
+      });
+
+      send(res, { name, removed, keys: secretStatus() });
     } catch (err) {
       next(err);
     }

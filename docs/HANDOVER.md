@@ -121,6 +121,12 @@ the symlink comes out. Details and the revert command are in `GO-LIVE.md`.
 | `RESEND_API_KEY` | Email two-factor and account invites. Optional otherwise — notices prefer Zendesk |
 | `ZENDESK_SUBDOMAIN`, `ZENDESK_EMAIL`, `ZENDESK_API_TOKEN` | Ticket notes, site contacts, and outbound notices as internal tickets |
 
+Every one of these can now be set in **Admin portal → Credentials** rather
+than in the environment, with a test button per integration, and takes effect
+without a restart. `SESSION_SECRET` and `DATA_DIR` are the exceptions and stay
+in Plesk: one is the key the vault is encrypted with, the other is where the
+vault lives.
+
 **Admin portal → Service status** lists all 27 integration probes with
 exactly what each is waiting for. That is the authoritative view, not this
 table.

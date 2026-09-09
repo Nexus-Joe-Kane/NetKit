@@ -21,6 +21,7 @@ import type {
   NetworkConfiguration,
   NetworkConnectivityCheck,
   NumberPortCheck,
+  SecretStatus,
   VisitRecord,
   OrderingGate,
   OrderQuote,
@@ -349,6 +350,25 @@ export const api = {
       evidence?: string[];
     },
   ) => post<{ visit: VisitRecord; ticket: TicketNoteOutcome }>(`/api/visits/${encodeURIComponent(id)}/close`, input),
+
+  /* ---- Credentials --------------------------------------------------- */
+
+  credentials: () =>
+    request<{ vault: { ok: boolean; reason?: string }; keys: SecretStatus[] }>('/api/admin/credentials'),
+
+  testCredentials: (values: Record<string, string>) =>
+    post<{ service: string; state: string; detail: string }>('/api/admin/credentials/test', { values }),
+
+  saveCredentials: (values: Record<string, string>) =>
+    post<{ saved: string[]; failed: Array<{ name: string; error: string }>; keys: SecretStatus[] }>(
+      '/api/admin/credentials',
+      { values },
+    ),
+
+  clearCredential: (name: string) =>
+    del<{ name: string; removed: boolean; keys: SecretStatus[] }>(
+      `/api/admin/credentials/${encodeURIComponent(name)}`,
+    ),
 
   /* ---- Diagnostics -------------------------------------------------- */
 
