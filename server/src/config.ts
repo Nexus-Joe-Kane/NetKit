@@ -278,6 +278,24 @@ export interface AppConfig {
    * with its own key — so having one does not give you the other.
    */
   ofcomMobile: { apiKey: string; baseUrl: string; configured: boolean };
+  /**
+   * Downdetector, for national supplier status.
+   *
+   * The paths are configurable because their API reference is behind their
+   * enterprise login: what ships is built from the endpoint names their own
+   * integration documentation gives, and being able to correct a path
+   * without a deploy is the difference between a five-minute fix and a
+   * release.
+   */
+  downdetector: {
+    clientId: string;
+    clientSecret: string;
+    baseUrl: string;
+    tokenUrl: string;
+    /** `{slug}` is replaced with the provider's Downdetector slug. */
+    statusPath: string;
+    configured: boolean;
+  };
   /** Zendesk Support: ticket notes, and the customer's own site contacts. */
   zendesk: { subdomain: string; email: string; apiToken: string; configured: boolean };
   /**
@@ -494,6 +512,14 @@ export function config(): AppConfig {
       apiKey: str('OFCOM_MOBILE_API_KEY'),
       baseUrl: str('OFCOM_MOBILE_BASE_URL', 'https://apim-cnapi-shared-prod.azure-api.net/mobilechecker'),
       configured: Boolean(str('OFCOM_MOBILE_API_KEY')),
+    },
+    downdetector: {
+      clientId: str('DOWNDETECTOR_CLIENT_ID'),
+      clientSecret: str('DOWNDETECTOR_CLIENT_SECRET'),
+      baseUrl: str('DOWNDETECTOR_BASE_URL', 'https://downdetectorapi.com/v2').replace(/\/+$/, ''),
+      tokenUrl: str('DOWNDETECTOR_TOKEN_URL', 'https://downdetectorapi.com/v2/oauth2/token'),
+      statusPath: str('DOWNDETECTOR_STATUS_PATH', 'companies/{slug}/status'),
+      configured: Boolean(str('DOWNDETECTOR_CLIENT_ID') && str('DOWNDETECTOR_CLIENT_SECRET')),
     },
     thinkbroadband: {
       apiKey: str('THINKBROADBAND_API_KEY'),
