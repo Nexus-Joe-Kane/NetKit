@@ -112,6 +112,10 @@ You will be forced to change it immediately.
 
 ## 6. Turn on email two-factor authentication
 
+Only sign-in codes and account invites need a mailer — they carry credentials.
+Escalations and watch alerts go to Zendesk as internal tickets when Zendesk is
+configured, so Resend is optional if you do not want email 2FA.
+
 1. Add `RESEND_API_KEY` and `RESEND_FROM_EMAIL` to the environment, and restart.
 2. Sign in, open **Admin portal → Service status**, and press **Send test email**.
 3. Once that test passes, 2FA becomes available and each user can enable it
