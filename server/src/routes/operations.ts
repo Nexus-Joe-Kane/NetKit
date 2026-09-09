@@ -9,11 +9,18 @@ import {
   lineTestNote,
   normaliseCli,
   parseBulkInput,
+  firstName,
+  paygEmail,
   siteVisitBookedMessage,
   type ApiResult,
   type LineTestType,
 } from '@sw/shared';
-import { comment, siteContactsForTicket, zendeskConfigured } from '../providers/tickets/zendesk';
+import {
+  clientContextByName,
+  comment,
+  siteContactsForTicket,
+  zendeskConfigured,
+} from '../providers/tickets/zendesk';
 import { badRequest, forbidden, notConfigured, notFound, rateLimited, uprnNotFound } from '../lib/errors';
 import { consumeQuota, refundQuota } from '../services/quota';
 import { addressByUprn, addressesByPostcode, buildSiteReport } from '../services/resolve';
@@ -372,6 +379,74 @@ export function operationsRouter(): Router {
         ip: req.ip,
       });
       return { ticket: note };
+    }),
+  );
+
+  /**
+   * Who this client is and what terms they are on.
+   *
+   * Looked up by name, because that is the join between every system we
+   * hold — IT Glue, UniFi and Zendesk all name a client the same way.
+   */
+  router.get(
+    '/clients/:name',
+    handler(async (req) => {
+      if (!zendeskConfigured()) {
+        throw notConfigured('Zendesk is not connected, so client terms cannot be looked up.');
+      }
+      const name = String(req.params.name ?? '').trim();
+      if (!name) throw badRequest('Provide a client name.');
+      const client = await clientContextByName(name);
+      if (!client) throw notFound(`No single Zendesk organisation matches "${name}".`);
+      return { client };
+    }),
+  );
+
+  /**
+   * The pay-as-you-go email, sent as a public reply on the client's ticket.
+   *
+   * Deliberately not a bulk action. It goes on one ticket, chosen by the
+   * engineer, because a payment request in front of the wrong customer is a
+   * worse outcome than one that took a moment longer to send.
+   */
+  router.post(
+    '/clients/payg-request',
+    handler(async (req) => {
+      const body = z
+        .object({
+          ticketId: z.string().trim().min(1),
+          clientName: z.string().trim().min(1).max(200),
+          contactName: z.string().trim().max(200).optional(),
+          ccEngineer: z.boolean().optional(),
+        })
+        .parse(req.body ?? {});
+
+      const email = paygEmail({
+        contactFirstName: firstName(body.contactName),
+        clientName: body.clientName,
+        // Signed by whoever is on, not by a team — it is a small ask about
+        // money and it reads better from a name.
+        fromFirstName: firstName(req.user?.name),
+      });
+
+      const note = await noteOnTicket({
+        ticketId: body.ticketId,
+        visibility: 'public',
+        body: email.body,
+        ...(body.ccEngineer && req.user?.email ? { ccEmails: [req.user.email] } : {}),
+      });
+
+      if (!note.posted) throw badRequest(note.error ?? 'The request was not written to the ticket.');
+
+      audit({
+        actorId: req.user?.id,
+        actorEmail: req.user?.email,
+        action: 'client.payg_request_sent',
+        detail: { ticketId: note.ticketId, clientName: body.clientName },
+        ip: req.ip,
+      });
+
+      return { ticket: note, subject: email.subject };
     }),
   );
 

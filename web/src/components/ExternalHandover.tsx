@@ -41,6 +41,7 @@ export function ExternalHandover({
   line,
   latestTest,
   siteContact,
+  password,
   open,
   onClose,
   destination,
@@ -48,6 +49,8 @@ export function ExternalHandover({
   line: LineRecord;
   latestTest?: LineTestResult;
   siteContact?: SiteContact;
+  /** The broadband password, where an operator is entitled to see it. */
+  password?: string;
   open: boolean;
   onClose: () => void;
   /** Where they are going, so the box says why it appeared. */
@@ -77,10 +80,23 @@ export function ExternalHandover({
   }, [open, state.downtime, now]);
 
   const fields = useMemo(
-    () => handoverFields({ line, ...(siteContact ? { siteContact } : {}) }),
-    [line, siteContact],
+    () => handoverFields({ line, ...(siteContact ? { siteContact } : {}), ...(password ? { password } : {}) }),
+    [line, siteContact, password],
   );
   const address = addressParts(line);
+
+  /*
+   * The credentials as one string.
+   *
+   * Offered only when both halves are in hand — a "username and password"
+   * button that copies half of it is worse than no button. Still never part
+   * of "copy the lot", which goes into tickets.
+   */
+  const credentials = useMemo(() => {
+    const username = line.radius?.username?.trim();
+    if (!username || !password?.trim()) return null;
+    return `${username}\n${password.trim()}`;
+  }, [line.radius?.username, password]);
   const everything = useMemo(
     () =>
       handoverText({
@@ -164,6 +180,10 @@ export function ExternalHandover({
             <CopyButton value={address.street} label="Copy address lines" />
             <CopyButton value={address.postcode} label="Copy postcode" />
             <CopyButton value={address.whole} label="Copy the whole address" />
+            {/* Both halves together. Copying the username and then having to
+                come back for the password is a small thing that reliably
+                annoys somebody mid-config, so the pair is one button. */}
+            {credentials && <CopyButton value={credentials} label="Copy username and password" />}
           </div>
         </div>
 

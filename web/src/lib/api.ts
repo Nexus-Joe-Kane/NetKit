@@ -42,6 +42,7 @@ import type {
   BulkResult,
   WatchRecord,
   SiteContact,
+  AccountStanding,
 } from '@sw/shared';
 
 /**
@@ -65,6 +66,26 @@ export interface RaiseFaultInput {
   siteContactName?: string;
   siteContactEmail?: string;
   siteContactPhone?: string;
+}
+
+/** One of a client's open tickets, for the PAYG picker. */
+export interface ClientTicket {
+  id: string;
+  subject: string;
+  status: string;
+  createdAt?: string;
+  requesterName?: string;
+  requesterEmail?: string;
+}
+
+/** Who a client is and what terms they are on. */
+export interface ClientContext {
+  organisationId: string;
+  name: string;
+  standing: AccountStanding;
+  standingSource?: string;
+  openTickets: ClientTicket[];
+  openTicketCount: number;
 }
 
 /** What happened when a note was written to a ticket. */
@@ -244,6 +265,17 @@ export const api = {
     post<Sourced & { fault: FaultRecord; ticket?: TicketNoteOutcome }>('/api/faults', input),
 
   /* ---- Tickets ------------------------------------------------------ */
+
+  /**
+   * Who a client is and what terms they are on.
+   *
+   * By name, because that is the join between Zendesk, IT Glue and UniFi.
+   */
+  client: (name: string) => request<{ client: ClientContext }>(`/api/clients/${encodeURIComponent(name)}`),
+
+  /** Asks a PAYG client to buy time, as a public reply on their ticket. */
+  paygRequest: (input: { ticketId: string; clientName: string; contactName?: string; ccEngineer?: boolean }) =>
+    post<{ ticket: TicketNoteOutcome; subject: string }>('/api/clients/payg-request', input),
 
   /** The customer's own contacts for a ticket, for the site-contact picker. */
   ticketContacts: (ticketId: string) =>

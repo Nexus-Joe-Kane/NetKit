@@ -21,6 +21,7 @@ import { Modal } from './components/overlay';
 import { siteReportToText } from './lib/reportText';
 import { PrintableReport } from './components/PrintableReport';
 import { PrintDialog } from './components/PrintDialog';
+import { ClientStandingGate } from './components/ClientStandingGate';
 import { go, readRoute, toHash, useRoute } from './lib/route';
 import { WatchButton } from './components/WatchPanel';
 import { loadSections } from './lib/printStorage';
@@ -341,7 +342,16 @@ function Portal({
               </Card>
             ) : null}
 
-            {report && <SiteReportView report={report} onOpenSibling={loadSite} busy={busy} tab={tab} setTab={setTab} />}
+            {report && (
+              <SiteReportView
+                report={report}
+                onOpenSibling={loadSite}
+                busy={busy}
+                tab={tab}
+                setTab={setTab}
+                engineerName={user.name}
+              />
+            )}
 
             <AddressPickerDialog
               open={pickerOpen}
@@ -393,12 +403,15 @@ function SiteReportView({
   busy,
   tab,
   setTab,
+  engineerName,
 }: {
   report: SiteReport;
   onOpenSibling: (uprn: string) => void;
   busy: boolean;
   tab: ReportTab;
   setTab: (tab: ReportTab) => void;
+  /** Who is signed in, so a nudge can greet them by name. */
+  engineerName?: string;
 }): ReactElement {
   const [siblingsOpen, setSiblingsOpen] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
@@ -437,6 +450,16 @@ function SiteReportView({
     },
     { id: 'companies', label: 'Who is here' },
   ];
+
+  /*
+   * Whose premises this is.
+   *
+   * Taken from a line at the address rather than from the companies at the
+   * postcode: the register lists whoever is registered nearby, and putting a
+   * neighbour's payment terms in front of an engineer is worse than showing
+   * none.
+   */
+  const clientName = report.lines.find((l) => l.customerName)?.customerName;
 
   const siblings = report.siblings ?? [];
   const filteredSiblings = siblingFilter.trim()
@@ -489,6 +512,17 @@ function SiteReportView({
         <Alert tone="warn">
           <span>{degraded.map(([name, s]) => `${name}: ${s.error ?? 'unavailable'}`).join(' · ')}</span>
         </Alert>
+      )}
+
+      {/* Terms before work. The client name comes from a line at the premises
+          — an address alone cannot tell us whose it is, and guessing from the
+          companies at the postcode would put another business's terms in
+          front of an engineer. */}
+      {clientName && (
+        <ClientStandingGate
+          clientName={clientName}
+          {...(engineerName ? { engineerName } : {})}
+        />
       )}
 
       <Tabs tabs={tabs} active={tab} onChange={setTab} variant="primary" label="Site sections" />

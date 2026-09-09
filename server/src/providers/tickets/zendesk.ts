@@ -1,4 +1,5 @@
-import type { SiteContact } from '@sw/shared';
+import type { AccountStanding, SiteContact } from '@sw/shared';
+import { readStanding } from '@sw/shared';
 import { config } from '../../config';
 import { fetchJson } from '../../lib/http';
 import { TtlCache } from '../../lib/cache';
@@ -36,6 +37,7 @@ interface ZendeskTicket {
   id?: number;
   subject?: string;
   status?: string;
+  created_at?: string;
   requester_id?: number;
   organization_id?: number;
   url?: string;
@@ -224,4 +226,138 @@ export async function zendeskPing(): Promise<{ ok: boolean; detail: string }> {
 /** Recovery hook — drops cached contact lists. */
 export function clearZendeskCache(): void {
   contactsCache.clear();
+}
+
+/* ------------------------------------------------------------------ *
+ * Organisations: whose client is this, and what terms are they on
+ * ------------------------------------------------------------------ */
+
+interface ZendeskOrganisation {
+  id?: number;
+  name?: string;
+  organization_fields?: Record<string, unknown>;
+  tags?: string[];
+  notes?: string;
+  details?: string;
+}
+
+export interface ClientContext {
+  organisationId: string;
+  name: string;
+  standing: AccountStanding;
+  /** The text the standing was read from, so a wrong reading is traceable. */
+  standingSource?: string;
+  /** Open tickets, newest first, capped. */
+  openTickets: ClientTicket[];
+  /** How many are open in total, where more exist than were fetched. */
+  openTicketCount: number;
+}
+
+export interface ClientTicket {
+  id: string;
+  subject: string;
+  status: string;
+  createdAt?: string;
+  requesterName?: string;
+  requesterEmail?: string;
+}
+
+/**
+ * How many open tickets to fetch.
+ *
+ * Twice the picker limit, so the count can honestly say "more than five"
+ * without paging the whole queue.
+ */
+const TICKET_FETCH = 25;
+
+/**
+ * Where a client's terms might be written.
+ *
+ * Nobody agrees on this. Some tenants use an organisation field, some a tag,
+ * some the notes box. All three are read and the first that yields a
+ * recognisable standing wins — with the text kept, so a wrong reading can be
+ * traced to what it read rather than argued about.
+ */
+function standingOf(org: ZendeskOrganisation): { standing: AccountStanding; source?: string } {
+  const candidates: string[] = [];
+
+  for (const [key, value] of Object.entries(org.organization_fields ?? {})) {
+    if (typeof value !== 'string' || !value.trim()) continue;
+    // Only fields that look like they are about terms, so a "region" field
+    // reading "Support" does not decide billing.
+    if (/term|standing|billing|contract|support|account|status/i.test(key)) candidates.push(value);
+  }
+
+  candidates.push(...(org.tags ?? []));
+  if (org.notes) candidates.push(org.notes);
+  if (org.details) candidates.push(org.details);
+
+  for (const candidate of candidates) {
+    const standing = readStanding(candidate);
+    if (standing !== 'unknown') return { standing, source: candidate };
+  }
+  return { standing: 'unknown' };
+}
+
+const mapTicket = (raw: ZendeskTicket, users: Map<number, ZendeskUser>): ClientTicket | null => {
+  if (!raw.id) return null;
+  const requester = raw.requester_id ? users.get(raw.requester_id) : undefined;
+  return {
+    id: String(raw.id),
+    subject: raw.subject?.trim() || `Ticket ${raw.id}`,
+    status: raw.status ?? 'unknown',
+    ...(raw.created_at ? { createdAt: raw.created_at } : {}),
+    ...(requester?.name ? { requesterName: requester.name } : {}),
+    ...(requester?.email ? { requesterEmail: requester.email } : {}),
+  };
+};
+
+/**
+ * Everything about a client that decides whether to start work.
+ *
+ * Looked up by name, because that is what every other system holds — IT Glue,
+ * UniFi and Zendesk all name a client the same way, so a name is the join.
+ * An exact match wins; where several organisations match loosely, none is
+ * chosen, because starting a payment conversation with the wrong customer is
+ * worse than asking which one.
+ */
+export async function clientContextByName(name: string): Promise<ClientContext | null> {
+  const query = name.trim();
+  if (!query) return null;
+
+  const found = await zdGet<{ organizations?: ZendeskOrganisation[] }>(
+    `/organizations/autocomplete.json?name=${encodeURIComponent(query)}`,
+  );
+  const matches = found?.organizations ?? [];
+  if (matches.length === 0) return null;
+
+  const exact = matches.find((o) => (o.name ?? '').trim().toLowerCase() === query.toLowerCase());
+  const org = exact ?? (matches.length === 1 ? matches[0] : undefined);
+  if (!org?.id) return null;
+
+  const { standing, source } = standingOf(org);
+
+  // `side_load` the requesters, so a picker can show who asked without a
+  // request per ticket.
+  const tickets = await zdGet<{ tickets?: ZendeskTicket[]; users?: ZendeskUser[] }>(
+    `/organizations/${org.id}/tickets.json?include=users&per_page=${TICKET_FETCH}`,
+  );
+
+  const users = new Map<number, ZendeskUser>();
+  for (const user of tickets?.users ?? []) if (user.id) users.set(user.id, user);
+
+  const open = (tickets?.tickets ?? [])
+    .filter((t) => ['new', 'open', 'pending', 'hold'].includes((t.status ?? '').toLowerCase()))
+    .map((t) => mapTicket(t, users))
+    .filter((t): t is ClientTicket => t !== null)
+    .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
+
+  return {
+    organisationId: String(org.id),
+    name: org.name ?? query,
+    standing,
+    ...(source ? { standingSource: source } : {}),
+    openTickets: open,
+    openTicketCount: open.length,
+  };
 }
