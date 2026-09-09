@@ -265,6 +265,7 @@ export function ExternalHandover({
             supplier={line.provider}
             technology={line.technology}
             findings={state.findings}
+            {...(line.orderRef || line.serviceId ? { serviceReference: line.orderRef ?? line.serviceId! } : {})}
             {...(siteContact?.name ? { contactName: siteContact.name } : {})}
           />
         </div>

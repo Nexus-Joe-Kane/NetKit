@@ -21,6 +21,7 @@ export * from './networkAdvice';
 export * from './downtime';
 export * from './lineTestAdvice';
 export * from './siteVisit';
+export * from './visits';
 export * from './lineHandover';
 export * from './accountStanding';
 export * from './inbox';

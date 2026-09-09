@@ -11,6 +11,7 @@ import { CompaniesPanel } from './components/CompaniesPanel';
 import { AdminPortal } from './components/AdminPortal';
 import { NetworkStatusPage } from './pages/NetworkStatus';
 import { FaultsPage } from './pages/Faults';
+import { VisitsPage } from './pages/Visits';
 import { OrdersPage } from './pages/Orders';
 import { SimsPage } from './pages/Sims';
 import { ToolsPage } from './pages/Tools';
@@ -36,7 +37,7 @@ import { loadSections } from './lib/printStorage';
  * report it produces, so URL state is limited to the deep link for a UPRN.
  */
 
-type View = 'lookup' | 'inbox' | 'network' | 'faults' | 'orders' | 'sims' | 'tools' | 'admin';
+type View = 'lookup' | 'inbox' | 'network' | 'faults' | 'visits' | 'orders' | 'sims' | 'tools' | 'admin';
 type ReportTab = 'broadband' | 'openreach' | 'signal' | 'lines' | 'companies';
 
 /** The primary navigation. `admin` is reached by its own button. */
@@ -45,6 +46,7 @@ const NAV: Array<{ id: Exclude<View, 'admin'>; label: string }> = [
   { id: 'inbox', label: 'Inbox' },
   { id: 'network', label: 'Network status' },
   { id: 'faults', label: 'Faults' },
+  { id: 'visits', label: 'Visits' },
   { id: 'orders', label: 'Orders' },
   { id: 'sims', label: 'SIMs' },
   { id: 'tools', label: 'Tools' },
@@ -114,7 +116,7 @@ function Portal({
   const route = useRoute();
   const view: View = ((): View => {
     if (route.view === 'site') return 'lookup';
-    const known: View[] = ['lookup', 'inbox', 'network', 'faults', 'orders', 'sims', 'tools', 'admin'];
+    const known: View[] = ['lookup', 'inbox', 'network', 'faults', 'visits', 'orders', 'sims', 'tools', 'admin'];
     return known.find((v) => v === route.view) ?? 'lookup';
   })();
   const setView = (next: View): void => go(toHash(next));
@@ -292,6 +294,7 @@ function Portal({
         {view === 'admin' && <AdminPortal me={user} />}
         {view === 'network' && <NetworkStatusPage />}
         {view === 'faults' && <FaultsPage />}
+        {view === 'visits' && <VisitsPage />}
         {view === 'orders' && <OrdersPage />}
         {view === 'sims' && <SimsPage />}
         {view === 'inbox' && <InboxPage />}

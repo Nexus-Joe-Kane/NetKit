@@ -68,7 +68,13 @@ export interface SiteVisitReasonDef {
   id: SiteVisitReason;
   /** What the engineer picks from the list. */
   label: string;
-  /** How it reads to the customer. Plainer, and never accusatory. */
+  /**
+   * How it reads to the customer. Plainer, and never accusatory.
+   *
+   * A noun phrase, always — it is dropped into "They are coming out because
+   * of ___", and a clause there reads as "because of the fibre terminal is
+   * not receiving a signal". There is a test below that keeps them that way.
+   */
   customerWording: string;
   side: Side;
   /** Only offered for lines where it is possible. */
@@ -79,14 +85,14 @@ export const SITE_VISIT_REASONS: readonly SiteVisitReasonDef[] = [
   {
     id: 'ont-no-light',
     label: 'ONT reporting loss of light',
-    customerWording: 'the fibre terminal at the property is not receiving a signal from the network',
+    customerWording: 'a loss of signal to the fibre terminal at the property',
     side: 'network',
     technologies: ['FTTP'],
   },
   {
     id: 'ont-damage',
     label: 'ONT damaged or failed',
-    customerWording: 'the fibre terminal at the property has failed and needs replacing',
+    customerWording: 'a failed fibre terminal at the property, which needs replacing',
     side: 'network',
     technologies: ['FTTP'],
   },
@@ -130,7 +136,7 @@ export const SITE_VISIT_REASONS: readonly SiteVisitReasonDef[] = [
   {
     id: 'master-socket',
     label: 'Master socket faulty or missing',
-    customerWording: 'the master socket at the property needs replacing',
+    customerWording: 'a master socket at the property that needs replacing',
     side: 'customer',
   },
   {
@@ -142,7 +148,7 @@ export const SITE_VISIT_REASONS: readonly SiteVisitReasonDef[] = [
   {
     id: 'no-dial-tone',
     label: 'No dial tone',
-    customerWording: 'the line is not carrying a signal',
+    customerWording: 'a loss of signal on the line',
     side: 'unclear',
   },
   {

@@ -11,12 +11,17 @@ import {
   parseBulkInput,
   firstName,
   paygEmail,
+  APPROVER,
+  approvalRequestNote,
+  cancelWindow,
   gateBlockers,
   gateFor,
   gateNote,
   reasonConflict,
   siteVisitMessage,
   visitBookedNote,
+  visitCancelledMessage,
+  visitStillNeededNote,
   snoozeUntil,
   type AccessNeed,
   type AccessTechnology,
@@ -38,8 +43,10 @@ import { consumeQuota, refundQuota } from '../services/quota';
 import { addressByUprn, addressesByPostcode, buildSiteReport } from '../services/resolve';
 import * as ops from '../services/operations';
 import { audit } from '../auth/store';
+import { config } from '../config';
 import { runBulkLookup } from '../services/bulk';
 import { addWatch, listWatches, removeWatch } from '../services/watches';
+import { closeVisit, getVisit, listVisits, markApprovalAsked, recordVisit } from '../services/visits';
 
 /**
  * Operational routes: network status, faults, diagnostics, orders, SIMs and
@@ -461,6 +468,9 @@ export function operationsRouter(): Router {
       .object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), window: z.string().min(1).max(60) })
       .nullish(),
     technology: z.string().max(20).optional(),
+    /** So the chase two days out can test the line rather than guess. */
+    serviceReference: z.string().max(60).optional(),
+    faultReference: z.string().max(60).optional(),
     /** Which side the last line test pointed at, for the record and the warning. */
     testSide: z.enum(['customer', 'network', 'unclear']).optional(),
     /** Anything the line test itself asked for, so the gate can include it. */
@@ -546,6 +556,24 @@ export function operationsRouter(): Router {
         }),
       });
 
+      /*
+       * The visit is recorded only after the customer has actually been
+       * told. A row on the chase board for an appointment nobody knows about
+       * would get cancelled two days later on the strength of a message that
+       * was never sent.
+       */
+      const visit = recordVisit({
+        ticketId: note.ticketId ?? ticketId,
+        reason: body.reason as SiteVisitReason,
+        access: body.access as AccessNeed,
+        ...(body.slot ? { slot: body.slot } : {}),
+        ...(body.supplier ? { supplier: body.supplier } : {}),
+        ...(body.serviceReference ? { serviceReference: body.serviceReference } : {}),
+        ...(body.faultReference ? { faultReference: body.faultReference } : {}),
+        ...(req.user?.name ? { bookedBy: req.user.name } : {}),
+        ...(body.testSide ? { testSide: body.testSide as Side } : {}),
+      });
+
       const conflict = body.testSide
         ? reasonConflict(body.reason as SiteVisitReason, body.testSide as Side)
         : { conflict: false };
@@ -565,7 +593,155 @@ export function operationsRouter(): Router {
         },
         ip: req.ip,
       });
-      return { ticket: note, subject: message.subject, record, ...(conflict.conflict ? { warning: conflict.warning } : {}) };
+      return {
+        ticket: note,
+        subject: message.subject,
+        record,
+        visit,
+        ...(conflict.conflict ? { warning: conflict.warning } : {}),
+      };
+    }),
+  );
+
+  /* ---- The chase board -------------------------------------------- */
+
+  /**
+   * Booked visits, and which of them somebody has to decide about.
+   *
+   * Shared across the desk on purpose. Whoever booked a visit may be off the
+   * day it needs checking, and a chase only its booker can see is a chase
+   * that gets missed.
+   */
+  router.get('/visits', handler(async (_req) => listVisits()));
+
+  /**
+   * Pulls the approver in.
+   *
+   * A private note on the ticket naming him with the Zendesk handle, so the
+   * notification is Zendesk's job rather than somebody remembering, plus his
+   * email as a collaborator so it reaches him even if he is not watching the
+   * queue.
+   */
+  router.post(
+    '/visits/:id/ask',
+    handler(async (req) => {
+      const visit = getVisit(String(req.params.id));
+      if (!visit) throw notFound('No such visit.');
+
+      const publicUrl = config().publicUrl;
+      const note = await noteOnTicket({
+        ticketId: visit.ticketId,
+        visibility: 'private',
+        body: approvalRequestNote({
+          visit,
+          ...(publicUrl ? { deepLink: `${publicUrl}/#/visits/${visit.id}` } : {}),
+          ...(req.user?.name ? { requestedBy: req.user.name } : {}),
+        }),
+        // A follower as well as a mention: one reaches him in Zendesk, the
+        // other reaches him if he is not looking at Zendesk.
+        ccEmails: [APPROVER.email],
+      });
+
+      if (!note.posted) throw badRequest(note.error ?? 'The request was not written to the ticket.');
+
+      const updated = markApprovalAsked(visit.id);
+      const window = cancelWindow(visit);
+
+      audit({
+        actorId: req.user?.id,
+        actorEmail: req.user?.email,
+        action: 'visit.approval_requested',
+        detail: {
+          visitId: visit.id,
+          ticketId: visit.ticketId,
+          approver: APPROVER.email,
+          ...(window ? { hoursToFreeCancel: window.hoursLeft, chargeable: window.chargeable } : {}),
+        },
+        ip: req.ip,
+      });
+
+      return { visit: updated ?? visit, ticket: note };
+    }),
+  );
+
+  const closeVisitSchema = z.object({
+    outcome: z.enum(['cancelled', 'confirmed', 'attended']),
+    /** Why, in words the customer can read. Only used when cancelling. */
+    because: z.string().max(300).optional(),
+    contactName: z.string().max(120).optional(),
+    /** What the checks found, kept as the reason for the decision. */
+    evidence: z.array(z.string().max(300)).max(20).optional(),
+  });
+
+  /**
+   * Records the decision, and tells whoever needs to know.
+   *
+   * Cancelling is the one that reaches the customer, because the last thing
+   * they were told about this appointment was that it could cost them
+   * money — so "cancelled, nothing to pay" is not optional politeness.
+   *
+   * Confirming writes a private note instead, and its important line is the
+   * instruction not to let the supplier rebook: a new date nobody has passed
+   * on is how a visit gets missed and charged for.
+   */
+  router.post(
+    '/visits/:id/close',
+    handler(async (req) => {
+      const visit = getVisit(String(req.params.id));
+      if (!visit) throw notFound('No such visit.');
+      const parsed = closeVisitSchema.safeParse(req.body ?? {});
+      if (!parsed.success) throw badRequest('That outcome is not one of cancelled, confirmed or attended.');
+      const body = parsed.data;
+
+      let ticket: TicketNoteOutcome = { attempted: false, posted: false };
+
+      if (body.outcome === 'cancelled') {
+        const message = visitCancelledMessage({
+          ...(body.contactName ? { contactName: body.contactName } : {}),
+          ...(visit.slot ? { slot: visit.slot } : {}),
+          ...(body.because ? { because: body.because } : {}),
+        });
+        ticket = await noteOnTicket({ ticketId: visit.ticketId, visibility: 'public', body: message.body });
+        if (!ticket.posted) {
+          // The customer not being told is the whole failure. Do not record a
+          // cancellation the customer has no idea about.
+          throw badRequest(ticket.error ?? 'The cancellation was not written to the ticket.');
+        }
+      } else if (body.outcome === 'confirmed') {
+        ticket = await noteOnTicket({
+          ticketId: visit.ticketId,
+          visibility: 'private',
+          body: visitStillNeededNote({
+            visit,
+            ...(req.user?.name ? { checkedBy: req.user.name } : {}),
+            ...(body.evidence?.length ? { evidence: body.evidence } : {}),
+          }),
+        });
+      }
+
+      const window = cancelWindow(visit);
+      const updated = closeVisit({
+        id: visit.id,
+        outcome: body.outcome,
+        ...(req.user?.name ? { by: req.user.name } : {}),
+        ...(body.because ? { note: body.because } : {}),
+        ...(body.evidence?.length ? { evidence: body.evidence } : {}),
+      });
+
+      audit({
+        actorId: req.user?.id,
+        actorEmail: req.user?.email,
+        action: `visit.${body.outcome}`,
+        detail: {
+          visitId: visit.id,
+          ticketId: visit.ticketId,
+          customerTold: body.outcome === 'cancelled' ? ticket.posted : undefined,
+          ...(window ? { chargeableAtDecision: window.chargeable } : {}),
+        },
+        ip: req.ip,
+      });
+
+      return { visit: updated ?? visit, ticket };
     }),
   );
 
