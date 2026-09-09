@@ -340,6 +340,25 @@ OS_PLACES_API_KEY=
 Authoritative UPRN and address search. Zen has no UPRN endpoint, so this is
 what makes a bare UPRN resolve to a real premises.
 
+**On searching a name plus a town.** OS Places `/find` ranks on relevance and
+is entitled to ignore a word, so `megans richmond` came back with nine
+Megan's in nine other towns and none in Richmond: the name alone scores well
+enough on a hundred namesakes to fill three pages before the premises that
+satisfies both words is reached. Re-ranking a page that does not contain the
+answer cannot produce it.
+
+A postcode district *can* be searched for, because it is in the address text
+OS indexes. So when nothing accounts for every word typed, the word that came
+back empty is resolved to the districts it covers (postcodes.io: place name →
+point → nearest live postcodes → districts, cached for a week) and the search
+is run again with the district standing in for it. Two districts at most, and
+only after a query has already failed, so the common case costs nothing extra.
+
+When even that finds nothing, the list says so rather than presenting
+near-misses as answers: it names the word no premises came back for and
+suggests the postcode. Usually that means AddressBase does not carry the
+trading name at that address yet, which no amount of searching will fix.
+
 ### Giacom — your second wholesale supplier
 
 ```

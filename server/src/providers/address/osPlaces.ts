@@ -4,12 +4,14 @@ import {
   premisesTypeFor,
   rankAddresses,
   rankAddressMatches,
+  unmatchedTokens,
   sortAddresses,
   type AddressRecord,
 } from '@sw/shared';
 import { config } from '../../config';
 import { fetchJson } from '../../lib/http';
 import { TtlCache } from '../../lib/cache';
+import { districtsForPlace } from './postcodesIo';
 import type { AddressProvider } from '../types';
 
 /**
@@ -288,13 +290,8 @@ export function createOsPlacesProvider(): AddressProvider {
         const collected: AddressRecord[] = [];
         const seen = new Set<string>();
 
-        for (let page = 0; page < MAX_SEARCH_PAGES; page += 1) {
-          const rows = await call('/find', {
-            query,
-            maxresults: String(perPage),
-            ...(page > 0 ? { offset: String(page * perPage) } : {}),
-          });
-
+        const gather = (rows: AddressRecord[]): number => {
+          let added = 0;
           for (const row of rows) {
             // Pages overlap in practice, and the same premises can arrive
             // from both datasets.
@@ -302,13 +299,62 @@ export function createOsPlacesProvider(): AddressProvider {
             if (seen.has(id)) continue;
             seen.add(id);
             collected.push(row);
+            added += 1;
           }
+          return added;
+        };
+
+        const answered = (): boolean => rankAddressMatches(collected, query).some((m) => m.complete);
+
+        for (let page = 0; page < MAX_SEARCH_PAGES; page += 1) {
+          const rows = await call('/find', {
+            query,
+            maxresults: String(perPage),
+            ...(page > 0 ? { offset: String(page * perPage) } : {}),
+          });
+          gather(rows);
 
           // A short page is the end of the results.
           if (rows.length < perPage) break;
           // Something accounts for every word typed. Further pages can only
           // be worse matches.
-          if (rankAddressMatches(collected, query).some((m) => m.complete)) break;
+          if (answered()) break;
+        }
+
+        /*
+         * The word OS dropped, searched again as a postcode district.
+         *
+         * Paging cannot fix a query whose answer OS never ranked: `megans
+         * richmond` filled three hundred rows with Megan's in nine other
+         * towns, because "megans" alone scores well enough on a hundred
+         * namesakes to bury the one premises that satisfies both words.
+         *
+         * A place name is a word a relevance search may ignore. A postcode
+         * district is not -- it is in the address text OS indexes. So the
+         * word nothing accounted for is resolved to the districts it covers
+         * and the search is run again with the district standing in for it.
+         *
+         * Two districts at most, and only for a query that has already come
+         * back without an answer, so the common case costs nothing. If OS
+         * ignores the district too, the extra rows simply fail the same
+         * ranking and nothing is made worse.
+         */
+        if (!answered()) {
+          const missing = unmatchedTokens(collected, query);
+          for (const token of missing.slice(0, 1)) {
+            const districts = await districtsForPlace(token);
+            const rest = query
+              .split(/[^A-Za-z0-9']+/)
+              .filter((w) => w && w.toLowerCase() !== token)
+              .join(' ');
+            if (!rest) break;
+
+            for (const district of districts.slice(0, 2)) {
+              gather(await call('/find', { query: `${rest} ${district}`, maxresults: String(perPage) }));
+              if (answered()) break;
+            }
+            if (answered()) break;
+          }
         }
 
         return rankAddresses(collected, query, limit);

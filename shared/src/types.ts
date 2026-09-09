@@ -689,6 +689,16 @@ export interface SearchResponse {
   report?: SiteReport;
   /** Populated when the query was a CLI / line id. */
   lines?: LineRecord[];
+  /**
+   * Words in a free-text search that nothing returned accounts for.
+   *
+   * Present so the list can say what it is. `megans richmond` came back with
+   * nine Megan's in nine other towns under the heading "12 premises -- pick
+   * the exact address", which is the search claiming to have answered a
+   * question it did not. Naming the word that came back empty turns a wrong
+   * answer into a useful one.
+   */
+  unmatched?: string[];
 }
 
 export interface HealthResponse {

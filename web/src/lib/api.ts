@@ -219,7 +219,13 @@ export const api = {
     request<SearchResponse>(`/api/search?q=${encodeURIComponent(q)}${uprn ? `&uprn=${encodeURIComponent(uprn)}` : ''}`),
 
   suggest: (q: string) =>
-    request<{ query: ResolvedIdentifier; suggestions: AddressSuggestion[]; postcodes: string[] }>(
+    request<{
+      query: ResolvedIdentifier;
+      suggestions: AddressSuggestion[];
+      postcodes: string[];
+      /** Words nothing in `suggestions` accounts for. */
+      unmatched?: string[];
+    }>(
       `/api/suggest?q=${encodeURIComponent(q)}`,
     ),
 
