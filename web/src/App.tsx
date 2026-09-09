@@ -32,6 +32,7 @@ import { Modal } from './components/overlay';
 import { siteReportToText } from './lib/reportText';
 import { PrintableReport } from './components/PrintableReport';
 import { PrintDialog } from './components/PrintDialog';
+import { SendToTicket } from './components/SendToTicket';
 import { ClientStandingGate } from './components/ClientStandingGate';
 import { go, readRoute, toHash, useRoute } from './lib/route';
 import { Dashboard } from './pages/Dashboard';
@@ -573,6 +574,9 @@ function SiteReportView({
    * person last asked for rather than an empty page.
    */
   const [printSections, setPrintSections] = useState<Set<PrintSection>>(() => loadSections());
+  /** What the engineer typed onto the document, if anything. */
+  const [documentNotes, setDocumentNotes] = useState('');
+  const [sendOpen, setSendOpen] = useState(false);
   const [siblingFilter, setSiblingFilter] = useState('');
   const [textOpen, setTextOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -651,6 +655,13 @@ function SiteReportView({
               title="Choose which sections go on the page"
             >
               Print
+            </button>
+            <button
+              className="btn btn--ghost btn--small"
+              onClick={() => setSendOpen(true)}
+              title="Put this report on a helpdesk ticket"
+            >
+              Send to a ticket
             </button>
             {/* A watch is keyed by UPRN, so a premises without one cannot be
                 re-checked reliably and the button is not offered. */}
@@ -745,13 +756,25 @@ function SiteReportView({
       </div>
 
       {/* Print takes this instead of the open tab. Hidden on screen. */}
-      <PrintableReport report={report} sections={printSections} />
+      <PrintableReport report={report} sections={printSections} notes={documentNotes} />
 
       <PrintDialog
         report={report}
         open={printOpen}
         onClose={() => setPrintOpen(false)}
         onApply={setPrintSections}
+        onNotes={setDocumentNotes}
+      />
+
+      <SendToTicket
+        open={sendOpen}
+        onClose={() => setSendOpen(false)}
+        document={{
+          filename: `site-report-${report.uprn ?? report.address.postcode.replace(/\s+/g, '')}.pdf`,
+          kind: 'Site report',
+          about: report.address.singleLine,
+          ...(documentNotes ? { engineerNotes: documentNotes } : {}),
+        }}
       />
 
       {/* ---- Plain text for a ticket ------------------------------------ */}

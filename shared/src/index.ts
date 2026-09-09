@@ -23,6 +23,7 @@ export * from './simActions';
 export * from './unitChoice';
 export * from './charts';
 export * from './mastMap';
+export * from './handoff';
 export * from "./rate";
 export * from "./companies";
 export * from "./sla";

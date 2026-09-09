@@ -21,10 +21,13 @@ import { formatMbps } from './ui';
 export function PrintableReport({
   report,
   sections,
+  notes,
 }: {
   report: SiteReport;
   /** What was ticked in the print dialog. */
   sections: Set<PrintSection>;
+  /** What the engineer typed onto the document, if anything. */
+  notes?: string;
 }): ReactElement {
   const b = report.broadband;
   const sellable = (b?.offers ?? []).filter((o) => o.serviceability !== 'footprint');
@@ -255,6 +258,20 @@ export function PrintableReport({
         )}
       </section>
       )}
+
+      {/*
+        Notes on the document, above the footer.
+
+        Boxed and labelled so they cannot be mistaken for data the portal
+        returned, and kept together across a page break — a note split over
+        two sheets is a note whose second half arrives without its first.
+      */}
+      {notes?.trim() ? (
+        <div className="print-notes">
+          <span className="print-notes__label">Notes from the engineer</span>
+          <p className="print-notes__body">{notes.trim()}</p>
+        </div>
+      ) : null}
 
       <footer className="print-report__foot">
         <p>
