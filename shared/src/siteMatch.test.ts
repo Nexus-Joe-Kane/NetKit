@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { finaliseAddress, type AddressRecord } from './index';
+import { finaliseAddress, matchBanner, type AddressRecord } from './index';
 import {
   clientKey,
   clientTokens,
@@ -180,4 +180,49 @@ test('the words taken from a premises are the ones that identify it', () => {
 
 test('an empty site list is not an error', () => {
   assert.deepEqual(matchSites([], MAYFAIR), { match: null, options: [] });
+});
+
+/* ---- Which banner the on-site panel shows ---------------------------- */
+
+const live = { documentation: { mode: 'live' }, network: { mode: 'live' } };
+const skipped = { documentation: { mode: 'skipped' }, network: { mode: 'skipped' } };
+
+test('with nothing connected there is no name that would have worked, so say nothing', () => {
+  // What it did instead: "Nothing matched “supportwizard”" plus a box to
+  // retype the company name — sending somebody guessing at names to fix a
+  // missing API key.
+  assert.equal(matchBanner({ status: skipped }), 'none');
+});
+
+test('connected and nothing found is a real no-match, and says so', () => {
+  assert.equal(matchBanner({ status: live }), 'no-match');
+});
+
+test('one system connected is enough for a no-match to mean something', () => {
+  assert.equal(
+    matchBanner({ status: { documentation: { mode: 'live' }, network: { mode: 'skipped' } } }),
+    'no-match',
+  );
+});
+
+test('a confident match is reported as one', () => {
+  assert.equal(
+    matchBanner({ status: live, documented: {}, documentedLocation: { confidence: 'exact' } }),
+    'matched',
+  );
+});
+
+test('ambiguity and weakness are worth saying even with nothing connected', () => {
+  // Both mean something *was* found, so there is a decision for a person to
+  // make regardless of what is switched on.
+  assert.equal(matchBanner({ status: skipped, documentedOptions: [{}, {}] }), 'ambiguous');
+  assert.equal(matchBanner({ status: skipped, networkSite: { confidence: 'weak' } }), 'weak');
+});
+
+test('ambiguity outranks a weak match', () => {
+  // Picking from a list of real candidates beats confirming a guess.
+  assert.equal(
+    matchBanner({ status: live, documentedOptions: [{}], networkSite: { confidence: 'weak' } }),
+    'ambiguous',
+  );
 });

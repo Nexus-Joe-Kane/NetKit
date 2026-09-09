@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react';
-import type { DocumentedConfiguration, NetworkDevice, SiteContext } from '@sw/shared';
+import { matchBanner, type DocumentedConfiguration, type NetworkDevice, type SiteContext } from '@sw/shared';
 import { ApiClientError, api } from '../lib/api';
 import { Alert, Card, Cell, Chip, Empty, Label, Spinner, formatDateTime, type ChipTone } from './ui';
 import { Tabs, TabPanel, type TabDef } from './Tabs';
@@ -143,12 +143,16 @@ function MatchBanner({
 }): ReactElement | null {
   const [name, setName] = useState(context.query);
 
-  const weak =
-    context.documentedLocation?.confidence === 'weak' || context.networkSite?.confidence === 'weak';
-  const ambiguous = (context.documentedOptions?.length ?? 0) > 0;
-  const nothing = !context.documented && !context.networkSite && !context.networkSites?.length;
+  // The decision lives in `matchBanner`, tested, because it has four
+  // outcomes with a real order of precedence and one of them used to be
+  // wrong: with nothing connected the panel claimed nothing matched.
+  const banner = matchBanner(context);
+  const ambiguous = banner === 'ambiguous';
+  const nothing = banner === 'no-match';
 
-  if (!weak && !ambiguous && !nothing) {
+  if (banner === 'none') return null;
+
+  if (banner === 'matched') {
     // Matched confidently. Say what to, quietly, and get out of the way.
     return (
       <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>

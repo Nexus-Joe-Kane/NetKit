@@ -1,12 +1,13 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, existsSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { VAULT_KEYS, vaultKey } from '@sw/shared';
 import {
   clearSecret,
   loadVaultIntoEnv,
+  refreshVaultIfChanged,
   reloadVault,
   secretStatus,
   setSecret,
@@ -185,4 +186,127 @@ test('every key belongs to a service, so the test button has something to probe'
   assert.ok(secrets.includes('ZEN_CLIENT_SECRET'));
   assert.ok(secrets.includes('ZENDESK_API_TOKEN'));
   assert.ok(!secrets.includes('ZENDESK_SUBDOMAIN'), 'a subdomain is not a secret');
+});
+
+/* ------------------------------------------------------------------ *
+ * Several workers, one file
+ *
+ * Passenger runs a handful of worker processes, each with its own copy of
+ * this module. Both bugs below were live: credentials that vanished, and
+ * credentials the Credentials page said were stored while the Integrations
+ * page said "not connected".
+ * ------------------------------------------------------------------ */
+
+/** A worker that has not looked at the file since it booted. */
+const staleWorker = (): void => {
+  reloadVault();
+  loadVaultIntoEnv();
+};
+
+test('a save through one worker does not delete what another worker saved', () => {
+  // The reported bug, exactly. Worker A boots with an empty vault and saves
+  // IT Glue. Worker B, which also booted empty and never re-read, saves
+  // UniFi — and wrote a file with only UniFi in it. Both saves said "saved".
+  const d = dir();
+  withSecret('a-stable-session-secret-value-32ch', () => {
+    staleWorker(); // worker A boots
+    assert.equal(setSecret('ITGLUE_API_KEY', 'itglue-aaaaaaaaaaaaaaaaaaaaaaaa').ok, true);
+
+    staleWorker(); // worker B, whose memory predates the line above
+    assert.equal(setSecret('UNIFI_API_KEY', 'unifi-bbbbbbbbbbbbbbbbbbbbbbbbb').ok, true);
+
+    const onDisk = JSON.parse(readFileSync(join(d, 'vault.json'), 'utf8')) as {
+      secrets: Record<string, unknown>;
+    };
+    assert.deepEqual(Object.keys(onDisk.secrets).sort(), ['ITGLUE_API_KEY', 'UNIFI_API_KEY']);
+  });
+});
+
+test('removing one credential leaves every other one alone', () => {
+  const d = dir();
+  withSecret('a-stable-session-secret-value-32ch', () => {
+    setSecret('ITGLUE_API_KEY', 'itglue-aaaaaaaaaaaaaaaaaaaaaaaa');
+    setSecret('UNIFI_API_KEY', 'unifi-bbbbbbbbbbbbbbbbbbbbbbbbb');
+    setSecret('JOLA_USERNAME', 'joe@supportwizard.net');
+
+    staleWorker();
+    assert.equal(clearSecret('UNIFI_API_KEY'), true);
+
+    const onDisk = JSON.parse(readFileSync(join(d, 'vault.json'), 'utf8')) as {
+      secrets: Record<string, unknown>;
+    };
+    assert.deepEqual(Object.keys(onDisk.secrets).sort(), ['ITGLUE_API_KEY', 'JOLA_USERNAME']);
+  });
+});
+
+test('a worker picks up a credential another worker saved', () => {
+  // The other half: `setSecret` puts the value into the environment of the
+  // one process that handled the request, so the others went on answering
+  // "not connected" for a key that was plainly stored.
+  dir();
+  withSecret('a-stable-session-secret-value-32ch', () => {
+    staleWorker();
+    assert.equal(refreshVaultIfChanged().changed, false, 'nothing has changed yet');
+
+    setSecret('UNIFI_API_KEY', 'unifi-bbbbbbbbbbbbbbbbbbbbbbbbb');
+
+    // Stand in for a different worker: forget everything, boot, then let the
+    // per-request refresh do its job.
+    delete process.env.UNIFI_API_KEY;
+    reloadVault();
+
+    const refresh = refreshVaultIfChanged();
+    assert.equal(refresh.changed, true);
+    assert.deepEqual(refresh.loaded, ['UNIFI_API_KEY']);
+    assert.equal(process.env.UNIFI_API_KEY, 'unifi-bbbbbbbbbbbbbbbbbbbbbbbbb');
+  });
+});
+
+test('the refresh is a no-op when nothing has moved', () => {
+  // It runs on every request, so it has to be free when there is nothing to do.
+  dir();
+  withSecret('a-stable-session-secret-value-32ch', () => {
+    setSecret('UNIFI_API_KEY', 'unifi-bbbbbbbbbbbbbbbbbbbbbbbbb');
+    staleWorker();
+    assert.equal(refreshVaultIfChanged().changed, false);
+    assert.equal(refreshVaultIfChanged().changed, false);
+  });
+});
+
+test('a stored credential still reads back after a stale worker writes', () => {
+  // Not just present in the file — actually decryptable, since each value
+  // carries its own salt and a botched merge could pair the wrong ones.
+  dir();
+  withSecret('a-stable-session-secret-value-32ch', () => {
+    setSecret('ITGLUE_API_KEY', 'itglue-aaaaaaaaaaaaaaaaaaaaaaaa');
+    staleWorker();
+    setSecret('UNIFI_API_KEY', 'unifi-bbbbbbbbbbbbbbbbbbbbbbbbb');
+
+    delete process.env.ITGLUE_API_KEY;
+    delete process.env.UNIFI_API_KEY;
+    reloadVault();
+    loadVaultIntoEnv();
+
+    assert.equal(process.env.ITGLUE_API_KEY, 'itglue-aaaaaaaaaaaaaaaaaaaaaaaa');
+    assert.equal(process.env.UNIFI_API_KEY, 'unifi-bbbbbbbbbbbbbbbbbbbbbbbbb');
+    for (const row of secretStatus()) {
+      if (row.name === 'ITGLUE_API_KEY' || row.name === 'UNIFI_API_KEY') {
+        assert.equal(row.source, 'vault');
+        assert.notEqual(row.unreadable, true, `${row.name} sealed but unreadable`);
+      }
+    }
+  });
+});
+
+test('a leftover lock from a crashed worker does not block a save for ever', () => {
+  const d = dir();
+  withSecret('a-stable-session-secret-value-32ch', () => {
+    setSecret('JOLA_USERNAME', 'joe@supportwizard.net');
+    // A lock nobody is holding, old enough to be stale.
+    writeFileSync(join(d, 'vault.json.lock'), '', { encoding: 'utf8', mode: 0o600 });
+    utimesSync(join(d, 'vault.json.lock'), new Date(Date.now() - 60_000), new Date(Date.now() - 60_000));
+
+    assert.equal(setSecret('JOLA_PASSWORD', 'something-long-enough').ok, true);
+    assert.equal(existsSync(join(d, 'vault.json.lock')), false, 'and the lock is released');
+  });
 });

@@ -283,3 +283,49 @@ export function matchSites(
 
   return { match: null, options };
 }
+
+/* ------------------------------------------------------------------ *
+ * What to tell the engineer about the join
+ * ------------------------------------------------------------------ */
+
+/**
+ * Which banner the on-site panel shows, if any.
+ *
+ * A function rather than a chain of ternaries inside the JSX, because the
+ * decision has four outcomes with a genuine order of precedence and one of
+ * them was wrong: with neither system connected the panel said
+ * "Nothing matched “supportwizard”" and offered a box to retype the company
+ * name — sending somebody off guessing at names to fix a missing API key.
+ *
+ * `none` means say nothing. `matched` means say what to, quietly.
+ */
+export type MatchBanner = 'none' | 'matched' | 'ambiguous' | 'weak' | 'no-match';
+
+export function matchBanner(context: {
+  documented?: unknown;
+  documentedOptions?: readonly unknown[];
+  documentedLocation?: { confidence: MatchConfidence };
+  networkSite?: { confidence: MatchConfidence };
+  networkSites?: readonly unknown[];
+  status: { documentation: { mode: string }; network: { mode: string } };
+}): MatchBanner {
+  const weak =
+    context.documentedLocation?.confidence === 'weak' || context.networkSite?.confidence === 'weak';
+  const ambiguous = (context.documentedOptions?.length ?? 0) > 0;
+
+  // Ambiguity and a weak match are worth saying whatever else is true: both
+  // mean something *was* found and somebody has to confirm it.
+  if (ambiguous) return 'ambiguous';
+  if (weak) return 'weak';
+
+  const nothingConnected =
+    context.status.documentation.mode === 'skipped' && context.status.network.mode === 'skipped';
+  // Nothing to match against is not a failure to match. There is no name
+  // that would have worked, and the panel already says why.
+  if (nothingConnected) return 'none';
+
+  const nothing = !context.documented && !context.networkSite && !context.networkSites?.length;
+  if (nothing) return 'no-match';
+
+  return 'matched';
+}

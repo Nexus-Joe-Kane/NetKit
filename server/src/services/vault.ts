@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { VAULT_KEYS, vaultKey, type SecretStatus } from '@sw/shared';
-import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync } from 'node:fs';
+import { closeSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, join, resolve as resolvePath } from 'node:path';
 
 /**
@@ -118,29 +118,136 @@ function unseal(sealed: SealedValue): string | null {
 
 let cache: VaultFile | null = null;
 
+/**
+ * The modification time of the file the cache was built from.
+ *
+ * Passenger runs several worker processes, each with its own copy of this
+ * module. Without this, a credential saved through one worker is invisible
+ * to the others until they happen to restart — so the Credentials page says
+ * "stored here" while the Integrations page, served by a different worker,
+ * says "Not connected". Comparing mtimes makes any worker notice a change
+ * another one made.
+ */
+let cacheMtimeMs = 0;
+
+function fileMtimeMs(): number {
+  try {
+    return statSync(vaultPath()).mtimeMs;
+  } catch {
+    return 0; // No file yet.
+  }
+}
+
+function readFile(): VaultFile {
+  let file: VaultFile;
+  try {
+    file = existsSync(vaultPath())
+      ? (JSON.parse(readFileSync(vaultPath(), 'utf8')) as VaultFile)
+      : { version: 1, secrets: {} };
+  } catch {
+    file = { version: 1, secrets: {} };
+  }
+  if (!file.secrets || typeof file.secrets !== 'object') file.secrets = {};
+  return file;
+}
+
 function state(): VaultFile {
-  if (!cache) {
-    try {
-      cache = existsSync(vaultPath())
-        ? (JSON.parse(readFileSync(vaultPath(), 'utf8')) as VaultFile)
-        : { version: 1, secrets: {} };
-    } catch {
-      cache = { version: 1, secrets: {} };
-    }
-    if (!cache.secrets || typeof cache.secrets !== 'object') cache.secrets = {};
+  const mtime = fileMtimeMs();
+  if (!cache || mtime !== cacheMtimeMs) {
+    cache = readFile();
+    cacheMtimeMs = mtime;
   }
   return cache;
 }
 
-function persist(): void {
-  const path = vaultPath();
-  mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.${process.pid}.tmp`;
-  // 0o600, and no swallowed error: unlike a watch or a cached report, a
-  // credential the operator believes they saved and did not is a fault that
-  // has to surface at the moment they press the button.
-  writeFileSync(tmp, JSON.stringify(state(), null, 2), { encoding: 'utf8', mode: 0o600 });
-  renameSync(tmp, path);
+/**
+ * An exclusive lock, so two workers cannot both write the whole file.
+ *
+ * `wx` fails rather than truncating if the lock is already there, which is
+ * the only atomic primitive needed and needs no dependency. A stale lock from
+ * a worker that died mid-write is taken over after `LOCK_STALE_MS` — a
+ * credential save that blocks for ever because a process crashed is worse
+ * than the tiny race that reclaiming it opens.
+ */
+const LOCK_STALE_MS = 5000;
+const LOCK_WAIT_MS = 2000;
+
+function lockPath(): string {
+  return `${vaultPath()}.lock`;
+}
+
+function acquireLock(): () => void {
+  const path = lockPath();
+  const deadline = Date.now() + LOCK_WAIT_MS;
+
+  for (;;) {
+    try {
+      closeSync(openSync(path, 'wx', 0o600));
+      return () => {
+        try {
+          rmSync(path, { force: true });
+        } catch {
+          // Nothing useful to do: the write already happened.
+        }
+      };
+    } catch {
+      // Held. Take it over if whoever holds it has clearly gone.
+      try {
+        if (Date.now() - statSync(path).mtimeMs > LOCK_STALE_MS) {
+          rmSync(path, { force: true });
+          continue;
+        }
+      } catch {
+        continue; // It went away between the two calls; try again.
+      }
+      if (Date.now() > deadline) {
+        // Rather than fail the save, go ahead without the lock. The
+        // read-modify-write below still narrows the window to microseconds,
+        // where the old behaviour left it open for the life of the process.
+        return () => undefined;
+      }
+      // A synchronous pause. These functions are sync by contract and this
+      // path is a handful of milliseconds, once, on a settings change.
+      const until = Date.now() + 15;
+      while (Date.now() < until) {
+        /* spin */
+      }
+    }
+  }
+}
+
+/**
+ * Applies a change to the file on disk, not to whatever this worker
+ * remembers.
+ *
+ * This is the fix for credentials disappearing. The old code mutated the
+ * in-memory copy and wrote the whole file, so a worker that booted before a
+ * key was added wrote a file without it — every save through a different
+ * worker silently deleted the keys saved through another one. Both saves
+ * reported success. Re-reading inside the lock means a save only ever adds
+ * or removes the one key it is about.
+ */
+function mutate<T>(change: (file: VaultFile) => T): T {
+  const release = acquireLock();
+  try {
+    const file = readFile();
+    const result = change(file);
+
+    const path = vaultPath();
+    mkdirSync(dirname(path), { recursive: true });
+    const tmp = `${path}.${process.pid}.tmp`;
+    // 0o600, and no swallowed error: unlike a watch or a cached report, a
+    // credential the operator believes they saved and did not is a fault that
+    // has to surface at the moment they press the button.
+    writeFileSync(tmp, JSON.stringify(file, null, 2), { encoding: 'utf8', mode: 0o600 });
+    renameSync(tmp, path);
+
+    cache = file;
+    cacheMtimeMs = fileMtimeMs();
+    return result;
+  } finally {
+    release();
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -197,6 +304,8 @@ export function loadVaultIntoEnv(): { loaded: string[]; unreadable: string[] } {
   const unreadable: string[] = [];
   if (!masterSecret()) return { loaded, unreadable };
 
+  loadedMtimeMs = fileMtimeMs();
+
   for (const [name, sealed] of Object.entries(state().secrets)) {
     if (!vaultKey(name)) continue; // Ignore anything not on the allow-list.
     const value = unseal(sealed);
@@ -228,8 +337,12 @@ export function setSecret(name: string, value: string, setBy?: string): { ok: tr
   if (!trimmed) return { ok: false, error: 'That value is empty.' };
 
   try {
-    state().secrets[name] = seal(trimmed, setBy);
-    persist();
+    const sealed = seal(trimmed, setBy);
+    // Sealed outside the lock, written inside it, and the file is re-read
+    // in between: this save adds one key and cannot drop anybody else's.
+    mutate((file) => {
+      file.secrets[name] = sealed;
+    });
     process.env[name] = trimmed;
     return { ok: true };
   } catch (err) {
@@ -247,10 +360,12 @@ export function setSecret(name: string, value: string, setBy?: string): { ok: tr
  * source is live.
  */
 export function clearSecret(name: string): boolean {
-  const file = state();
-  if (!file.secrets[name]) return false;
-  delete file.secrets[name];
-  persist();
+  const removed = mutate((file) => {
+    if (!file.secrets[name]) return false;
+    delete file.secrets[name];
+    return true;
+  });
+  if (!removed) return false;
   delete process.env[name];
   return true;
 }
@@ -290,9 +405,62 @@ export function secretMatches(a: string, b: string): boolean {
   return timingSafeEqual(left, right);
 }
 
+/**
+ * The mtime the environment was last loaded from, as opposed to the cache.
+ *
+ * Two separate things: `cacheMtimeMs` tracks the parsed file, while this
+ * tracks whether `process.env` in *this* worker reflects it.
+ */
+let loadedMtimeMs = 0;
+
+/**
+ * Picks up credentials another worker saved.
+ *
+ * Passenger runs several workers. `setSecret` puts the value into
+ * `process.env` of the one process that handled the request, so without
+ * this the other workers keep answering "not connected" for a key the
+ * Credentials page says is stored — which is exactly what it did.
+ *
+ * One `stat` per call, so it is cheap enough to run per request. Returns the
+ * names it loaded, and whether the caller needs to drop its caches: a
+ * credential arriving means `config()` and the provider clients are holding
+ * a view from before it existed.
+ */
+export function refreshVaultIfChanged(): { changed: boolean; loaded: string[]; unreadable: string[] } {
+  const mtime = fileMtimeMs();
+  if (mtime === loadedMtimeMs) return { changed: false, loaded: [], unreadable: [] };
+
+  const { loaded, unreadable } = loadVaultIntoEnv();
+
+  // A key removed elsewhere has to leave this worker's environment too, or
+  // removing an integration in the portal would only take effect on one
+  // worker and the others would carry on using it.
+  const present = new Set(Object.keys(state().secrets));
+  for (const def of VAULT_KEYS) {
+    if (!present.has(def.name) && removedByVault.has(def.name)) {
+      delete process.env[def.name];
+      removedByVault.delete(def.name);
+    }
+  }
+  for (const name of loaded) removedByVault.add(name);
+
+  return { changed: true, loaded, unreadable };
+}
+
+/**
+ * Keys this worker knows came from the vault rather than from Plesk.
+ *
+ * Needed so a refresh can unset a key the vault no longer holds without
+ * unsetting one Plesk set in the environment, which the vault has no business
+ * touching.
+ */
+const removedByVault = new Set<string>();
+
 /** Test hook. */
 export function reloadVault(): void {
   cache = null;
+  cacheMtimeMs = 0;
+  loadedMtimeMs = 0;
 }
 
 /**
