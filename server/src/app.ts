@@ -10,6 +10,7 @@ import { join, resolve } from 'node:path';
 import { config, resetConfig } from './config';
 import { apiRouter, errorHandler } from './routes/api';
 import { operationsRouter } from './routes/operations';
+import { eventsRouter } from './routes/events';
 import { authRouter, requireAuth } from './auth/routes';
 import { adminRouter } from './admin/routes';
 import { clearAllProviderCaches } from './admin/supervisor';
@@ -111,6 +112,7 @@ export function createApp(): Express {
   });
 
   app.use('/api/admin', adminRouter());
+  app.use('/api', requireAuth, apiLimiter, eventsRouter());
   app.use('/api', requireAuth, apiLimiter, operationsRouter());
   app.use('/api', requireAuth, apiLimiter, apiRouter());
 

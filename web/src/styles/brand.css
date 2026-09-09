@@ -66,6 +66,18 @@
   --sw-warn-bg: var(--sw-amber-panel);
   --sw-crit-ink: #b4122b;
   --sw-crit-bg: #fdecef;
+  /*
+   * The solid critical colour, for a dot or a rule rather than a fill.
+   * `--sw-crit-ink` is tuned for text on `--sw-crit-bg` and reads muddy as a
+   * 4px border; `--sw-critical` is the guide's own alert red.
+   */
+  --sw-crit: var(--sw-critical);
+  /*
+   * The interactive accent: focus rings, hover borders, the selected state.
+   * Navy rather than crimson, because the guide reserves crimson for
+   * accents and never for anything that reads as a large area or a fill.
+   */
+  --sw-accent: var(--sw-navy);
   --sw-info-ink: #4a5a8a;
   --sw-info-bg: #eef2fb;
   --sw-idle-ink: var(--sw-muted);

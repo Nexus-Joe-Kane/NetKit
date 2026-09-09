@@ -54,6 +54,20 @@ export const ISP_DIRECTORY: readonly IspEntry[] = [
   },
   { key: 'g-network', name: 'G.Network', domain: 'g.network', colour: '#00b0b9', aka: ['g.network', 'g network', 'gnetwork'] },
   { key: 'zen', name: 'Zen Internet', domain: 'zen.co.uk', colour: '#e30613', aka: ['zen', 'zen internet'] },
+  /*
+   * Daisy and Giacom are the same wholesaler under two names -- Daisy
+   * Broadband is what Giacom used to be called, and both are still in use on
+   * the desk. One entry with both aliases, so a line filed under either
+   * finds the same provider and the dashboard does not show two columns for
+   * one supplier.
+   */
+  {
+    key: 'giacom',
+    name: 'Giacom',
+    domain: 'giacom.com',
+    colour: '#7a3ff2',
+    aka: ['giacom', 'cloud market', 'cloudmarket', 'daisy', 'daisy broadband', 'daisy communications'],
+  },
   { key: 'ee', name: 'EE', domain: 'ee.co.uk', colour: '#007b85', aka: ['ee', 'everything everywhere'] },
   { key: 'three', name: 'Three', domain: 'three.co.uk', colour: '#000000', aka: ['three', 'three uk', 'h3g'] },
   { key: 'o2', name: 'O2', domain: 'o2.co.uk', colour: '#0019a5', aka: ['o2', 'o2 uk', 'telefonica'] },

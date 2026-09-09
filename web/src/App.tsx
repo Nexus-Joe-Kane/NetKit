@@ -27,6 +27,7 @@ import { PrintableReport } from './components/PrintableReport';
 import { PrintDialog } from './components/PrintDialog';
 import { ClientStandingGate } from './components/ClientStandingGate';
 import { go, readRoute, toHash, useRoute } from './lib/route';
+import { Dashboard } from './pages/Dashboard';
 import { WatchButton } from './components/WatchPanel';
 import { loadSections } from './lib/printStorage';
 
@@ -38,11 +39,12 @@ import { loadSections } from './lib/printStorage';
  * report it produces, so URL state is limited to the deep link for a UPRN.
  */
 
-type View = 'lookup' | 'inbox' | 'network' | 'faults' | 'visits' | 'orders' | 'sims' | 'tools' | 'admin';
+type View = 'home' | 'lookup' | 'inbox' | 'network' | 'faults' | 'visits' | 'orders' | 'sims' | 'tools' | 'admin';
 type ReportTab = 'broadband' | 'openreach' | 'signal' | 'lines' | 'site' | 'companies';
 
 /** The primary navigation. `admin` is reached by its own button. */
 const NAV: Array<{ id: Exclude<View, 'admin'>; label: string }> = [
+  { id: 'home', label: 'Home' },
   { id: 'lookup', label: 'Lookup' },
   { id: 'inbox', label: 'Inbox' },
   { id: 'network', label: 'Network status' },
@@ -117,8 +119,10 @@ function Portal({
   const route = useRoute();
   const view: View = ((): View => {
     if (route.view === 'site') return 'lookup';
-    const known: View[] = ['lookup', 'inbox', 'network', 'faults', 'visits', 'orders', 'sims', 'tools', 'admin'];
-    return known.find((v) => v === route.view) ?? 'lookup';
+    const known: View[] = ['home', 'lookup', 'inbox', 'network', 'faults', 'visits', 'orders', 'sims', 'tools', 'admin'];
+    // The board, not the search box: the first question of the morning is
+    // whether anything is wrong, not what a particular address has.
+    return known.find((v) => v === route.view) ?? 'home';
   })();
   const setView = (next: View): void => go(toHash(next));
 
@@ -259,7 +263,7 @@ function Portal({
           <button
             type="button"
             className="masthead__logo"
-            onClick={() => setView('lookup')}
+            onClick={() => setView('home')}
             title="NetKit home"
           >
             <img src="/brand/supportwizard-lockup.png" alt="Support Wizard" />
@@ -297,9 +301,9 @@ function Portal({
             {user.role === 'admin' && (
               <button
                 className={`btn btn--small ${view === 'admin' ? 'btn--primary' : 'btn--ghost'}`}
-                onClick={() => setView(view === 'admin' ? 'lookup' : 'admin')}
+                onClick={() => setView(view === 'admin' ? 'home' : 'admin')}
               >
-                {view === 'admin' ? 'Back to lookup' : 'Admin portal'}
+                {view === 'admin' ? 'Back to the board' : 'Admin portal'}
               </button>
             )}
 
@@ -311,6 +315,7 @@ function Portal({
       </header>
 
       <main className="shell__body">
+        {view === 'home' && <Dashboard />}
         {view === 'admin' && <AdminPortal me={user} />}
         {view === 'network' && <NetworkStatusPage />}
         {view === 'faults' && <FaultsPage />}

@@ -2602,3 +2602,273 @@ table.data td.num {
     margin: 13mm;
   }
 }
+
+/* ------------------------------------------------------------------ *
+ * The board
+ *
+ * The home page's own furniture. Kept together rather than scattered
+ * because these pieces only appear here and reading them as a set is how
+ * somebody works out what the page is doing.
+ * ------------------------------------------------------------------ */
+
+/*
+ * The siren.
+ *
+ * Only rendered when something is actually off, which is the whole point: a
+ * page that shows a red bar reading "0 sites off" teaches people to ignore
+ * red bars.
+ */
+.siren {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border-radius: 10px;
+  background: var(--sw-crit-bg);
+  border: 1px solid #f5c9d1;
+  border-left: 4px solid var(--sw-crit);
+  animation: siren-in 240ms ease-out;
+}
+
+@keyframes siren-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Reduced motion is a preference, not a suggestion. */
+@media (prefers-reduced-motion: reduce) {
+  .siren { animation: none; }
+}
+
+.siren__mark {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--sw-crit);
+  flex: none;
+  box-shadow: 0 0 0 4px rgba(203, 32, 69, 0.15);
+}
+
+.siren__body { flex: 1 1 auto; min-width: 0; }
+.siren__body strong { display: block; font-size: 15px; color: var(--sw-crit-ink); }
+.siren__body p {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  color: var(--sw-crit-ink);
+  opacity: 0.85;
+}
+
+/* ---- The glance ---------------------------------------------------- */
+
+.glance {
+  display: grid;
+  /* Five tiles that reflow rather than squash. */
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.glance__tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: var(--sw-white);
+  border: 1px solid var(--sw-cell-rule);
+  border-top: 3px solid var(--sw-hairline);
+}
+
+.glance__tile--crit { border-top-color: var(--sw-crit); }
+.glance__tile--warn { border-top-color: var(--sw-amber-ink); }
+.glance__tile--ok { border-top-color: var(--sw-ok); }
+
+.glance__label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--sw-muted);
+}
+
+.glance__value {
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+
+.glance__hint { font-size: 11.5px; color: var(--sw-muted); }
+
+/* ---- Providers ----------------------------------------------------- */
+
+.provider-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 8px;
+}
+
+.provider {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas: 'mark name state' '. sites sites';
+  align-items: center;
+  gap: 4px 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--sw-cell-rule);
+  background: var(--sw-white);
+  transition: border-color 140ms ease, transform 140ms ease;
+}
+
+.provider--trouble { border-color: #f5c9d1; background: var(--sw-crit-bg); }
+
+/*
+ * The mark: initials on the provider's own colour.
+ *
+ * Not a logo file. Hotlinking sixteen ISPs' brand assets is a stack of 404s
+ * waiting to happen and a trademark question nobody needs; initials on the
+ * right colour are recognisable at a glance and never break.
+ */
+.provider__mark {
+  grid-area: mark;
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  flex: none;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.25);
+}
+
+.provider__mark--small {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  font-size: 9.5px;
+}
+
+.provider__name { grid-area: name; font-size: 13.5px; font-weight: 600; min-width: 0; }
+.provider__tag {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--sw-muted);
+  letter-spacing: 0.02em;
+}
+.provider__state { grid-area: state; }
+.provider__sites {
+  grid-area: sites;
+  font-size: 11.5px;
+  color: var(--sw-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- Tools, in a box ----------------------------------------------- */
+
+.tool-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+}
+
+.tool {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+  text-align: left;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--sw-cell-rule);
+  background: var(--sw-white);
+  cursor: pointer;
+  transition: border-color 140ms ease, transform 140ms ease, box-shadow 140ms ease;
+}
+
+.tool:hover {
+  border-color: var(--sw-accent);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(16, 42, 91, 0.08);
+}
+
+.tool:focus-visible { outline: 2px solid var(--sw-accent); outline-offset: 2px; }
+.tool__label { font-size: 13.5px; font-weight: 600; }
+.tool__hint { font-size: 11.5px; color: var(--sw-muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  .tool:hover, .provider { transform: none; }
+}
+
+/* ---- Tick, cross, question mark ------------------------------------ */
+
+/*
+ * Three states, three shapes as well as three colours.
+ *
+ * Colour alone fails for the eight percent of men with a red-green
+ * deficiency, and "is this line tested" is not a question to get wrong
+ * because two icons looked the same.
+ */
+.mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.mark--yes { background: var(--sw-ok-bg); color: var(--sw-ok); }
+.mark--no { background: var(--sw-crit-bg); color: var(--sw-crit); }
+.mark--unknown { background: var(--sw-warn-bg); color: var(--sw-amber-ink); }
+
+/* ---- The trail ----------------------------------------------------- */
+
+.trail { list-style: none; margin: 6px 0 0; padding: 0; }
+
+.trail__item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: baseline;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--sw-cell-rule);
+  font-size: 12.5px;
+}
+
+.trail__item:last-child { border-bottom: 0; }
+.trail__item--auto { background: linear-gradient(90deg, var(--sw-info-bg), transparent 60%); }
+.trail__when { color: var(--sw-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.trail__what { min-width: 0; }
+.trail__who { white-space: nowrap; }
+
+/* ---- Choosing an outcome ------------------------------------------- */
+
+.choice {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--sw-cell-rule);
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+
+.choice:hover { border-color: var(--sw-accent); }
+.choice--on { border-color: var(--sw-accent); background: var(--sw-info-bg); }
+.choice input { margin-top: 3px; flex: none; }
+.choice strong { display: block; font-size: 13.5px; }
+.choice__hint { display: block; font-size: 12px; color: var(--sw-muted); margin-top: 2px; }
+
+/* A denser table for the modal, where vertical space is the scarce thing. */
+.data--tight th, .data--tight td { padding-top: 7px; padding-bottom: 7px; }
