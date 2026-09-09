@@ -329,17 +329,16 @@ function VisitCard({
             )}
 
             {/*
-              * The UniFi side of this check is not built yet.
-              *
-              * Said out loud rather than left as a gap: whether the customer's
-              * own router has a WAN up is the other half of "is it actually
-              * fixed", and reading it from the controller is the Site Manager
-              * work. Until then the engineer has to look, and pretending
-              * otherwise would make this page claim more than it knows.
+              * The other half of "is it actually fixed" is the customer's own
+              * WAN, which the controller knows about. It is not read into this
+              * page: a visit has a ticket, not a premises, so there is no UPRN
+              * here to look a site up by. Pointing at where it does live is
+              * honest; pretending this page knows would not be.
               */}
             <p className="muted" style={{ fontSize: 12, margin: '10px 0 0', maxWidth: 640 }}>
-              The router's own WAN state is not read here yet — that comes with the UniFi Site Manager work. Check
-              the controller as well before dropping a visit.
+              Worth checking the customer's own WAN too — look the premises up and open <strong>On site →
+              Internet</strong>, which shows downtime over the last day from their controller. A line that tests
+              clean while their router has been down all morning is a different fault.
             </p>
           </div>
 

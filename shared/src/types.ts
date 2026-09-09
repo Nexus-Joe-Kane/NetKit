@@ -1,3 +1,4 @@
+import type { MatchConfidence } from './siteMatch';
 import type { AreaCoverage } from './areaCoverage';
 /**
  * SupportWizard NetKit — shared domain model.
@@ -706,4 +707,213 @@ export interface HealthResponse {
   version: string;
   providers: Record<string, { configured: boolean; mode: 'live' | 'mock'; label: string }>;
   uptimeSeconds: number;
+}
+
+/* ------------------------------------------------------------------ *
+ * What the documentation says is at a site
+ * ------------------------------------------------------------------ */
+
+/**
+ * A documented piece of equipment at a site.
+ *
+ * Deliberately thin. This is what somebody wrote down, not what is on the
+ * network — the two disagree often enough that conflating them would be
+ * worse than showing neither. Live state comes from the controller and is
+ * shown alongside, labelled as live.
+ */
+export interface DocumentedConfiguration {
+  id: string;
+  name: string;
+  /** What kind of thing it is, as the documentation classifies it. */
+  kind?: string;
+  hostname?: string;
+  primaryIp?: string;
+  macAddress?: string;
+  serialNumber?: string;
+  assetTag?: string;
+  manufacturer?: string;
+  model?: string;
+  operatingSystem?: string;
+  /** Which of the company's sites it is recorded at. */
+  locationId?: string;
+  locationName?: string;
+  notes?: string;
+  warrantyExpires?: string;
+  /** Straight into the documentation, so nobody re-derives what is written. */
+  url?: string;
+  updatedAt?: string;
+  archived?: boolean;
+}
+
+/**
+ * A documented credential, without the credential.
+ *
+ * Names, usernames and where it is used — never the value. IT Glue can
+ * return password values when a key is set up to allow it, and NetKit does
+ * not ask: an engineer who needs the password opens IT Glue, which logs that
+ * they did. Pulling secrets through a second system doubles the places they
+ * can leak from and halves the audit trail.
+ */
+export interface DocumentedCredential {
+  id: string;
+  name: string;
+  username?: string;
+  /** Where it signs in, when recorded. */
+  url?: string;
+  category?: string;
+  /** Link into IT Glue, where the value can be read with an audit record. */
+  documentationUrl?: string;
+  updatedAt?: string;
+}
+
+/** One of a company's documented sites. */
+export interface DocumentedLocation {
+  id: string;
+  name: string;
+  primary?: boolean;
+  addressLines: string[];
+  city?: string;
+  postcode?: string;
+  region?: string;
+  country?: string;
+  phone?: string;
+}
+
+/** Everything one documentation system holds about a company. */
+export interface DocumentedClient {
+  /** The organisation as the documentation names it. */
+  id: string;
+  name: string;
+  status?: string;
+  shortName?: string;
+  /** How confidently this was matched to the name that was searched. */
+  confidence: MatchConfidence;
+  matchReason: string;
+  url?: string;
+  locations: DocumentedLocation[];
+  configurations: DocumentedConfiguration[];
+  credentials: DocumentedCredential[];
+}
+
+/* ------------------------------------------------------------------ *
+ * What the network actually says is at a site
+ * ------------------------------------------------------------------ */
+
+/** A device the controller can see, as the controller sees it. */
+export interface NetworkDevice {
+  id: string;
+  name: string;
+  model?: string;
+  /** Short model code, e.g. UDMPROSE. */
+  shortModel?: string;
+  mac?: string;
+  ip?: string;
+  /** `network`, `protect`, and so on. */
+  productLine?: string;
+  status?: string;
+  firmware?: string;
+  firmwareStatus?: string;
+  updateAvailable?: string;
+  isConsole?: boolean;
+  isManaged?: boolean;
+  /** When it last booted. There is no uptime field to read. */
+  startedAt?: string;
+  adoptedAt?: string;
+  note?: string;
+}
+
+/**
+ * A site as the controller knows it.
+ *
+ * No address and no postcode: Site Manager does not hold either, which is
+ * why matching a site to a premises falls back to the name.
+ */
+export interface NetworkSite {
+  siteId: string;
+  hostId: string;
+  name: string;
+  /** The friendlier of the two names the controller keeps. */
+  description?: string;
+  gatewayMac?: string;
+  timezone?: string;
+  /** What the operator can do here — admin, readonly. */
+  permission?: string;
+  counts?: {
+    totalDevices?: number;
+    offlineDevices?: number;
+    wiredClients?: number;
+    wifiClients?: number;
+    guestClients?: number;
+    criticalNotifications?: number;
+    pendingUpdates?: number;
+    wanConfigurations?: number;
+  };
+  /** Who the controller thinks provides the internet here. */
+  isp?: { name?: string; organisation?: string };
+  gateway?: { model?: string };
+  /** Percentage, as the controller reports it. */
+  wanUptimePercent?: number;
+  /** True when the controller is reporting current internet trouble. */
+  internetIssues?: boolean;
+}
+
+/**
+ * WAN health over a window, from the ISP metrics feed.
+ *
+ * The nearest thing to "is the internet up here" that Site Manager
+ * publishes: there is no per-site WAN status endpoint, so uptime and
+ * downtime over an interval is what there is.
+ */
+export interface WanHealth {
+  siteId: string;
+  /** `5m` or `1h`, matching the interval requested. */
+  interval: string;
+  /** The most recent sample. */
+  latest?: {
+    at?: string;
+    uptimePercent?: number;
+    downtimeSeconds?: number;
+    averageLatencyMs?: number;
+    maxLatencyMs?: number;
+    packetLossPercent?: number;
+    downloadKbps?: number;
+    uploadKbps?: number;
+    ispName?: string;
+  };
+  /** Samples in the window, oldest first, for a sparkline. */
+  samples: Array<{ at?: string; uptimePercent?: number; averageLatencyMs?: number }>;
+  /** Downtime across the whole window, in seconds. */
+  downtimeSeconds: number;
+}
+
+/**
+ * Everything we hold about a customer's site, from every system.
+ *
+ * Assembled per premises rather than per company, because that is the
+ * question an engineer asks: not "what does this client have" but "what is
+ * at this address". Each half says where it came from and how confidently it
+ * was matched, because the join is on a name and a name is not an id.
+ */
+export interface SiteContext {
+  /** The name that was searched for. */
+  query: string;
+  /** What the documentation holds, where a single organisation matched. */
+  documented?: DocumentedClient;
+  /** Organisations that could have been meant, when it was ambiguous. */
+  documentedOptions?: Array<{ id: string; name: string; confidence: string; reason: string }>;
+  /** The documented location judged to be this premises. */
+  documentedLocation?: { location: DocumentedLocation; confidence: MatchConfidence; reason: string };
+  /** Every site the controller holds for this company. */
+  networkSites?: NetworkSite[];
+  /** The controller site judged to be this premises. */
+  networkSite?: { site: NetworkSite; confidence: MatchConfidence; reason: string };
+  /** The equipment on that site's console. */
+  devices?: NetworkDevice[];
+  /** WAN health for that site over the last day. */
+  wan?: WanHealth;
+  status: {
+    documentation: SectionStatus;
+    network: SectionStatus;
+  };
+  generatedAt: string;
 }

@@ -429,6 +429,55 @@ because four characters of an API key is four characters an attacker does not
 have to guess. The list says where the live value comes from, how long it is,
 and who set it when.
 
+### IT Glue — what the site is documented as having
+
+```
+ITGLUE_API_KEY=
+ITGLUE_BASE_URL=https://api.itglue.com
+```
+
+The key comes from **Account → Settings → API Keys**. The base URL matters:
+IT Glue run three regional hosts (`api.itglue.com`, `api.eu.itglue.com`,
+`api.au.itglue.com`) and the wrong one answers as though the data simply is
+not there rather than as an error. The service-status probe says so if it
+looks like that has happened.
+
+Do **not** enable "Password Access" on the key. NetKit never asks IT Glue for
+a password value, on any endpoint — it reads the name, the username and the
+link. An engineer who needs a password opens IT Glue, which records that they
+did; pulling secrets through a second system would double the places they can
+leak from and halve the audit trail.
+
+What turns on: an **On site** tab on every premises report, showing the
+documented equipment at that location, which credentials exist, and the
+client's other sites. The join is the company name — IT Glue does not know a
+Zendesk organisation id — so every match shows how confidently it was made,
+and an ambiguous one offers the candidates rather than picking one.
+
+### UniFi Site Manager — what the network says
+
+```
+UNIFI_API_KEY=
+```
+
+From **unifi.ui.com → Settings → API Keys**. It is shown once. Read-only,
+which is all this needs.
+
+Site Manager rather than a local controller, deliberately: one key reaches
+every site on the account, where a controller is one site and a hole in
+somebody's firewall.
+
+What turns on, alongside the documented view: the live equipment list with
+each device's state and firmware, and **Internet** — WAN uptime, latency,
+packet loss and *downtime over the last day* for that site. That last figure
+is the useful one: it is what tells you whether a fault the customer reported
+actually happened. Ubiquiti publish no live WAN interface state, so this is a
+window rather than a right-now, and the page says so.
+
+One quirk worth knowing: Site Manager keys equipment to a *console*, not a
+site, so where one console serves several sites the equipment list is the
+console's whole list. The tab says which console it came from.
+
 ### The portal's own address
 
 ```

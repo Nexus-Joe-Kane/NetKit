@@ -16,6 +16,8 @@ import { clearOpenCellIdCache } from '../providers/signal/openCellId';
 import { clearThinkbroadbandCache } from '../providers/altnet/thinkbroadband';
 import { resetGiacomTokens } from '../providers/giacom/client';
 import { clearZendeskCache } from '../providers/tickets/zendesk';
+import { clearItGlueCache } from '../providers/docs/itGlue';
+import { clearUnifiCache } from '../providers/network/unifi';
 import { clearGiacomCaches } from '../providers/giacom/adapters';
 import { sweepWatches } from '../services/watchSweep';
 
@@ -490,6 +492,8 @@ export function clearAllProviderCaches(): void {
   clearOpenCellIdCache();
   clearThinkbroadbandCache();
   clearZendeskCache();
+  clearItGlueCache();
+  clearUnifiCache();
   clearReportCache();
 }
 
