@@ -19,6 +19,7 @@ export * from './wanLines';
 export * from './mobileChecker';
 export * from './deviceKinds';
 export * from './clients';
+export * from './simActions';
 export * from "./rate";
 export * from "./companies";
 export * from "./sla";
