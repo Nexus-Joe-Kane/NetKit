@@ -23,6 +23,7 @@ import {
   visitCancelledMessage,
   visitStillNeededNote,
   snoozeUntil,
+  withTrail,
   type AccessNeed,
   type AccessTechnology,
   type GateAnswer,
@@ -32,6 +33,7 @@ import {
   type LineTestType,
 } from '@sw/shared';
 import { actOnItem, listInbox } from '../services/inbox';
+import { activityFor, type ActivityScope } from '../services/activity';
 import {
   clientContextByName,
   comment,
@@ -108,13 +110,31 @@ interface TicketNoteOutcome {
   url?: string;
   ccEmails?: string[];
   error?: string;
+  /** How many steps the trail carried, where one went with the note. */
+  trailSteps?: number;
+  /** Set where the trail had to follow as its own private note. */
+  trailPosted?: boolean;
+  trailError?: string;
 }
+
+/**
+ * What the trail on this note is about.
+ *
+ * Passed rather than guessed. `activityFor` correlates on the identifiers a
+ * row named, so a caller that knows it is working on circuit `ZEN123456`
+ * gets the profile change and the two line tests that carry no ticket
+ * number; a caller that passes only the ticket gets only what quoted it.
+ *
+ * `false` switches the trail off for a note where it would be noise.
+ */
+type TrailScope = false | Omit<ActivityScope, 'ticketId'>;
 
 async function noteOnTicket(input: {
   ticketId?: string;
   body: string;
   visibility: 'private' | 'public';
   ccEmails?: string[];
+  trail?: TrailScope;
 }): Promise<TicketNoteOutcome> {
   if (!input.ticketId) return { attempted: false, posted: false };
   if (!zendeskConfigured()) {
@@ -126,19 +146,47 @@ async function noteOnTicket(input: {
     };
   }
 
+  // The trail is read before the note goes out, so it holds the steps taken
+  // up to this one. This note is the current step, and repeating it in its
+  // own appendix would read as though it had happened twice.
+  const steps =
+    input.trail === false
+      ? []
+      : activityFor({ ticketId: input.ticketId, ...(input.trail ?? {}) });
+  const { primary, followUp } = withTrail(input.body, input.visibility, steps);
+
   try {
     const result = await comment({
       ticketId: input.ticketId,
-      body: input.body,
+      body: primary,
       visibility: input.visibility,
       ...(input.ccEmails?.length ? { ccEmails: input.ccEmails } : {}),
     });
+
+    // A public note cannot carry the trail, so it follows as a private one.
+    // Best-effort on purpose: the customer-facing update has already gone,
+    // and failing the request here would have an operator send it twice.
+    let trailPosted: boolean | undefined;
+    let trailError: string | undefined;
+    if (followUp) {
+      try {
+        await comment({ ticketId: input.ticketId, body: followUp, visibility: 'private' });
+        trailPosted = true;
+      } catch (err) {
+        trailPosted = false;
+        trailError = err instanceof Error ? err.message : String(err);
+      }
+    }
+
     return {
       attempted: true,
       posted: true,
       ticketId: result.ticketId,
       ...(result.url ? { url: result.url } : {}),
       ...(result.ccEmails.length ? { ccEmails: result.ccEmails } : {}),
+      ...(steps.length ? { trailSteps: steps.length } : {}),
+      ...(trailPosted === undefined ? {} : { trailPosted }),
+      ...(trailError ? { trailError } : {}),
     };
   } catch (err) {
     return {
@@ -339,6 +387,9 @@ export function operationsRouter(): Router {
           supplier: 'Zen',
         }),
         ...(input.ccEngineer && req.user?.email ? { ccEmails: [req.user.email] } : {}),
+        // The line tests that led to raising this carry the circuit, not the
+        // ticket, so the supplier's own reference is not the whole story.
+        trail: { zenReference: input.zenReference },
       });
 
       audit({
@@ -555,6 +606,10 @@ export function operationsRouter(): Router {
           ...(req.user?.name ? { bookedBy: req.user.name } : {}),
           gate: gateNote(items, answers),
         }),
+        // The customer's message went out a moment ago and the trail followed
+        // it as its own private note. Appending it again here would put the
+        // same list on the ticket twice.
+        trail: false,
       });
 
       /*
@@ -641,6 +696,7 @@ export function operationsRouter(): Router {
         // A follower as well as a mention: one reaches him in Zendesk, the
         // other reaches him if he is not looking at Zendesk.
         ccEmails: [APPROVER.email],
+        trail: { visitId: visit.id },
       });
 
       if (!note.posted) throw badRequest(note.error ?? 'The request was not written to the ticket.');
@@ -702,7 +758,12 @@ export function operationsRouter(): Router {
           ...(visit.slot ? { slot: visit.slot } : {}),
           ...(body.because ? { because: body.because } : {}),
         });
-        ticket = await noteOnTicket({ ticketId: visit.ticketId, visibility: 'public', body: message.body });
+        ticket = await noteOnTicket({
+          ticketId: visit.ticketId,
+          visibility: 'public',
+          body: message.body,
+          trail: { visitId: visit.id },
+        });
         if (!ticket.posted) {
           // The customer not being told is the whole failure. Do not record a
           // cancellation the customer has no idea about.
@@ -717,6 +778,7 @@ export function operationsRouter(): Router {
             ...(req.user?.name ? { checkedBy: req.user.name } : {}),
             ...(body.evidence?.length ? { evidence: body.evidence } : {}),
           }),
+          trail: { visitId: visit.id },
         });
       }
 
@@ -823,6 +885,9 @@ export function operationsRouter(): Router {
         visibility: 'public',
         body: email.body,
         ...(body.ccEngineer && req.user?.email ? { ccEmails: [req.user.email] } : {}),
+        // An authorisation to spend money, not a diagnosis. The engineering
+        // trail has no business travelling with it.
+        trail: false,
       });
 
       if (!note.posted) throw badRequest(note.error ?? 'The request was not written to the ticket.');
@@ -899,6 +964,7 @@ export function operationsRouter(): Router {
           ...(result.data.recommendations?.length ? { recommendations: result.data.recommendations } : {}),
           ...(req.user?.name ? { runBy: req.user.name } : {}),
         }),
+        trail: { zenReference },
       });
 
       audit({

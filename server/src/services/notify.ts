@@ -133,6 +133,16 @@ export async function sendNotice(
   input: NotifyRequest,
   action: string,
   detail: Record<string, unknown> = {},
+  /**
+   * Whether a person asked for this notice.
+   *
+   * Defaults to `automatic` because every caller today is a sweep on a timer,
+   * and because the two ways of being wrong are not symmetrical: labelling a
+   * person's action as automatic understates who did it, while labelling
+   * automatic work as a person's invents a decision nobody made. A human
+   * path must say so.
+   */
+  origin: 'automatic' | 'person' = 'automatic',
 ): Promise<NotifyResult> {
   const recipients = [...new Set(input.recipients.map((r) => r.trim().toLowerCase()).filter(Boolean))];
   const request = { ...input, recipients };
@@ -186,6 +196,7 @@ export async function sendNotice(
 
   audit({
     action,
+    ...(origin === 'automatic' ? { automatic: true } : {}),
     detail: {
       ...detail,
       subject: request.subject,
