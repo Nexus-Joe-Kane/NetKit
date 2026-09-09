@@ -9,6 +9,7 @@ import {
   openEvent,
   sortEvents,
   sortFindings,
+  wanRow,
   withDiagnosis,
   type EventFinding,
   type NetEvent,
@@ -251,15 +252,17 @@ test('cleared events sort below open ones whatever they are', () => {
 
 test('clearing records what was chosen, not just that it happened', () => {
   const event = clearEvent(openEvent(base), {
-    disposition: 'expected',
+    disposition: 'exception',
     at: '2026-09-09T08:00:00.000Z',
-    until: '2026-09-10T08:00:00.000Z',
     by: 'Joe Kane',
-    note: 'Openreach planned works',
+    resolution: 'Line tested clean, console back up.',
+    exceptionReason: 'Fibre is 14 months out on this street.',
+    signedOffBy: 'Sam Roffey',
   });
   assert.equal(event.status, 'cleared');
-  assert.equal(event.clearance?.disposition, 'expected');
-  assert.equal(event.clearance?.note, 'Openreach planned works');
+  assert.equal(event.clearance?.disposition, 'exception');
+  assert.equal(event.clearance?.signedOffBy, 'Sam Roffey');
+  assert.match(event.clearance?.exceptionReason ?? '', /14 months/);
   assert.equal(event.clearedAt, '2026-09-09T08:00:00.000Z');
 });
 
@@ -271,4 +274,109 @@ test('a diagnosis adds to findings rather than replacing them', () => {
     findings: [{ source: 'line-test', label: 'Line test', value: 'clean', verdict: 'good' }],
   }, AT);
   assert.equal(second.findings?.length, 2);
+});
+
+/* ---- The technical breakdown every ticket carries -------------------- */
+
+test('an unmanaged WAN says which provider it is and that we cannot test it', () => {
+  // A blank column is a question. "No line test: G.Network on WAN 2 is not a
+  // line we manage" is an answer.
+  const row = wanRow({ id: 'wan2', label: 'WAN 2', providerName: 'G.Network', online: false });
+  assert.equal(row.managed, false);
+  assert.equal(row.lineTestRun, 'n/a');
+  assert.equal(row.lineTestResult, 'unknown');
+  assert.match(row.lineTestNote ?? '', /G\.Network on WAN 2 is not a line we manage/);
+});
+
+test('a managed line whose test would not run is different from one that passed', () => {
+  const failedToRun = wanRow({
+    id: 'wan1',
+    label: 'WAN 1',
+    providerName: 'Zen Internet',
+    serviceReference: 'ZEN123456',
+    test: { ran: false, error: 'Zen returned 401' },
+  });
+  assert.equal(failedToRun.lineTestRun, 'no');
+  assert.equal(failedToRun.lineTestResult, 'unknown');
+  assert.match(failedToRun.lineTestNote ?? '', /401/);
+
+  const passed = wanRow({
+    id: 'wan1',
+    label: 'WAN 1',
+    providerName: 'Zen Internet',
+    serviceReference: 'ZEN123456',
+    test: { ran: true, passed: true },
+  });
+  assert.equal(passed.lineTestRun, 'yes');
+  assert.equal(passed.lineTestResult, 'pass');
+  assert.equal(passed.lineTestNote, undefined);
+});
+
+test('the provider’s own figures go on the ticket verbatim, in a code block', () => {
+  // Summarising a test into "fault found" loses the attenuation reading the
+  // supplier asks for, and an engineer who has to re-run it to get that back
+  // has been handed a worse ticket than no ticket.
+  const event: NetEvent = {
+    ...openEvent(base),
+    wans: [
+      wanRow({
+        id: 'wan1',
+        label: 'WAN 1',
+        providerName: 'Zen Internet',
+        serviceReference: 'ZEN123456',
+        test: { ran: true, passed: false, output: 'Outcome: FAIL\nLine attenuation: 62.4 dB\nSNR margin: 0.0 dB' },
+      }),
+    ],
+  };
+  const note = eventTicketNote(event);
+  assert.match(note, /```/);
+  assert.match(note, /Line attenuation: 62\.4 dB/);
+  assert.match(note, /SNR margin: 0\.0 dB/);
+});
+
+test('the environment is on the ticket, including when it went down', () => {
+  const event: NetEvent = {
+    ...openEvent(base),
+    environment: {
+      downSince: '2026-09-09T06:15:00.000Z',
+      gatewayName: 'MH-OXF-GW',
+      gatewayModel: 'UXG-Pro',
+      totalDevices: 14,
+      offlineDevices: 14,
+      wiredClients: 0,
+      wifiClients: 0,
+      wanCount: 2,
+      siteId: 'site-abc',
+    },
+  };
+  const note = eventTicketNote(event);
+  assert.match(note, /Offline since/);
+  assert.match(note, /Gateway — MH-OXF-GW \/ UXG-Pro/);
+  assert.match(note, /Devices — 14 total, 14 offline/);
+  assert.match(note, /WANs configured — 2/);
+  assert.match(note, /UniFi site — site-abc/);
+});
+
+test('with no environment gathered the ticket simply omits the section', () => {
+  // Half a breakdown with "undefined" in it is worse than none.
+  const note = eventTicketNote(openEvent(base));
+  assert.doesNotMatch(note, /Environment/);
+  assert.doesNotMatch(note, /undefined/);
+});
+
+test('a missing event link says why rather than trailing off', () => {
+  // The live ticket mentioned an event and gave no way to find it.
+  const note = eventTicketNote(openEvent(base));
+  assert.match(note, /PUBLIC_URL is not set/);
+  assert.match(note, /Admin portal → Credentials/);
+});
+
+test('the drop count is not stated twice with two different numbers', () => {
+  // The live ticket said "5 drops" in one sentence and "6 drops" in the next.
+  const event: NetEvent = {
+    ...openEvent({ ...base, kind: 'unstable', because: '5 drops in the last 24 hours. The site is up, but not staying up.' }),
+    dropsInWindow: 6,
+  };
+  const note = eventTicketNote(event);
+  assert.equal(note.match(/drops? in the last 24 hours/g)?.length, 1, note);
 });

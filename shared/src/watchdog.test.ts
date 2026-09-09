@@ -2,9 +2,13 @@ import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import {
   CHECK_INTERVAL_MS,
+  EXCEPTION_INTERVAL_MS,
   FAILURES_TO_RAISE,
+  FOREVER,
   SUCCESSES_TO_CLEAR,
   UNSTABLE_DISCONNECTS,
+  checkIntervalFor,
+  siteDueForCheck,
   applyCheck,
   applyClearance,
   attribute,
@@ -216,48 +220,102 @@ test('a site resolved needs two fresh failures to raise again, not one', () => {
   assert.equal(second.action, 'raise', 'and two is an outage again');
 });
 
-test('acknowledging is not resolving', () => {
-  // "I have seen it" must not quietly restart the history, or a genuinely
-  // bad site reads as fine because somebody keeps clicking acknowledge.
+test('a known cause stops the alerts and keeps the history', () => {
+  // Failing kit the customer will not replace. Nothing is fixed, so no
+  // counter is reset -- what changes is that nobody is told about it any
+  // more. Resetting the history here would have the site read as healthy.
   let state = newWatchState('willow', 'Willow Road');
   for (let i = 0; i < 12; i += 2) {
     state = applyCheck(state, down(i), at(i)).state;
     state = applyCheck(state, up(i + 1), at(i + 1)).state;
   }
-  const after = applyClearance(state, { disposition: 'monitoring', at: at(12) });
-  assert.equal(after.countingFrom, undefined);
-  assert.equal(isUnstable(after, at(12)), true);
-  assert.equal(after.openEventId, undefined, 'but the event is closed either way');
+  const after = applyClearance(state, { disposition: 'known-cause', at: at(12) });
+  assert.equal(after.countingFrom, undefined, 'the drops still happened');
+  assert.equal(isUnstable(after, at(12)), true, 'and the site is still bad');
+  assert.equal(after.openEventId, undefined, 'but the event is closed');
+
+  // And nothing is raised about it again.
+  const later = run({ ...after, consecutiveFailures: 0 }, [
+    { n: 13, results: down(13) },
+    { n: 14, results: down(14) },
+    { n: 15, results: down(15) },
+  ]);
+  assert.deepEqual(later.actions, ['nothing', 'nothing', 'nothing']);
 });
 
-test('planned works suppress alerting and then stop suppressing it', () => {
-  const state = applyClearance(newWatchState('willow', 'Willow Road'), {
-    disposition: 'expected',
+test('a known cause has no end date, because there is no date it stops being true', () => {
+  const after = applyClearance(newWatchState('willow', 'Willow Road'), {
+    disposition: 'known-cause',
     at: at(0),
-    until: at(10),
+  });
+  assert.equal(after.suppressedUntil, FOREVER);
+});
+
+test('an exception drops the site to a monthly check', () => {
+  const after = applyClearance(newWatchState('willow', 'Willow Road'), {
+    disposition: 'exception',
+    at: at(0),
+    resolution: 'Line tested clean, console back up, customer accepts the ADSL fallback.',
+    exceptionReason: 'Fibre is 14 months out on this street and they will not pay for a bonded pair.',
+    signedOffBy: 'Sam Roffey',
   });
 
-  const during = run(state, [
-    { n: 1, results: down(1) },
-    { n: 2, results: down(2) },
-  ]);
-  assert.deepEqual(during.actions, ['nothing', 'nothing'], 'nothing raised during the works');
+  assert.equal(after.cadence, 'sparse');
+  assert.equal(checkIntervalFor(after), EXCEPTION_INTERVAL_MS);
+  assert.equal(after.exception?.signedOffBy, 'Sam Roffey');
+  assert.match(after.exception?.reason ?? '', /14 months/);
 
-  const after = run({ ...state, consecutiveFailures: 0 }, [
-    { n: 11, results: down(11) },
-    { n: 12, results: down(12) },
-  ]);
-  assert.deepEqual(after.actions, ['nothing', 'raise'], 'and alerting comes back on its own');
+  // Monthly, not never: checked once and then left alone.
+  assert.equal(siteDueForCheck({ ...after, lastCheckedAt: at(0) }, at(1)), false);
+  const monthLater = new Date(Date.parse(at(0)) + EXCEPTION_INTERVAL_MS).toISOString();
+  assert.equal(siteDueForCheck({ ...after, lastCheckedAt: at(0) }, monthLater), true);
 });
 
-test('planned works with no end date are rejected', () => {
-  // Alerting that is switched off with no date is alerting that is switched
-  // off, and nobody would ever notice.
-  assert.ok(clearanceProblem({ disposition: 'expected', at: at(0) }));
-  assert.ok(clearanceProblem({ disposition: 'expected', at: at(0), until: 'whenever' }));
-  assert.ok(clearanceProblem({ disposition: 'expected', at: at(5), until: at(1) }), 'a date in the past is not a date');
-  assert.equal(clearanceProblem({ disposition: 'expected', at: at(0), until: at(10) }), undefined);
-  assert.equal(clearanceProblem({ disposition: 'resolved', at: at(0) }), undefined);
+test('an exception needs a reason and a name, and the API cannot be talked past', () => {
+  // In six months this is the only record of why the site stopped being
+  // checked every five minutes.
+  const base = { disposition: 'exception' as const, at: at(0), resolution: 'Tested clean.' };
+  assert.match(clearanceProblem(base) ?? '', /reason/i);
+  assert.match(clearanceProblem({ ...base, exceptionReason: 'because' }) ?? '', /name against it/i);
+  assert.equal(
+    clearanceProblem({ ...base, exceptionReason: 'because', signedOffBy: 'Sam Roffey' }),
+    undefined,
+  );
+});
+
+test('resolving and excepting both need a closure report; dismissing does not', () => {
+  // The report goes on the ticket, so an empty one is a ticket closed with
+  // nothing on it.
+  assert.match(clearanceProblem({ disposition: 'resolved', at: at(0) }) ?? '', /what was done/i);
+  assert.match(clearanceProblem({ disposition: 'resolved', at: at(0), resolution: '   ' }) ?? '', /what was done/i);
+  assert.equal(clearanceProblem({ disposition: 'resolved', at: at(0), resolution: 'Reseated the ONT.' }), undefined);
+  // Nothing was closed, so there is nothing to report.
+  assert.equal(clearanceProblem({ disposition: 'known-cause', at: at(0) }), undefined);
+  assert.equal(clearanceProblem({ disposition: 'not-ours', at: at(0) }), undefined);
+});
+
+test('a genuine fix puts an excepted site back on the normal cadence', () => {
+  // The fibre finally arrived. It should be watched properly again rather
+  // than staying on a monthly check because of a decision from last year.
+  const excepted = applyClearance(newWatchState('willow', 'Willow Road'), {
+    disposition: 'exception',
+    at: at(0),
+    resolution: 'Tested clean.',
+    exceptionReason: 'No fibre available.',
+    signedOffBy: 'Sam Roffey',
+  });
+  const fixed = applyClearance(excepted, {
+    disposition: 'resolved',
+    at: at(20),
+    resolution: 'FTTP installed and tested.',
+  });
+  assert.equal(fixed.cadence, 'normal');
+  assert.equal(fixed.exception, undefined);
+  assert.equal(checkIntervalFor(fixed), CHECK_INTERVAL_MS);
+});
+
+test('an unrecognised way of closing an event is refused', () => {
+  assert.ok(clearanceProblem({ disposition: 'whatever' as never, at: at(0) }));
 });
 
 test('resolving lifts a suppression somebody set earlier', () => {
@@ -372,4 +430,70 @@ test('resolving an unstable site arms the report again from scratch', () => {
   state = applyClearance(state, { disposition: 'resolved', at: at(11) });
   assert.equal(state.unstableNotifiedAt, undefined);
   assert.equal(isUnstable(state, at(11)), false, 'and it is under the threshold again');
+});
+
+/* ---- An open event puts the site to one side ------------------------- */
+
+test('an open event is reported as answering again once, not 288 times a day', () => {
+  // This was live. With an event open and the site back up, every subsequent
+  // check returned `recovered` — a follow-up every five minutes on an event
+  // nobody had closed yet, which is exactly the bombardment to avoid.
+  let state: SiteWatchState = { ...newWatchState('willow', 'Willow Road'), openEventId: 'evt-1' };
+  const actions: string[] = [];
+  for (let i = 0; i < 12; i += 1) {
+    const outcome = applyCheck(state, up(i), at(i));
+    state = outcome.state;
+    actions.push(outcome.action);
+  }
+  assert.equal(actions.filter((a) => a === 'recovered').length, 1, actions.join(','));
+});
+
+test('coming back up does not close the event — only a person does', () => {
+  let state: SiteWatchState = { ...newWatchState('willow', 'Willow Road'), openEventId: 'evt-1' };
+  for (let i = 0; i < 6; i += 1) state = applyCheck(state, up(i), at(i)).state;
+  assert.equal(state.openEventId, 'evt-1', 'up is not the same as fixed');
+});
+
+test('while an event is open nothing is tested, raised or chased again', () => {
+  // "Once the line test has run and the ticket is open, no further automatic
+  // tests and no further follow-ups — it just puts them to one side."
+  let state: SiteWatchState = { ...newWatchState('willow', 'Willow Road'), openEventId: 'evt-1' };
+  const actions: string[] = [];
+  for (let i = 0; i < 30; i += 1) {
+    // A flapping site: down, down, up, repeat. Every one of these would have
+    // been a candidate to raise or report something.
+    const results = i % 3 === 2 ? up(i) : down(i);
+    const outcome = applyCheck(state, results, at(i));
+    state = outcome.state;
+    actions.push(outcome.action);
+  }
+  assert.deepEqual(
+    [...new Set(actions)],
+    ['nothing'],
+    'an open event means the work is on somebody’s desk already',
+  );
+});
+
+test('the checks keep running while the event is open, so the history is complete', () => {
+  // Put to one side is not switched off: the drops still need counting, or
+  // the closure report has nothing to say about how bad it was.
+  let state: SiteWatchState = { ...newWatchState('willow', 'Willow Road'), openEventId: 'evt-1' };
+  for (let i = 0; i < 12; i += 3) {
+    state = applyCheck(state, down(i), at(i)).state;
+    state = applyCheck(state, down(i + 1), at(i + 1)).state;
+    state = applyCheck(state, up(i + 2), at(i + 2)).state;
+  }
+  assert.equal(state.disconnections.length, 4);
+  assert.ok(state.lastCheckedAt, 'and the site is still being looked at');
+});
+
+test('a resolved event re-arms the recovery note for next time', () => {
+  const state: SiteWatchState = {
+    ...newWatchState('willow', 'Willow Road'),
+    openEventId: 'evt-1',
+    recoveryNotedAt: at(4),
+  };
+  const after = applyClearance(state, { disposition: 'resolved', at: at(5), resolution: 'Reseated the ONT.' });
+  assert.equal(after.recoveryNotedAt, undefined);
+  assert.equal(after.openEventId, undefined);
 });

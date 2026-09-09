@@ -46,6 +46,16 @@ export const SUCCESSES_TO_CLEAR = 2;
 /** Drops in a day before the line is called unstable rather than merely up. */
 export const UNSTABLE_DISCONNECTS = 5;
 
+/**
+ * How often a site cleared with an exception is checked.
+ *
+ * Monthly rather than never. A line signed off as knowingly bad is still a
+ * line, and a site nobody looks at for a year is a site whose contract
+ * renewal arrives as a surprise. But it is checked on a cadence that cannot
+ * bombard anybody.
+ */
+export const EXCEPTION_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000;
+
 /** The window those drops are counted over. */
 export const UNSTABLE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -122,6 +132,24 @@ export interface SiteWatchState {
    * under, so a site that goes bad again is reported again.
    */
   unstableNotifiedAt?: string;
+  /**
+   * When the open event was last noted as answering again.
+   *
+   * The same guard for the opposite case, and it was a live bug: with an
+   * event open and the site back up, every subsequent check reported
+   * `recovered` — 288 times a day, on an event a person has not closed yet.
+   * Noted once; the event stays open until somebody clears it.
+   */
+  recoveryNotedAt?: string;
+  /**
+   * How often this site is checked.
+   *
+   * `sparse` is monthly, set by an exception somebody signed off. Absent
+   * means the normal five minutes.
+   */
+  cadence?: 'normal' | 'sparse';
+  /** Why this site is checked monthly, and who decided. */
+  exception?: { reason: string; signedOffBy: string; at: string };
 }
 
 export function newWatchState(key: string, siteName: string): SiteWatchState {
@@ -211,6 +239,10 @@ export function applyCheck(
     if (suppressed(state, now)) {
       return { state: next, action: 'nothing', because: 'The site is down, and alerting is suppressed until ' + state.suppressedUntil + '.' };
     }
+    // An open event means the work is already on somebody's desk. The check
+    // keeps running so the history is complete, and nothing else happens:
+    // no second test, no second ticket, no follow-up. Put to one side until
+    // a person clears it.
     if (next.openEventId) {
       return { state: next, action: 'nothing', because: 'Still down, on an event that is already open.' };
     }
@@ -232,16 +264,23 @@ export function applyCheck(
   next.consecutiveFailures = 0;
   next.consecutiveSuccesses = state.consecutiveSuccesses + 1;
 
-  if (next.openEventId && next.consecutiveSuccesses >= SUCCESSES_TO_CLEAR) {
+  if (next.openEventId) {
+    if (next.consecutiveSuccesses < SUCCESSES_TO_CLEAR) {
+      return { state: next, action: 'nothing', because: 'Answering again, but not yet for long enough to say so.' };
+    }
+    // Noted once, not on every check for the rest of the day. The event is
+    // not closed either way -- coming back up is not the same as being
+    // fixed, and only a person deciding that closes it.
+    if (next.recoveryNotedAt) {
+      return { state: next, action: 'nothing', because: 'Still answering, and the event already says so.' };
+    }
+    next.recoveryNotedAt = now;
     delete next.downSince;
     return {
       state: next,
       action: 'recovered',
-      because: `${next.consecutiveSuccesses} checks in a row reached the site.`,
+      because: `${next.consecutiveSuccesses} checks in a row reached the site. The event stays open until somebody closes it.`,
     };
-  }
-  if (next.openEventId) {
-    return { state: next, action: 'nothing', because: 'Answering again, but not yet for long enough to call it fixed.' };
   }
 
   delete next.downSince;
@@ -270,35 +309,66 @@ export function applyCheck(
  * ------------------------------------------------------------------ */
 
 /**
- * What somebody chose when they cleared an event.
+ * What somebody chose when they closed an event.
  *
- * `resolved` — fixed. Start counting again from here, so it takes two fresh
- *   failed checks to raise the next one and the drops from this outage do not
- *   arm the threshold.
- * `monitoring` — seen, not fixed. Nothing is raised while it stays open, and
- *   the counters keep running so the history is honest.
- * `expected` — planned works, a customer moving office, a site being rebuilt.
- *   Alerting is suppressed until a date somebody has to give.
+ * Three ways out, and the difference between them is what happens next
+ * rather than how the row looks:
+ *
+ * `resolved` — fixed. A closure report goes on the same ticket (the clean
+ *   line test, whether the console is back, what was done) and monitoring
+ *   picks up on the next cycle at the normal five minutes. Counting restarts
+ *   from here, so the drops already dealt with cannot raise the next one.
+ *
+ * `known-cause` — not fixed and not going to be. Failing kit on site the
+ *   customer will not replace, a building with no power at weekends. No
+ *   closure report, because nothing was closed; alerting stops until
+ *   somebody puts the site back on watch, and it stays visible as a known
+ *   problem rather than disappearing.
+ *
+ * `exception` — knowingly bad, signed off. Same closure report as `resolved`
+ *   plus the engineer's reason and who accepted it, and the site drops to a
+ *   monthly check. Monthly rather than never: a line signed off as bad is
+ *   still a line, and one nobody looks at for a year is one whose renewal
+ *   arrives as a surprise.
+ *
  * `not-ours` — not a site we look after. Stop checking it.
  */
-export type Disposition = 'resolved' | 'monitoring' | 'expected' | 'not-ours';
+export type Disposition = 'resolved' | 'known-cause' | 'exception' | 'not-ours';
 
-export const DISPOSITIONS: Array<{ id: Disposition; label: string; hint: string; needsUntil?: boolean }> = [
+export interface DispositionDef {
+  id: Disposition;
+  label: string;
+  hint: string;
+  /** True where the ticket needs a closure report before this is allowed. */
+  needsReport?: boolean;
+  /** True where an engineer has to say why and who signed it off. */
+  needsSignOff?: boolean;
+}
+
+export const DISPOSITIONS: readonly DispositionDef[] = [
   {
     id: 'resolved',
     label: 'Resolved',
-    hint: 'Fixed. Counting starts again from now, so it takes two fresh failed checks to raise this site again.',
+    hint:
+      'Fixed. A closure report goes on the ticket and monitoring restarts on the next cycle — it takes two ' +
+      'fresh failed checks to raise this site again, so the drops from this outage cannot re-raise it.',
+    needsReport: true,
   },
   {
-    id: 'monitoring',
-    label: 'Keeping an eye on it',
-    hint: 'Seen but not fixed. Nothing new is raised while this stays open, and the drops keep counting.',
+    id: 'known-cause',
+    label: 'Dismiss — known cause',
+    hint:
+      'Not fixed and not going to be: failing kit the customer will not replace, a building with no weekend ' +
+      'power. No alerts until somebody puts it back on watch, and it stays listed as a known problem.',
   },
   {
-    id: 'expected',
-    label: 'Expected',
-    hint: 'Planned works, a move, a rebuild. Alerting is off until the date you give.',
-    needsUntil: true,
+    id: 'exception',
+    label: 'Resolve with exception',
+    hint:
+      'Knowingly bad and accepted. Closure report as above, plus your reason and who signed it off, and the ' +
+      'site drops to a monthly check instead of every five minutes.',
+    needsReport: true,
+    needsSignOff: true,
   },
   {
     id: 'not-ours',
@@ -307,36 +377,59 @@ export const DISPOSITIONS: Array<{ id: Disposition; label: string; hint: string;
   },
 ];
 
+export const dispositionDef = (id: Disposition): DispositionDef | undefined =>
+  DISPOSITIONS.find((d) => d.id === id);
+
 export interface Clearance {
   disposition: Disposition;
   at: string;
-  /** Required for `expected`: when to start alerting again. */
-  until?: string;
   by?: string;
+  /** What was done and how it was left. Required where `needsReport`. */
+  resolution?: string;
+  /** Why an exception is acceptable. Required for `exception`. */
+  exceptionReason?: string;
+  /** Who accepted it. Required for `exception`. */
+  signedOffBy?: string;
   note?: string;
 }
 
-/** Why a clearance cannot be accepted as given, or nothing. */
+/**
+ * Why a clearance cannot be accepted as given, or nothing.
+ *
+ * Enforced here rather than in the form so the API cannot be talked past.
+ * The sign-off requirement is the one that matters: an exception with no
+ * name against it is a line quietly checked once a month because somebody
+ * clicked a button, and in six months nobody will know who or why.
+ */
 export function clearanceProblem(clearance: Clearance): string | undefined {
-  if (clearance.disposition === 'expected') {
-    const until = ms(clearance.until);
-    if (Number.isNaN(until)) return 'Say when the planned work ends, or alerting stays off for good.';
-    if (until <= ms(clearance.at)) return 'That date has already passed.';
+  const def = dispositionDef(clearance.disposition);
+  if (!def) return 'That is not a way to close an event.';
+
+  if (def.needsReport && !(clearance.resolution ?? '').trim()) {
+    return 'Say what was done and how it was left. It goes on the ticket as the closure report.';
+  }
+  if (def.needsSignOff) {
+    if (!(clearance.exceptionReason ?? '').trim()) {
+      return 'An exception needs a reason. In six months this is the only record of why the site stopped being checked.';
+    }
+    if (!(clearance.signedOffBy ?? '').trim()) {
+      return 'An exception needs a name against it. Who accepted that the site stays like this?';
+    }
   }
   return undefined;
 }
 
 /**
- * The watcher's state after somebody clears an event.
+ * The watcher's state after somebody closes an event.
  *
  * The counter reset lives here and nowhere else. `resolved` moves
  * `countingFrom` to the moment of resolution, which is what stops the next
- * check raising a fresh event off the back of drops that have already been
- * dealt with.
+ * check raising a fresh event off the back of drops already dealt with.
  */
 export function applyClearance(state: SiteWatchState, clearance: Clearance): SiteWatchState {
   const next: SiteWatchState = { ...state, disconnections: [...state.disconnections] };
   delete next.openEventId;
+  delete next.recoveryNotedAt;
 
   switch (clearance.disposition) {
     case 'resolved':
@@ -348,16 +441,39 @@ export function applyClearance(state: SiteWatchState, clearance: Clearance): Sit
       delete next.downSince;
       delete next.suppressedUntil;
       delete next.unstableNotifiedAt;
+      // Back to the normal cadence: a site that was on an exception and has
+      // now genuinely been fixed should be watched properly again.
+      next.cadence = 'normal';
+      delete next.exception;
       break;
 
-    case 'monitoring':
-      // Deliberately changes no counter. "I have seen it" is not "it is
-      // fixed", and a history that quietly restarted every time somebody
-      // acknowledged something would understate a site that is genuinely bad.
+    case 'known-cause':
+      /*
+       * No counter is reset, deliberately. The site is still bad and the
+       * history should say so — what changes is that nobody is told about it
+       * any more. Suppressed with no end date, which is the honest shape for
+       * "the customer will not replace the switch": there is no date on
+       * which that stops being true.
+       */
+      next.suppressedUntil = FOREVER;
       break;
 
-    case 'expected':
-      if (clearance.until) next.suppressedUntil = clearance.until;
+    case 'exception':
+      // Counting restarts, as with a resolution, because the closure report
+      // says the line was tested. What differs is the cadence and the fact
+      // that somebody's name is on it.
+      next.countingFrom = clearance.at;
+      next.consecutiveFailures = 0;
+      next.consecutiveSuccesses = 0;
+      delete next.downSince;
+      delete next.suppressedUntil;
+      delete next.unstableNotifiedAt;
+      next.cadence = 'sparse';
+      next.exception = {
+        reason: (clearance.exceptionReason ?? '').trim(),
+        signedOffBy: (clearance.signedOffBy ?? '').trim(),
+        at: clearance.at,
+      };
       break;
 
     case 'not-ours':
@@ -367,6 +483,38 @@ export function applyClearance(state: SiteWatchState, clearance: Clearance): Sit
   }
 
   return next;
+}
+
+/**
+ * A suppression with no end.
+ *
+ * A date rather than a flag, so every "is this suppressed" check stays one
+ * comparison instead of two, and so the reason it is suppressed is never
+ * ambiguous with a very long planned outage.
+ */
+export const FOREVER = '9999-12-31T00:00:00.000Z';
+
+/** How often this site should be checked, in milliseconds. */
+export function checkIntervalFor(state: SiteWatchState): number {
+  return state.cadence === 'sparse' ? EXCEPTION_INTERVAL_MS : CHECK_INTERVAL_MS;
+}
+
+/**
+ * Is this site due a check?
+ *
+ * The sweep asks per site rather than checking everything every time, so a
+ * site on a monthly exception costs one request a month instead of 8,640.
+ *
+ * Named for sites rather than `dueForCheck`, which is already taken by the
+ * visit chaser. Two exports with one name in a barrel file is a build error,
+ * and the shorter name belongs to whichever came first.
+ */
+export function siteDueForCheck(state: SiteWatchState, now: string): boolean {
+  const last = ms(state.lastCheckedAt);
+  if (Number.isNaN(last)) return true;
+  const at = ms(now);
+  if (Number.isNaN(at)) return true;
+  return at - last >= checkIntervalFor(state);
 }
 
 /** Where the fault sits, once the tests have run. */

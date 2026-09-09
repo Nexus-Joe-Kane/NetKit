@@ -48,7 +48,10 @@ that only becomes available once a Resend delivery test has actually passed.
 
 ```bash
 npm install
-cp .env.example .env        # fill in what you have; it works with nothing set
+# Development needs only DATA_DIR and SESSION_SECRET. Every variable the
+# app reads is listed, with what it is for, in
+# PLESK-ENVIRONMENT-VARIABLES.txt — generated from the source by
+# `npm run env:list`, so it cannot drift.
 npm run build
 npm start                   # http://localhost:3000
 ```

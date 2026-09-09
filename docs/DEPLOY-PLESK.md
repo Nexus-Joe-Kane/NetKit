@@ -50,7 +50,7 @@ ADMIN_EMAIL=joe@supportwizard.net
 ADMIN_PASSWORD=<the password you want for the first sign-in>
 ```
 
-Then add credentials as they arrive — see `.env.example` for the full list
+Then add credentials as they arrive — see `PLESK-ENVIRONMENT-VARIABLES.txt` for the full list
 with explanations. Variables set here take precedence over any `.env` file.
 
 Two worth knowing about before they surprise you:

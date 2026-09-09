@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import type { NetworkSite, WanHealth } from '@sw/shared';
 import {
   DIAGNOSE_BUDGET,
+  __sweepTesting,
   SWEEP_INTERVAL_MS,
   reachabilityFromCounts,
   reachabilityFromWan,
@@ -116,4 +117,35 @@ test('the diagnosis budget is small enough that a national outage cannot self-in
   // tests inside a minute. The rest are counted and picked up next pass.
   assert.ok(DIAGNOSE_BUDGET <= 10, `${DIAGNOSE_BUDGET} is too many line tests for one sweep`);
   assert.ok(DIAGNOSE_BUDGET >= 3, 'and too few would take an hour to work through a bad morning');
+});
+
+/* ---- The watch key is the site, never its name ----------------------- */
+
+test('two consoles with a site called "Default" do not share one counter', () => {
+  // This was live, and the ticket showed it: an event opened saying "5 drops"
+  // while the stored state had 6, because the sixth belonged to a different
+  // building. "Default" is what an unrenamed console calls its site, so most
+  // of them are called that.
+  const a = { ...site({ totalDevices: 2, offlineDevices: 0 }), siteId: 'site-a', name: 'Default' };
+  const b = { ...site({ totalDevices: 2, offlineDevices: 0 }), siteId: 'site-b', name: 'Default' };
+
+  const keyA = __sweepTesting.clientForSite(a).key;
+  const keyB = __sweepTesting.clientForSite(b).key;
+  assert.notEqual(keyA, keyB, 'same name, different buildings');
+  assert.match(keyA, /site-a/);
+});
+
+test('one client with two sites gets two counters', () => {
+  // Market Halls Victoria and Market Halls Oxford Street are two buildings
+  // and two lines. Pooling them is the same bug wearing a tie.
+  const victoria = { ...site(), siteId: 'site-vic', name: 'Market Halls Victoria' };
+  const oxford = { ...site(), siteId: 'site-oxf', name: 'Market Halls Oxford Street' };
+  assert.notEqual(__sweepTesting.clientForSite(victoria).key, __sweepTesting.clientForSite(oxford).key);
+});
+
+test('the watch key survives a site being renamed', () => {
+  // Somebody tidying up console names must not reset every counter.
+  const before = { ...site(), siteId: 'site-a', name: 'Default' };
+  const after = { ...site(), siteId: 'site-a', name: 'Market Halls Victoria' };
+  assert.equal(__sweepTesting.clientForSite(before).key, __sweepTesting.clientForSite(after).key);
 });

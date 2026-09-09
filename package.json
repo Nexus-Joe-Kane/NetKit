@@ -18,9 +18,11 @@
     "build": "npm run build --workspace=shared && npm run build --workspace=server && npm run build --workspace=web",
     "start": "npm run start --workspace=server",
     "typecheck": "tsc -b shared server && tsc --noEmit -p web",
-    "test": "npm run test --workspace=shared && npm run test --workspace=server && npm run check:secrets",
+    "test": "npm run test --workspace=shared && npm run test --workspace=server && npm run check:secrets && npm run check:env",
     "lint": "npm run typecheck",
-    "check:secrets": "node scripts/check-secrets.mjs"
+    "check:secrets": "node scripts/check-secrets.mjs",
+    "env:list": "node scripts/env-inventory.mjs",
+    "check:env": "node scripts/env-inventory.mjs --check"
   },
   "devDependencies": {
     "typescript": "^5.9.3"
