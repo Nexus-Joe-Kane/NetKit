@@ -317,8 +317,12 @@ function Portal({
             {/* Address picker — a postcode always resolves to a choice. */}
             {!report && result?.suggestions?.length ? (
               <Card
-                title="Choose the exact address"
-                eyebrow={`${result.suggestions.length} premises found`}
+                title={result.unmatched?.length ? 'Nothing matched every word' : 'Choose the exact address'}
+                eyebrow={
+                  result.unmatched?.length
+                    ? `closest ${result.suggestions.length}`
+                    : `${result.suggestions.length} premises found`
+                }
                 index="01"
                 accent={1}
                 flush
@@ -328,6 +332,23 @@ function Portal({
                   </button>
                 }
               >
+                {/* Same caveat as the typeahead: a list of near-misses under
+                    "pick the exact address" is the search claiming to have
+                    answered a question it has not. */}
+                {result.unmatched?.length ? (
+                  <div className="flag flag--warn" style={{ margin: '14px 18px 0' }}>
+                    <span className="flag__marker" aria-hidden="true" />
+                    <span>
+                      <strong>
+                        No premises came back for {result.unmatched.map((w) => `“${w}”`).join(' or ')}
+                      </strong>
+                      <span className="flag__detail">
+                        Every address below matches the rest of what you typed. AddressBase may not carry the trading
+                        name at that address yet — search the postcode, or the UPRN if you have it.
+                      </span>
+                    </span>
+                  </div>
+                ) : null}
                 <div className="table-wrap">
                   <table className="data">
                     <thead>

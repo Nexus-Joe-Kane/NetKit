@@ -204,6 +204,30 @@ export function rankAddresses(addresses: AddressRecord[], query: string, limit: 
   return chosen.slice(0, limit).map((m) => m.address);
 }
 
+/**
+ * The words nothing in this list accounts for.
+ *
+ * Two jobs, and both of them matter.
+ *
+ * It tells the person what happened. `megans richmond` returning nine
+ * Megan's in nine other towns is not a list of answers, it is a list of
+ * near-misses, and presenting it as "12 premises -- pick the exact address"
+ * is the search lying about what it found. Naming the word that came back
+ * empty turns a wrong answer into a useful one: AddressBase has no premises
+ * at that place under that name, so try the postcode.
+ *
+ * And it tells the provider what to search for next. A word no result
+ * accounts for is usually the locality, which is the one part of a query a
+ * relevance-ranked free-text search will happily drop -- so it is exactly
+ * the word worth pinning down and searching again with.
+ */
+export function unmatchedTokens(addresses: AddressRecord[], query: string): string[] {
+  const tokens = tokeniseQuery(query);
+  if (tokens.length === 0 || addresses.length === 0) return [];
+  const wordsPerAddress = addresses.map((a) => addressWords(a));
+  return tokens.filter((token) => !wordsPerAddress.some((words) => tokenMatches(token, words)));
+}
+
 /* ------------------------------------------------------------------ *
  * Is this the same premises?
  * ------------------------------------------------------------------ */

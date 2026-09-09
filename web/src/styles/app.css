@@ -323,6 +323,22 @@
   background: var(--sw-white);
 }
 
+/*
+ * The "we could not account for that word" note.
+ *
+ * Amber rather than red: the list below it is still the closest thing we
+ * have, and a red banner over usable results reads as an error when it is a
+ * caveat.
+ */
+.typeahead__note {
+  padding: 9px 14px 10px;
+  background: var(--sw-amber-panel);
+  border-bottom: 1px solid var(--sw-hairline);
+  font-size: var(--sw-size-small);
+  line-height: 1.5;
+  color: var(--sw-body);
+}
+
 .typeahead__item {
   display: flex;
   align-items: baseline;

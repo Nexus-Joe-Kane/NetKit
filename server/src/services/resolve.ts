@@ -4,6 +4,7 @@ import {
   statusRank,
   technologyRank,
   toSuggestion,
+  unmatchedTokens,
   type AddressRecord,
   type AddressSuggestion,
   type BroadbandAvailability,
@@ -685,13 +686,17 @@ export async function resolveQuery(rawQuery: string, opts: ResolveOptions = {}):
       if (list.length === 1) {
         return { query, suggestions: [], report: await buildSiteReport(list[0]!, query, budget) };
       }
-      return { query, suggestions: list.map(toSuggestion) };
+      const unmatched = unmatchedTokens(list, query.normalised);
+      return { query, suggestions: list.map(toSuggestion), ...(unmatched.length ? { unmatched } : {}) };
     }
   }
 }
 
 /** Typeahead: fast, suggestion-only, no report building. */
-export async function suggest(rawQuery: string, limit = 12): Promise<{ query: ResolvedIdentifier; suggestions: AddressSuggestion[] }> {
+export async function suggest(
+  rawQuery: string,
+  limit = 12,
+): Promise<{ query: ResolvedIdentifier; suggestions: AddressSuggestion[]; unmatched?: string[] }> {
   const query = identify(rawQuery);
   if (rawQuery.trim().length < 2) return { query, suggestions: [] };
 
@@ -705,7 +710,8 @@ export async function suggest(rawQuery: string, limit = 12): Promise<{ query: Re
   }
   if (query.kind === 'address') {
     const list = await searchAddresses(query.normalised, limit);
-    return { query, suggestions: list.map(toSuggestion) };
+    const unmatched = unmatchedTokens(list, query.normalised);
+    return { query, suggestions: list.map(toSuggestion), ...(unmatched.length ? { unmatched } : {}) };
   }
   // CLIs and line IDs have no address suggestions — the caller submits them.
   return { query, suggestions: [] };

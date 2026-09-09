@@ -56,6 +56,8 @@ export function SearchBar({
 }): ReactElement {
   const [value, setValue] = useState(initialValue);
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
+  /* Words the search could not account for. See SearchResponse.unmatched. */
+  const [unmatched, setUnmatched] = useState<string[]>([]);
   const [postcodes, setPostcodes] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(-1);
@@ -92,6 +94,7 @@ export function SearchBar({
     if (trimmed.length < 2) {
       setSuggestions([]);
       setPostcodes([]);
+      setUnmatched([]);
       return;
     }
     // Line identifiers have no address list — submitting is the only action.
@@ -107,6 +110,7 @@ export function SearchBar({
         const result = await api.suggest(trimmed);
         if (cancelled) return;
         setSuggestions(result.suggestions);
+        setUnmatched(result.unmatched ?? []);
         setPostcodes(result.postcodes ?? []);
         // Only pop the list open if the user has typed something new since
         // the last submission.
@@ -117,6 +121,7 @@ export function SearchBar({
       } catch {
         if (!cancelled) {
           setSuggestions([]);
+          setUnmatched([]);
           setPostcodes([]);
         }
       }
@@ -325,10 +330,35 @@ export function SearchBar({
             <>
               <div className="typeahead__group">
                 <Label>
-                  {suggestions.length} {suggestions.length === 1 ? 'premises' : 'premises'}
-                  {resolved.kind === 'postcode' ? ` at ${resolved.normalised}` : ''} — pick the exact address
+                  {unmatched.length > 0 ? (
+                    <>
+                      Nothing matched every word — closest {suggestions.length}
+                    </>
+                  ) : (
+                    <>
+                      {suggestions.length} {suggestions.length === 1 ? 'premises' : 'premises'}
+                      {resolved.kind === 'postcode' ? ` at ${resolved.normalised}` : ''} — pick the exact address
+                    </>
+                  )}
                 </Label>
               </div>
+              {/*
+                * The list is only as good as its heading.
+                *
+                * `megans richmond` returned nine Megan's in nine other towns
+                * under "12 premises — pick the exact address", which is the
+                * search claiming to have answered a question it had not.
+                * Naming the word that came back empty makes the same list
+                * useful: AddressBase has no premises at that place under that
+                * name, so reach for the postcode instead.
+                */}
+              {unmatched.length > 0 && (
+                <div className="typeahead__note">
+                  No premises came back for{' '}
+                  <strong>{unmatched.map((w) => `“${w}”`).join(' or ')}</strong>. AddressBase may not carry the
+                  trading name at that address yet — try the postcode.
+                </div>
+              )}
               {suggestions.map((s, i) => (
                 <button
                   key={s.id}

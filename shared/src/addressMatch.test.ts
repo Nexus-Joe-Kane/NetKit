@@ -9,6 +9,7 @@ import {
   addressWords,
   samePremises,
   premisesFacts,
+  unmatchedTokens,
 } from './addressMatch';
 
 const addr = (over: Partial<AddressRecord> & { postTown: string; postcode: string }): AddressRecord =>
@@ -311,4 +312,34 @@ test('a flat number that disagrees still wins over a parsed line', () => {
     source: 'test',
   } as never);
   assert.equal(samePremises(flat2, flat1), false);
+});
+
+/* ---- unmatchedTokens -------------------------------------------------- */
+
+test('the word nothing came back for is named', () => {
+  // The exact failure: nine Megan's in nine other towns, and not one in
+  // Richmond, presented as if they answered the question.
+  assert.deepEqual(unmatchedTokens(MEGANS, 'megans richmond'), ['richmond']);
+});
+
+test('nothing is unmatched once a result accounts for every word', () => {
+  assert.deepEqual(unmatchedTokens([...MEGANS, MEGANS_IN_RICHMOND], 'megans richmond'), []);
+});
+
+test('a word only one result carries still counts as matched', () => {
+  // "Accounted for somewhere" is the test, not "accounted for everywhere" —
+  // one premises in the right place is a complete answer.
+  const list = [MEGANS[0]!, MEGANS_IN_RICHMOND];
+  assert.deepEqual(unmatchedTokens(list, 'megans richmond'), []);
+});
+
+test('an empty list makes no claim about what is missing', () => {
+  // Nothing came back at all, which is a different message from "these do
+  // not match that word".
+  assert.deepEqual(unmatchedTokens([], 'megans richmond'), []);
+});
+
+test('filler words are never reported as unmatched', () => {
+  // They are dropped before matching, so reporting them would be nonsense.
+  assert.deepEqual(unmatchedTokens(MEGANS, 'megans in the richmond'), ['richmond']);
 });
