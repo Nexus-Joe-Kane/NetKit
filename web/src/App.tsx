@@ -28,6 +28,7 @@ import { PrintDialog } from './components/PrintDialog';
 import { ClientStandingGate } from './components/ClientStandingGate';
 import { go, readRoute, toHash, useRoute } from './lib/route';
 import { Dashboard } from './pages/Dashboard';
+import { ClientsPage } from './pages/Clients';
 import { WatchButton } from './components/WatchPanel';
 import { loadSections } from './lib/printStorage';
 
@@ -39,13 +40,27 @@ import { loadSections } from './lib/printStorage';
  * report it produces, so URL state is limited to the deep link for a UPRN.
  */
 
-type View = 'home' | 'lookup' | 'inbox' | 'network' | 'faults' | 'visits' | 'orders' | 'sims' | 'tools' | 'admin';
+type View =
+  | 'home'
+  | 'lookup'
+  | 'clients'
+  | 'inbox'
+  | 'network'
+  | 'faults'
+  | 'visits'
+  | 'orders'
+  | 'sims'
+  | 'tools'
+  | 'admin';
 type ReportTab = 'broadband' | 'openreach' | 'signal' | 'lines' | 'site' | 'companies';
 
 /** The primary navigation. `admin` is reached by its own button. */
 const NAV: Array<{ id: Exclude<View, 'admin'>; label: string }> = [
   { id: 'home', label: 'Home' },
   { id: 'lookup', label: 'Lookup' },
+  // Between Lookup and Inbox, as asked: it is the other half of "who is
+  // this", and belongs next to the thing that answers "what is here".
+  { id: 'clients', label: 'Clients' },
   { id: 'inbox', label: 'Inbox' },
   { id: 'network', label: 'Network status' },
   { id: 'faults', label: 'Faults' },
@@ -119,7 +134,19 @@ function Portal({
   const route = useRoute();
   const view: View = ((): View => {
     if (route.view === 'site') return 'lookup';
-    const known: View[] = ['home', 'lookup', 'inbox', 'network', 'faults', 'visits', 'orders', 'sims', 'tools', 'admin'];
+    const known: View[] = [
+      'home',
+      'lookup',
+      'clients',
+      'inbox',
+      'network',
+      'faults',
+      'visits',
+      'orders',
+      'sims',
+      'tools',
+      'admin',
+    ];
     // The board, not the search box: the first question of the morning is
     // whether anything is wrong, not what a particular address has.
     return known.find((v) => v === route.view) ?? 'home';
@@ -316,6 +343,7 @@ function Portal({
 
       <main className="shell__body">
         {view === 'home' && <Dashboard />}
+        {view === 'clients' && <ClientsPage />}
         {view === 'admin' && <AdminPortal me={user} />}
         {view === 'network' && <NetworkStatusPage />}
         {view === 'faults' && <FaultsPage />}

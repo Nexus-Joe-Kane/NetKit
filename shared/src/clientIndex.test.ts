@@ -4,6 +4,7 @@ import {
   CLIENT_INDEX_MAX_AGE_MS,
   buildIndex,
   clientIndexStale,
+  displayName,
   emptyClientIndex,
   foldContribution,
   lookupableSites,
@@ -226,4 +227,54 @@ test('a client you can look up outranks one with no known address', () => {
     NOW,
   ).entries;
   assert.deepEqual(searchClients(entries, 'willow').map((e) => e.name), ['Willow Zebra', 'Willow Aardvark']);
+});
+
+/* ---- Trading names --------------------------------------------------- */
+
+test('a row reads "Registered Name (Trading Name)" where the two differ', () => {
+  // Both are needed for different reasons: the registered name is what a
+  // supplier's portal is filed under, the trading name is what everybody
+  // says. Hiding one means somebody searching the way they think finds
+  // nothing.
+  assert.equal(
+    displayName({ name: 'Bellwether Hospitality Ltd', tradingName: 'Market Halls' }),
+    'Bellwether Hospitality Ltd (Market Halls)',
+  );
+});
+
+test('a trading name that adds nothing is not shown twice', () => {
+  // "Market Halls (Market Halls Ltd)" is noise rather than information.
+  assert.equal(displayName({ name: 'Market Halls Ltd', tradingName: 'Market Halls' }), 'Market Halls Ltd');
+  assert.equal(displayName({ name: 'Market Halls', tradingName: 'Market Halls' }), 'Market Halls');
+  assert.equal(displayName({ name: 'Willow Cafe' }), 'Willow Cafe');
+  assert.equal(displayName({ name: 'Willow Cafe', tradingName: '   ' }), 'Willow Cafe');
+});
+
+test('a trading name is searchable as well as displayable', () => {
+  const entry = foldContribution(
+    undefined,
+    { name: 'Bellwether Hospitality Ltd', tradingName: 'Market Halls', source: 'itglue' },
+    '2026-09-09T08:00:00.000Z',
+  );
+  assert.equal(entry.tradingName, 'Market Halls');
+  assert.ok(entry.aliases.includes('Market Halls'), 'so typing what is on the door finds them');
+  assert.deepEqual(searchClients([entry], 'market halls').map((e) => e.key), [entry.key]);
+  assert.deepEqual(searchClients([entry], 'bellwether').map((e) => e.key), [entry.key]);
+});
+
+test('the first trading name seen is kept rather than being overwritten', () => {
+  // Two sources with two different trading names is a data problem for a
+  // person, not something to resolve by whichever synced last.
+  const first = foldContribution(
+    undefined,
+    { name: 'Bellwether Hospitality Ltd', tradingName: 'Market Halls', source: 'itglue' },
+    '2026-09-09T08:00:00.000Z',
+  );
+  const second = foldContribution(
+    first,
+    { name: 'Bellwether Hospitality Ltd', tradingName: 'Market Halls Victoria', source: 'zendesk' },
+    '2026-09-09T08:00:00.000Z',
+  );
+  assert.equal(second.tradingName, 'Market Halls');
+  assert.ok(second.aliases.includes('Market Halls Victoria'), 'but the other is still searchable');
 });

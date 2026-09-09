@@ -6,11 +6,14 @@ import {
   clearanceProblem,
   dispositionDef,
   deviceKind,
+  displayName,
   eventSubject,
+  lookupableSites,
   glance,
   needsExtraCare,
   restartImpact,
   troubleHeadline,
+  unassignedSites,
   wanLinesFrom,
   type ApiResult,
   type Clearance,
@@ -21,6 +24,9 @@ import {
 import { badRequest, notFound } from '../lib/errors';
 import { audit } from '../auth/store';
 import { activityFor } from '../services/activity';
+import { allClients, clientIndexStatus, findClients } from '../services/clientIndex';
+import { assign, assignmentsForClient, listAssignments, unassign } from '../services/assignments';
+import { buildClientProfile } from '../services/clientProfile';
 import { clear, getEvent, listEvents, listWatchStates, watchState } from '../services/events';
 import { sweepOutages } from '../services/outageSweep';
 import { listVisits } from '../services/visits';
@@ -422,6 +428,103 @@ export function eventsRouter(): Router {
 
       if (!outcome.ok) throw badRequest(outcome.detail);
       return outcome;
+    }),
+  );
+
+  /* ---- Clients ------------------------------------------------------ */
+
+  /** The client list, searchable by registered or trading name. */
+  router.get(
+    '/clients',
+    handler(async (req) => {
+      const term = String(req.query.q ?? '').trim();
+      const limit = Math.min(50, Math.max(1, Number.parseInt(String(req.query.limit ?? '25'), 10) || 25));
+      const entries = term ? findClients(term, limit) : allClients().slice(0, limit);
+      return {
+        clients: entries.map((entry) => ({
+          key: entry.key,
+          name: entry.name,
+          display: displayName(entry),
+          ...(entry.tradingName ? { tradingName: entry.tradingName } : {}),
+          sites: entry.sites.length,
+          lookupable: lookupableSites(entry).length,
+          serviceRefs: entry.serviceRefs.length,
+          sources: entry.sources,
+        })),
+        total: clientIndexStatus().entries,
+      };
+    }),
+  );
+
+  router.get(
+    '/clients/:key',
+    handler(async (req) => {
+      const key = String(req.params.key ?? '');
+      const [entry] = findClients(key, 1);
+      const profile = await buildClientProfile({ key, name: entry?.name ?? key });
+      return {
+        profile,
+        unassigned: unassignedSites(profile.entry),
+        assignments: assignmentsForClient(profile.entry.key),
+      };
+    }),
+  );
+
+  /* ---- Claiming an address for a client ---------------------------- */
+
+  router.get(
+    '/assignments',
+    handler(async () => ({ assignments: listAssignments() })),
+  );
+
+  router.post(
+    '/assignments',
+    handler(async (req) => {
+      const body = z
+        .object({
+          uprn: z.string().trim().min(1).max(20),
+          clientKey: z.string().trim().min(1).max(200),
+          clientName: z.string().trim().min(1).max(200),
+          addressLine: z.string().trim().max(300).optional(),
+          postcode: z.string().trim().max(12).optional(),
+          siteName: z.string().trim().max(200).optional(),
+          note: z.string().trim().max(1000).optional(),
+        })
+        .parse(req.body ?? {});
+
+      const result = assign({
+        ...body,
+        ...(req.user?.name ? { assignedBy: req.user.name } : {}),
+      });
+      if (!result.ok) throw badRequest(result.error);
+
+      audit({
+        actorId: req.user?.id,
+        actorEmail: req.user?.email,
+        action: 'client.address_assigned',
+        detail: { uprn: body.uprn, clientKey: body.clientKey, clientName: body.clientName },
+        ip: req.ip,
+      });
+
+      return { assignment: result.assignment };
+    }),
+  );
+
+  router.delete(
+    '/assignments/:uprn',
+    handler(async (req) => {
+      const uprn = String(req.params.uprn ?? '');
+      const removed = unassign(uprn);
+      if (removed) {
+        audit({
+          actorId: req.user?.id,
+          actorEmail: req.user?.email,
+          action: 'client.address_unassigned',
+          detail: { uprn },
+          ip: req.ip,
+        });
+      }
+      return { uprn, removed };
     }),
   );
 
