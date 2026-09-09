@@ -2,7 +2,10 @@
 <html lang="en-GB">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- viewport-fit=cover so the safe-area insets below are non-zero on a
+         notched iPhone; the CSS then keeps content clear of the notch and the
+         home bar rather than letting Safari letterbox the whole page. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="robots" content="noindex, nofollow" />
     <meta name="description" content="SupportWizard NetKit — UK signal, broadband availability, UPRN and line intelligence from one search box." />
     <meta name="theme-color" content="#0d1b3e" />
