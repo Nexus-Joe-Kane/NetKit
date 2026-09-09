@@ -140,45 +140,10 @@ export function lineTestNote(input: {
   return lines.join('\n');
 }
 
-/**
- * The customer-facing message when a site visit is booked.
- *
- * Public, unlike everything else here, because it is the one thing the
- * customer has to act on: somebody has to be there.
- *
- * Vague about who is coming, on purpose. Naming Openreach or a particular
- * alt-net invites the customer to ring them directly, which loses us the
- * thread and gets them nowhere — the supplier will not talk to an end
- * customer about a wholesale fault.
- *
- * Both charges are stated plainly. A missed appointment is billed to us and
- * passed on, and a customer who learns that afterwards is a customer who
- * disputes it.
+/*
+ * The site-visit message used to live here, in one variant that described
+ * the charge without naming it. It moved to siteVisit.ts, which has both
+ * variants -- slot known and slot to follow -- and states the figure in
+ * each, because a customer told the date a day after the booking would
+ * otherwise never have been told the charge at all.
  */
-export function siteVisitBookedMessage(input: { supplier?: string; contactName?: string } = {}): string {
-  const supplier = input.supplier?.trim() || 'the network supplier';
-  const greeting = input.contactName?.trim() ? `Hello ${input.contactName.trim()},` : 'Hello,';
-
-  return [
-    greeting,
-    '',
-    `We have booked an engineer visit with ${supplier} for this fault. We will come back to you shortly with the ` +
-      'date and time slot as soon as they confirm it.',
-    '',
-    'Two things worth knowing before then:',
-    '',
-    '· If the appointment turns out to be inconvenient, please let us know as early as you can. We need at least ' +
-      '24 hours’ notice to move or cancel a booked visit — inside that window the supplier treats it as an ' +
-      'attended appointment and charges for it.',
-    '',
-    '· Somebody will need to be on site to let the engineer in and to be there for the duration of the visit. If ' +
-      'nobody is available when they arrive, the visit is charged as a missed appointment and we will have to ' +
-      'book another one.',
-    '',
-    'We will be in touch with the slot as soon as we have it. If anything changes at your end in the meantime, ' +
-      'just reply to this ticket.',
-    '',
-    'Kind regards',
-    SITE_VISIT_SIGN_OFF,
-  ].join('\n');
-}

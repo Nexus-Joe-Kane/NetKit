@@ -5,7 +5,6 @@ import {
   faultRaisedNote,
   lineTestNote,
   siteContactLabel,
-  siteVisitBookedMessage,
 } from './houseContact';
 
 test('the house contact is the desk, not a person', () => {
@@ -69,22 +68,4 @@ test('a line test note marks the readings the provider called a problem', () => 
   assert.match(note, /Attenuation: 42 dB {2}← warning/);
   assert.doesNotMatch(note, /Sync: 17 Mb {2}←/, 'a healthy reading is not flagged');
   assert.match(note, /Provider recommends:/);
-});
-
-test('the site-visit message never names the supplier to the customer’s face', () => {
-  // It takes a supplier name and uses it, but the caller passes something
-  // deliberately generic. This checks the shape rather than the policy.
-  const message = siteVisitBookedMessage({ supplier: 'the network supplier', contactName: 'Jane' });
-  assert.match(message, /^Hello Jane,/);
-  assert.match(message, /booked an engineer visit with the network supplier/);
-});
-
-test('the site-visit message states both charges and the notice period', () => {
-  const message = siteVisitBookedMessage();
-  assert.match(message, /24 hours’ notice/, 'a customer who learns the notice period afterwards disputes the charge');
-  assert.match(message, /missed appointment/);
-  assert.match(message, /somebody will need to be on site/i);
-  assert.match(message, /Kind regards/);
-  assert.match(message, /SupportWizard Network Support Team$/, 'these go out under the team name');
-  assert.match(message, /^Hello,/, 'no name is not an empty greeting');
 });

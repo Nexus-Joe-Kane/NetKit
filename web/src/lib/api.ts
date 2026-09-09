@@ -306,8 +306,27 @@ export const api = {
     request<{ contacts: SiteContact[] }>(`/api/tickets/${encodeURIComponent(ticketId)}/contacts`),
 
   /** Tells the customer, publicly, that a site visit is booked. */
-  notifySiteVisit: (ticketId: string, input: { supplier?: string; contactName?: string; ccEngineer?: boolean }) =>
-    post<{ ticket: TicketNoteOutcome }>(`/api/tickets/${encodeURIComponent(ticketId)}/site-visit`, input),
+  notifySiteVisit: (
+    ticketId: string,
+    input: {
+      supplier?: string;
+      contactName?: string;
+      reason: string;
+      access: 'inside' | 'outside' | 'unknown';
+      /** Omitted when the supplier has not confirmed a slot yet. */
+      slot?: { date: string; window: string } | null;
+      technology?: string;
+      testSide?: 'customer' | 'network' | 'unclear';
+      extraChecks?: Array<{ id: string; question: string }>;
+      /** The gate. The server rebuilds and re-checks it — this is not the guard. */
+      gate: Record<string, 'done' | 'not-applicable' | 'not-done'>;
+      ccEngineer?: boolean;
+    },
+  ) =>
+    post<{ ticket: TicketNoteOutcome; subject: string; record: TicketNoteOutcome; warning?: string }>(
+      `/api/tickets/${encodeURIComponent(ticketId)}/site-visit`,
+      input,
+    ),
 
   /* ---- Diagnostics -------------------------------------------------- */
 

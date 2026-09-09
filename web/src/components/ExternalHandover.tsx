@@ -12,6 +12,7 @@ import {
   type SiteContact,
   type TestFinding,
 } from '@sw/shared';
+import { SiteVisitBooking } from './SiteVisitBooking';
 import { Alert, Chip, CopyButton, Label } from './ui';
 import { Modal } from './overlay';
 
@@ -247,6 +248,25 @@ export function ExternalHandover({
               the picker offers them.
             </p>
           )}
+        </div>
+
+        {/*
+          * Booking the engineer, here rather than on its own page.
+          *
+          * This box already holds everything the decision needs: the line,
+          * its technology, the latest test and what it means, and the site
+          * contact. Sending somebody elsewhere to book means re-establishing
+          * all of it, which is how a visit gets booked on a test nobody
+          * re-read.
+          */}
+        <div>
+          <Label>Engineer visit</Label>
+          <SiteVisitBooking
+            supplier={line.provider}
+            technology={line.technology}
+            findings={state.findings}
+            {...(siteContact?.name ? { contactName: siteContact.name } : {})}
+          />
         </div>
       </div>
     </Modal>

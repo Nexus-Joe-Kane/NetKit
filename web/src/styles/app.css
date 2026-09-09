@@ -1355,6 +1355,52 @@ table.data td.num {
 }
 
 /* ------------------------------------------------------------------ *
+ * The pre-booking gate
+ *
+ * Each question sits in its own box with the cost of skipping it next to it,
+ * rather than as a row of tickboxes. A checklist somebody ticks straight
+ * through is a form; the point of this one is that reading it changes what
+ * gets booked.
+ * ------------------------------------------------------------------ */
+
+.gate-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid var(--sw-cell-rule);
+  border-left: 3px solid var(--sw-amber-ink);
+  border-radius: 8px;
+  background: var(--sw-white);
+}
+
+/* Answered, so it stops asking for attention. */
+.gate-item.is-clear {
+  border-left-color: var(--sw-ok);
+  background: var(--sw-panel);
+}
+
+.gate-item__text {
+  flex: 1;
+  min-width: 220px;
+  display: grid;
+  gap: 3px;
+  font-size: var(--sw-size-body);
+  line-height: 1.45;
+}
+
+.gate-item__text strong {
+  color: var(--sw-ink);
+  font-weight: var(--sw-weight-medium);
+}
+
+.gate-item__text .muted {
+  font-size: var(--sw-size-small);
+  line-height: 1.5;
+}
+
+/* ------------------------------------------------------------------ *
  * Responsive
  * ------------------------------------------------------------------ */
 
