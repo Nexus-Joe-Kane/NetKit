@@ -8,6 +8,7 @@ import { EMAIL_FONT, emailLayout, sendEmail, verifyResend } from '../auth/email'
 import { notifyChannel, notifyChannelDetail } from '../services/notify';
 import { clearSecret, secretStatus, setSecret, vaultUsable, withCandidate } from '../services/vault';
 import { clearAllProviderCaches } from './supervisor';
+import { clientIndexStatus, rebuildClientIndex } from '../services/clientIndex';
 import { requireAdmin } from '../auth/routes';
 import {
   audit,
@@ -152,6 +153,39 @@ export function adminRouter(): Router {
         ip: req.ip,
       });
       send(res, report);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /* ---- The client index --------------------------------------------- */
+
+  /**
+   * How big the local client list is, how old, and which sources answered.
+   *
+   * Worth a page of its own because it is the thing that makes a customer
+   * name searchable, and when it is empty the lookup box quietly stops being
+   * useful for names without saying why.
+   */
+  router.get('/client-index', (_req, res) => {
+    send(res, clientIndexStatus());
+  });
+
+  /** Rebuilds it now, rather than waiting for the daily refresh. */
+  router.post('/client-index/rebuild', async (req, res, next) => {
+    try {
+      const file = await rebuildClientIndex();
+      audit({
+        actorId: req.user!.id,
+        actorEmail: req.user!.email,
+        action: 'admin.client_index_rebuilt',
+        detail: {
+          entries: file.entries.length,
+          ...(file.lastChange ? { added: file.lastChange.added.length, removed: file.lastChange.removed.length } : {}),
+        },
+        ip: req.ip,
+      });
+      send(res, clientIndexStatus());
     } catch (err) {
       next(err);
     }

@@ -72,10 +72,20 @@ export function SearchBar({
    * cannot carry on its own.
    */
   const [services, setServices] = useState<{
+    clients: LookupSuggestion[];
     broadband: LookupSuggestion[];
     mobile: LookupSuggestion[];
     needsIdentifier: boolean;
-  }>({ broadband: [], mobile: [], needsIdentifier: false });
+  }>({ clients: [], broadband: [], mobile: [], needsIdentifier: false });
+  /*
+   * The client whose sites are showing.
+   *
+   * A client with one site opens straight away. With several, the row
+   * expands into them rather than guessing: a company with twenty shops has
+   * twenty answers, and picking one for the engineer would be picking wrong
+   * nineteen times out of twenty.
+   */
+  const [expanded, setExpanded] = useState<LookupSuggestion | null>(null);
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(-1);
   /**
@@ -112,7 +122,7 @@ export function SearchBar({
       setSuggestions([]);
       setPostcodes([]);
       setUnmatched([]);
-      setServices({ broadband: [], mobile: [], needsIdentifier: false });
+      setServices({ clients: [], broadband: [], mobile: [], needsIdentifier: false });
       return;
     }
     /*
@@ -133,10 +143,12 @@ export function SearchBar({
         setUnmatched(result.unmatched ?? []);
         setPostcodes(result.postcodes ?? []);
         setServices({
+          clients: result.clients ?? [],
           broadband: result.broadband ?? [],
           mobile: result.mobile ?? [],
           needsIdentifier: result.broadbandNeedsIdentifier ?? false,
         });
+        setExpanded(null);
         // Only pop the list open if the user has typed something new since
         // the last submission.
         // Anything worth showing opens the list, services included — a
@@ -144,6 +156,7 @@ export function SearchBar({
         const anything =
           result.suggestions.length > 0 ||
           (result.postcodes ?? []).length > 0 ||
+          (result.clients ?? []).length > 0 ||
           (result.broadband ?? []).length > 0 ||
           (result.mobile ?? []).length > 0 ||
           Boolean(result.broadbandNeedsIdentifier);
@@ -154,7 +167,7 @@ export function SearchBar({
           setSuggestions([]);
           setUnmatched([]);
           setPostcodes([]);
-          setServices({ broadband: [], mobile: [], needsIdentifier: false });
+          setServices({ clients: [], broadband: [], mobile: [], needsIdentifier: false });
         }
       }
     }, 220);
@@ -213,6 +226,39 @@ export function SearchBar({
    * The box is left showing what identifies the thing rather than its label,
    * because that is what can be pasted into a ticket and searched again.
    */
+  const pickClient = (suggestion: LookupSuggestion) => {
+    const sites = suggestion.sites ?? [];
+    if (sites.length === 1) {
+      // One site: substitute its UPRN or postcode and run the real lookup.
+      // That is the whole trick — the name was never searchable upstream,
+      // and this is.
+      const site = sites[0]!;
+      const identifier = site.uprn ?? site.postcode;
+      if (identifier) {
+        setOpen(false);
+        setValue(identifier);
+        setSubmitted(identifier);
+        onSubmit(identifier);
+        setTimeout(loadRecent, 1200);
+        return;
+      }
+    }
+    // Several sites, or none we can look up. Expanding is honest; guessing
+    // is not.
+    setExpanded((current) => (current?.id === suggestion.id ? null : suggestion));
+  };
+
+  const pickSite = (site: { name: string; postcode?: string; uprn?: string }) => {
+    const identifier = site.uprn ?? site.postcode;
+    if (!identifier) return;
+    setOpen(false);
+    setExpanded(null);
+    setValue(identifier);
+    setSubmitted(identifier);
+    onSubmit(identifier);
+    setTimeout(loadRecent, 1200);
+  };
+
   const pickService = (suggestion: LookupSuggestion) => {
     setOpen(false);
     setValue(suggestion.query);
@@ -241,6 +287,7 @@ export function SearchBar({
     | { row: 'service'; suggestion: LookupSuggestion }
     | { row: 'postcode'; postcode: string }
   > = [
+    ...services.clients.map((suggestion) => ({ row: 'service' as const, suggestion })),
     ...suggestions.map((suggestion) => ({ row: 'address' as const, suggestion })),
     ...services.broadband.map((suggestion) => ({ row: 'service' as const, suggestion })),
     ...services.mobile.map((suggestion) => ({ row: 'service' as const, suggestion })),
@@ -249,18 +296,22 @@ export function SearchBar({
 
   /** Where each group starts, so a row knows its own index. */
   const offset = {
-    address: 0,
-    broadband: suggestions.length,
-    mobile: suggestions.length + services.broadband.length,
-    postcode: suggestions.length + services.broadband.length + services.mobile.length,
+    client: 0,
+    address: services.clients.length,
+    broadband: services.clients.length + suggestions.length,
+    mobile: services.clients.length + suggestions.length + services.broadband.length,
+    postcode:
+      services.clients.length + suggestions.length + services.broadband.length + services.mobile.length,
   };
 
   const choose = (index: number): void => {
     const chosen = rows[index];
     if (!chosen) return;
     if (chosen.row === 'address') pick(chosen.suggestion);
-    else if (chosen.row === 'service') pickService(chosen.suggestion);
-    else submit(chosen.postcode);
+    else if (chosen.row === 'service') {
+      if (chosen.suggestion.kind === 'client') pickClient(chosen.suggestion);
+      else pickService(chosen.suggestion);
+    } else submit(chosen.postcode);
   };
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -312,7 +363,11 @@ export function SearchBar({
               if (!value.trim()) setOpen(recent.length > 0);
               else if (
                 value.trim() !== submitted &&
-                (suggestions.length || postcodes.length || services.broadband.length || services.mobile.length)
+                (suggestions.length ||
+                  postcodes.length ||
+                  services.clients.length ||
+                  services.broadband.length ||
+                  services.mobile.length)
               ) {
                 setOpen(true);
               }
@@ -389,6 +444,7 @@ export function SearchBar({
       {open &&
         (suggestions.length > 0 ||
           postcodes.length > 0 ||
+          services.clients.length > 0 ||
           services.broadband.length > 0 ||
           services.mobile.length > 0 ||
           services.needsIdentifier ||
@@ -414,6 +470,29 @@ export function SearchBar({
                   </span>
                   <span className="typeahead__uprn sw-mono">{entry.postcode ?? entry.kind}</span>
                 </button>
+              ))}
+            </>
+          )}
+
+          {services.clients.length > 0 && (
+            <>
+              <div className="typeahead__group">
+                <Label>
+                  {services.clients.length} {services.clients.length === 1 ? 'client' : 'clients'} — from our own
+                  records
+                </Label>
+              </div>
+              {services.clients.map((client, i) => (
+                <ClientRow
+                  key={client.id}
+                  suggestion={client}
+                  index={offset.client + i}
+                  highlight={highlight}
+                  expanded={expanded?.id === client.id}
+                  onPick={pickClient}
+                  onPickSite={pickSite}
+                  onHover={setHighlight}
+                />
               ))}
             </>
           )}
@@ -597,5 +676,86 @@ function ServiceRow({
       </span>
       <span className="typeahead__uprn sw-mono">{suggestion.postcode || suggestion.source}</span>
     </button>
+  );
+}
+
+/**
+ * A client from our own index, and its sites.
+ *
+ * The row that makes a name useful. The suppliers cannot be searched by
+ * customer name, so picking a client substitutes the UPRN or postcode behind
+ * one of their sites — which they can. One site goes straight through; more
+ * than one expands, because a company with twenty shops has twenty answers.
+ */
+function ClientRow({
+  suggestion,
+  index,
+  highlight,
+  expanded,
+  onPick,
+  onPickSite,
+  onHover,
+}: {
+  suggestion: LookupSuggestion;
+  index: number;
+  highlight: number;
+  expanded: boolean;
+  onPick: (suggestion: LookupSuggestion) => void;
+  onPickSite: (site: { name: string; postcode?: string; uprn?: string }) => void;
+  onHover: (index: number) => void;
+}): ReactElement {
+  const sites = suggestion.sites ?? [];
+
+  return (
+    <>
+      <button
+        type="button"
+        className="typeahead__item"
+        role="option"
+        aria-selected={highlight === index}
+        aria-expanded={sites.length > 1 ? expanded : undefined}
+        onClick={() => onPick(suggestion)}
+        onMouseEnter={() => onHover(index)}
+      >
+        <LookupIcon kind="client" />
+        <span className="typeahead__kind">{KIND_LABEL.client}</span>
+        <span className="typeahead__label">
+          {suggestion.label}
+          <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>
+            {suggestion.detail}
+            {suggestion.knownFrom?.length ? ` · known from ${suggestion.knownFrom.join(', ')}` : ''}
+          </span>
+        </span>
+        <span className="typeahead__uprn sw-mono">{sites.length > 1 ? (expanded ? 'hide' : 'pick a site') : ''}</span>
+      </button>
+
+      {expanded &&
+        sites.map((site) => (
+          <button
+            key={`${suggestion.id}:${site.uprn ?? site.postcode ?? site.name}`}
+            type="button"
+            className="typeahead__item typeahead__item--nested"
+            onClick={() => onPickSite(site)}
+          >
+            <LookupIcon kind="address" />
+            <span className="typeahead__label">
+              {site.name}
+              {site.address && (
+                <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>
+                  {site.address}
+                </span>
+              )}
+            </span>
+            <span className="typeahead__uprn sw-mono">{site.postcode ?? (site.uprn ? 'UPRN' : '')}</span>
+          </button>
+        ))}
+
+      {expanded && sites.length === 0 && (
+        <div className="typeahead__note">
+          We know this client but not where they are yet. Look up one of their premises by postcode once, and it
+          will be here next time.
+        </div>
+      )}
+    </>
   );
 }

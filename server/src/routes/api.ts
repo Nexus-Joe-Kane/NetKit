@@ -145,7 +145,12 @@ export function apiRouter(): Router {
        */
       const [result, services] = await Promise.all([
         suggest(q, limit),
-        findServices(q).catch(() => ({ broadband: [], mobile: [], broadbandNeedsIdentifier: false })),
+        findServices(q).catch(() => ({
+          clients: [],
+          broadband: [],
+          mobile: [],
+          broadbandNeedsIdentifier: false,
+        })),
       ]);
 
       // Partial postcodes get postcode-level completions so the user can get

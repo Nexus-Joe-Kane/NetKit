@@ -929,7 +929,7 @@ export interface SiteContext {
  * and different destinations, and conflating them is why searching a client
  * name used to find their building and not their circuits.
  */
-export type LookupKind = 'address' | 'broadband' | 'mobile';
+export type LookupKind = 'client' | 'address' | 'broadband' | 'mobile';
 
 /**
  * One row in the lookup list.
@@ -960,4 +960,13 @@ export interface LookupSuggestion {
   cli?: string;
   /** The customer, where the record names one. */
   client?: string;
+  /**
+   * Client rows only: the sites behind them, and what to send upstream for
+   * each. One site opens directly; more than one is a choice, because a
+   * company with twenty shops has twenty answers and guessing is worse than
+   * asking.
+   */
+  sites?: Array<{ name: string; postcode?: string; uprn?: string; address?: string }>;
+  /** Which systems know about this client. */
+  knownFrom?: string[];
 }

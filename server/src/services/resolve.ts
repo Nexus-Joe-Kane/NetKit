@@ -25,6 +25,7 @@ import { firstResult, providers } from '../providers/registry';
 import { predictedSpeedsFor } from '../providers/coverage/ofcomBroadband';
 import { predictedFromDataset } from '../providers/coverage/ofcomFixedDataset';
 import { mastsNear } from '../providers/signal/openCellId';
+import { learnFromReport } from './clientIndex';
 
 /**
  * The resolver.
@@ -594,6 +595,17 @@ export async function buildSiteReport(
   };
 
   reportCache.set(cacheKey, report);
+
+  /*
+   * Teach the client index what this lookup just proved.
+   *
+   * This is what covers Zen and Giacom, who publish no customer-list
+   * endpoint: a premises report establishes the client name, the postcode,
+   * the UPRN and every service reference at it, confirmed against live data.
+   * Fire and forget — it must never delay or fail the report it rode in on.
+   */
+  learnFromReport(report);
+
   return report;
 }
 

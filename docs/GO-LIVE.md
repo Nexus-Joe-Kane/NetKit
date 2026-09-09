@@ -429,6 +429,44 @@ because four characters of an API key is four characters an attacker does not
 have to guess. The list says where the live value comes from, how long it is,
 and who set it when.
 
+### The client list — how a customer name becomes searchable
+
+The suppliers cannot be searched by customer name. Zen and Giacom match a
+reference, a postcode or a phone number and publish no customer-list endpoint
+at all. So NetKit keeps its own list instead: pulled once a day into
+`DATA_DIR/client-index.json`, searched locally with **no API calls**, and a
+click on a client substitutes the postcode or UPRN behind one of their sites —
+which is something the suppliers *can* search for. The call that goes upstream
+is the same one as always; it just stops being a guess.
+
+Where the list comes from, in order of usefulness:
+
+- **IT Glue** — organisations with locations and postcodes. The best source by
+  a distance, because a postcode is the thing that makes a name searchable.
+- **Jola** — customers with the sites their SIMs are at. Free, since the
+  estate is already fetched for the SIMs page.
+- **Zendesk** — organisation names. No addresses, but the name is the join key
+  across every other system, so a client is findable before anything knows
+  where they are.
+- **Ordinary use** — every premises anybody looks up teaches the list the
+  client name, the postcode, the UPRN and the service references at it. This
+  is what covers Zen and Giacom, and it needs no permission from anybody.
+
+**Admin portal → Credentials → Client list** shows how many clients and sites
+it holds, which sources answered, and what changed at the last refresh. A
+client appearing is usually a new customer; one disappearing is usually a
+cancellation nobody mentioned. There is a **Rebuild now** button, and it
+refreshes itself within the hour when it goes a day stale.
+
+A client with one site opens straight away. With several the row expands and
+the engineer picks, because a company with twenty shops has twenty answers and
+picking one for them would be picking wrong nineteen times out of twenty.
+
+Site Manager is deliberately *not* a source: its site names are site names,
+and treating them as client names invented three addressless clients out of
+one, which then outranked the real entry. The On site tab does that join
+properly, per premises.
+
 ### What the lookup box can find
 
 Three kinds of thing, with their own icon in the list: an office for a

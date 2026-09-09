@@ -6,6 +6,7 @@ import {
   type LineRecord,
 } from '@sw/shared';
 import { providers } from '../providers/registry';
+import { findClients } from './clientIndex';
 import { simEstate } from './operations';
 
 /**
@@ -187,7 +188,44 @@ async function findBroadband(term: string): Promise<LookupSuggestion[]> {
   return [...found.values()].slice(0, PER_KIND);
 }
 
+/**
+ * Clients, from the local index.
+ *
+ * Ahead of everything else in the list on purpose: an engineer typing a name
+ * means the customer, and this is the only row that can turn a name into
+ * something a supplier will accept. It costs no network at all — the index is
+ * a file on disk, refreshed once a day.
+ */
+function clientToSuggestion(entry: {
+  name: string;
+  aliases: string[];
+  sites: Array<{ name: string; postcode?: string; uprn?: string; address?: string }>;
+  sources: string[];
+}): LookupSuggestion {
+  const usable = entry.sites.filter((site) => site.uprn || site.postcode);
+  const detail =
+    usable.length === 0
+      ? 'no address known yet — look up one of their premises to fill it in'
+      : usable.length === 1
+        ? `${usable[0]!.name}${usable[0]!.postcode ? ` · ${usable[0]!.postcode}` : ''}`
+        : `${usable.length} sites`;
+
+  return {
+    kind: 'client',
+    id: `client:${entry.name.toLowerCase()}`,
+    label: entry.name,
+    detail,
+    // The name, so the box shows what was chosen; the site decides what
+    // actually goes upstream.
+    query: entry.name,
+    sites: usable,
+    knownFrom: entry.sources,
+    source: entry.sources[0] ?? 'index',
+  };
+}
+
 export interface ServiceLookupResult {
+  clients: LookupSuggestion[];
   broadband: LookupSuggestion[];
   mobile: LookupSuggestion[];
   /**
@@ -205,16 +243,30 @@ export async function findServices(term: string): Promise<ServiceLookupResult> {
   // A single word of two characters is not a search, and a bare name with no
   // identifying words in it cannot narrow anything.
   if (query.length < MIN_TERM) {
-    return { broadband: [], mobile: [], broadbandNeedsIdentifier: false };
+    return { clients: [], broadband: [], mobile: [], broadbandNeedsIdentifier: false };
   }
 
+  // The client index is local, so it is read rather than awaited alongside
+  // the network calls — there is nothing to wait for.
+  const clients = findClients(query, PER_KIND).map(clientToSuggestion);
   const [broadband, mobile] = await Promise.all([findBroadband(query), findMobiles(query)]);
 
   return {
+    clients,
     broadband,
     mobile,
+    /*
+     * Only worth saying when there is no client row either.
+     *
+     * With a client in the list the engineer has a way through — pick them,
+     * and the postcode behind them goes upstream. Telling them broadband
+     * cannot be searched by name at that point is true and useless.
+     */
     broadbandNeedsIdentifier:
-      broadband.length === 0 && !SEARCHABLE_BROADBAND.test(query) && clientTokens(query).length > 0,
+      broadband.length === 0 &&
+      clients.length === 0 &&
+      !SEARCHABLE_BROADBAND.test(query) &&
+      clientTokens(query).length > 0,
   };
 }
 

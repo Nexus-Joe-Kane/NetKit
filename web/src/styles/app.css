@@ -356,6 +356,12 @@
   color: currentColor;
 }
 
+/* A site under its client: indented, and quieter than the row above it. */
+.typeahead__item--nested {
+  padding-left: 38px;
+  background: var(--sw-panel);
+}
+
 .typeahead__kind {
   flex: none;
   font-size: 10px;

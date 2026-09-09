@@ -20,6 +20,7 @@ import { clearItGlueCache } from '../providers/docs/itGlue';
 import { clearUnifiCache } from '../providers/network/unifi';
 import { clearGiacomCaches } from '../providers/giacom/adapters';
 import { sweepWatches } from '../services/watchSweep';
+import { refreshIfStale } from '../services/clientIndex';
 
 /**
  * The recovery supervisor.
@@ -411,6 +412,16 @@ export async function sweep(): Promise<SweepResult> {
       await sweepWatches();
     } catch {
       // A failing watch records its own error against the watch itself.
+    }
+
+    // And the client index, on the same reasoning: it is due once a day, and
+    // it only rebuilds when it is actually stale. Each source records its own
+    // outcome, so a failure here has somewhere better to be reported than
+    // the recovery board.
+    try {
+      refreshIfStale();
+    } catch {
+      // Started rather than awaited; it cannot fail the sweep.
     }
   } finally {
     running = false;

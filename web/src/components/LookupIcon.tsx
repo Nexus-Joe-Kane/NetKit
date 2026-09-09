@@ -27,6 +27,17 @@ export function LookupIcon({ kind }: { kind: LookupKind }): ReactElement {
     className: 'lookup-icon',
   };
 
+  if (kind === 'client') {
+    // A briefcase: the business, as distinct from the building it sits in.
+    return (
+      <svg {...common}>
+        <rect x="1.8" y="5" width="12.4" height="8.6" rx="1.4" />
+        <path d="M6 5V3.6c0-.6.5-1.1 1.1-1.1h1.8c.6 0 1.1.5 1.1 1.1V5" />
+        <path d="M1.8 8.4h12.4" />
+      </svg>
+    );
+  }
+
   if (kind === 'broadband') {
     // A globe: the internet, as every browser has drawn it for thirty years.
     return (
@@ -62,6 +73,7 @@ export function LookupIcon({ kind }: { kind: LookupKind }): ReactElement {
 
 /** What to call each kind in text, since the icon says nothing on its own. */
 export const KIND_LABEL: Record<LookupKind, string> = {
+  client: 'Client',
   address: 'Premises',
   broadband: 'Broadband',
   mobile: 'Mobile',

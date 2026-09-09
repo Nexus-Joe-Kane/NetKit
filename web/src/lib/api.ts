@@ -94,6 +94,16 @@ export interface ClientContext {
 }
 
 /** What happened when a note was written to a ticket. */
+/** What the admin page is told about the local client list. */
+export interface ClientIndexStatus {
+  entries: number;
+  sites: number;
+  builtAt?: string;
+  stale: boolean;
+  sources: Record<string, { ok: boolean; count: number; detail?: string; at: string }>;
+  lastChange?: { added: string[]; removed: string[]; at: string };
+}
+
 export interface TicketNoteOutcome {
   attempted: boolean;
   posted: boolean;
@@ -229,6 +239,8 @@ export const api = {
       postcodes: string[];
       /** Words nothing in `suggestions` accounts for. */
       unmatched?: string[];
+      /** Clients from the local index — no network call behind these. */
+      clients?: LookupSuggestion[];
       /** Broadband services matching the term, where it could be searched. */
       broadband?: LookupSuggestion[];
       /** Mobiles matching the term. */
@@ -365,6 +377,12 @@ export const api = {
     request<SiteContext>(
       `/api/site-context/${encodeURIComponent(uprn)}${name ? `?name=${encodeURIComponent(name)}` : ''}`,
     ),
+
+  /* ---- The client index ------------------------------------------------ */
+
+  clientIndex: () => request<ClientIndexStatus>('/api/admin/client-index'),
+
+  rebuildClientIndex: () => post<ClientIndexStatus>('/api/admin/client-index/rebuild', {}),
 
   /* ---- Credentials --------------------------------------------------- */
 
