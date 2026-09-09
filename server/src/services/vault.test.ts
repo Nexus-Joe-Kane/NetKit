@@ -227,7 +227,7 @@ test('removing one credential leaves every other one alone', () => {
   withSecret('a-stable-session-secret-value-32ch', () => {
     setSecret('ITGLUE_API_KEY', 'itglue-aaaaaaaaaaaaaaaaaaaaaaaa');
     setSecret('UNIFI_API_KEY', 'unifi-bbbbbbbbbbbbbbbbbbbbbbbbb');
-    setSecret('JOLA_USERNAME', 'joe@supportwizard.net');
+    setSecret('JOLA_API_KEY', 'jola-key-aaaaaaaaaaaaaaaaaaaa');
 
     staleWorker();
     assert.equal(clearSecret('UNIFI_API_KEY'), true);
@@ -235,7 +235,7 @@ test('removing one credential leaves every other one alone', () => {
     const onDisk = JSON.parse(readFileSync(join(d, 'vault.json'), 'utf8')) as {
       secrets: Record<string, unknown>;
     };
-    assert.deepEqual(Object.keys(onDisk.secrets).sort(), ['ITGLUE_API_KEY', 'JOLA_USERNAME']);
+    assert.deepEqual(Object.keys(onDisk.secrets).sort(), ['ITGLUE_API_KEY', 'JOLA_API_KEY']);
   });
 });
 
@@ -301,12 +301,12 @@ test('a stored credential still reads back after a stale worker writes', () => {
 test('a leftover lock from a crashed worker does not block a save for ever', () => {
   const d = dir();
   withSecret('a-stable-session-secret-value-32ch', () => {
-    setSecret('JOLA_USERNAME', 'joe@supportwizard.net');
+    setSecret('JOLA_API_KEY', 'jola-key-aaaaaaaaaaaaaaaaaaaa');
     // A lock nobody is holding, old enough to be stale.
     writeFileSync(join(d, 'vault.json.lock'), '', { encoding: 'utf8', mode: 0o600 });
     utimesSync(join(d, 'vault.json.lock'), new Date(Date.now() - 60_000), new Date(Date.now() - 60_000));
 
-    assert.equal(setSecret('JOLA_PASSWORD', 'something-long-enough').ok, true);
+    assert.equal(setSecret('JOLA_SECRET_KEY', 'jola-secret-bbbbbbbbbbbbbbbb').ok, true);
     assert.equal(existsSync(join(d, 'vault.json.lock')), false, 'and the lock is released');
   });
 });

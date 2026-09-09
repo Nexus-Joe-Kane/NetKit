@@ -20,6 +20,7 @@ import { clearItGlueCache } from '../providers/docs/itGlue';
 import { clearUnifiCache } from '../providers/network/unifi';
 import { clearGiacomCaches } from '../providers/giacom/adapters';
 import { sweepWatches } from '../services/watchSweep';
+import { sweepOutagesIfDue } from '../services/outageSweep';
 import { refreshIfStale } from '../services/clientIndex';
 
 /**
@@ -414,6 +415,21 @@ export async function sweep(): Promise<SweepResult> {
       await sweepWatches();
     } catch {
       // A failing watch records its own error against the watch itself.
+    }
+
+    // The five-minute outage check, on the same reasoning again — and it
+    // paces itself, because this interval is configurable and five minutes
+    // is a promise rather than a preference.
+    try {
+      const outages = await sweepOutagesIfDue();
+      if (outages.raised || outages.unstable) {
+        console.log(
+          `[netkit] outage sweep: ${outages.raised} raised, ${outages.unstable} unstable, ` +
+            `${outages.checked} sites checked.`,
+        );
+      }
+    } catch {
+      // Each event records its own failure against itself.
     }
 
     // And the client index, on the same reasoning: it is due once a day, and
