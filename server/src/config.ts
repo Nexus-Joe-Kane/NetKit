@@ -289,7 +289,20 @@ export interface AppConfig {
    * hole in somebody's firewall. Its key is read-only for now, which suits
    * a tool that has no business changing a customer's network.
    */
-  unifi: { apiKey: string; baseUrl: string; configured: boolean };
+  unifi: {
+    apiKey: string;
+    baseUrl: string;
+    configured: boolean;
+    /**
+     * A Network Integration key, which is a different key from the Site
+     * Manager one above and the only one that can be given instructions.
+     * A deployment can read every site and still not be able to restart
+     * anything, and the error says exactly that rather than "403".
+     */
+    integrationKey: string;
+    /** True where restarts and port power-cycles are possible. */
+    actionsConfigured: boolean;
+  };
   openCellId: { apiKey: string; baseUrl: string; searchPath: string; radiusMetres: number; configured: boolean };
   /**
    * The recovery supervisor: probes every integration on an interval and
@@ -452,6 +465,8 @@ export function config(): AppConfig {
       apiKey: str('UNIFI_API_KEY'),
       baseUrl: str('UNIFI_BASE_URL', 'https://api.ui.com').replace(/\/+$/, ''),
       configured: Boolean(str('UNIFI_API_KEY')),
+      integrationKey: str('UNIFI_INTEGRATION_KEY'),
+      actionsConfigured: Boolean(str('UNIFI_INTEGRATION_KEY')),
     },
     ofcomBroadband: {
       apiKey: str('OFCOM_BROADBAND_API_KEY'),

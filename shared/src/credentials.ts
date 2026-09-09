@@ -89,6 +89,15 @@ export const VAULT_KEYS: readonly VaultKeyDef[] = [
     secret: true,
     hint: 'unifi.ui.com → Settings → API Keys. Shown once. Read-only, which is all this needs.',
   },
+  {
+    name: 'UNIFI_INTEGRATION_KEY',
+    service: 'unifi',
+    label: 'UniFi Network Integration key',
+    secret: true,
+    hint:
+      'A different key from the one above, and the only one that can restart anything — the Site Manager key ' +
+      'is read-only. UniFi Network → Settings → Control Plane → Integrations. Needs console firmware 5.0.3+.',
+  },
   { name: 'OPENCELLID', service: 'opencellid', label: 'OpenCelliD token', secret: true },
   { name: 'THINKBROADBAND_API_KEY', service: 'thinkbroadband', label: 'thinkbroadband key', secret: true },
   { name: 'OFCOM_BROADBAND_API_KEY', service: 'ofcom-broadband', label: 'Ofcom broadband key', secret: true },

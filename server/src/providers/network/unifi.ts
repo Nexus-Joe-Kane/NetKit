@@ -79,19 +79,40 @@ interface RawDeviceGroup {
   updatedAt?: string;
 }
 
+interface RawWanMetrics {
+  uptime?: number;
+  downtime?: number;
+  avgLatency?: number;
+  maxLatency?: number;
+  packetLoss?: number;
+  download_kbps?: number;
+  upload_kbps?: number;
+  ispName?: string;
+  /** Only where the feed identifies which uplink this is. */
+  id?: string;
+  wanId?: string;
+  interface?: string;
+  ipAddress?: string;
+  publicIp?: string;
+}
+
 interface RawMetricPeriod {
   metricTime?: string;
   data?: {
-    wan?: {
-      uptime?: number;
-      downtime?: number;
-      avgLatency?: number;
-      maxLatency?: number;
-      packetLoss?: number;
-      download_kbps?: number;
-      upload_kbps?: number;
-      ispName?: string;
-    };
+    /** One aggregate for the site, which is what the feed gives today. */
+    wan?: RawWanMetrics;
+    /**
+     * Per-uplink metrics, read tolerantly.
+     *
+     * Ubiquiti document neither of these, and today's payload carries only
+     * the aggregate above. But a site with two uplinks and one set of
+     * numbers must be shown as one row rather than as WAN 1 -- so the moment
+     * the feed does break them out, this reads it, and until then nothing
+     * invents a split. Costs nothing to have here and saves fabricating.
+     */
+    wans?: RawWanMetrics[];
+    uplinks?: RawWanMetrics[];
+    wan2?: RawWanMetrics;
   };
 }
 
@@ -294,6 +315,30 @@ export async function wanHealth(hostId: string, siteId: string): Promise<WanHeal
     const wan = last.data?.wan ?? {};
     const downtimeSeconds = periods.reduce((total, p) => total + (num(p.data?.wan?.downtime) ?? 0), 0);
 
+    // Per-uplink figures if the feed gives any, under whichever of the three
+    // plausible keys. Nothing is synthesised when it does not.
+    const rawUplinks: RawWanMetrics[] =
+      last.data?.wans ?? last.data?.uplinks ?? (last.data?.wan2 ? [wan, last.data.wan2] : []);
+
+    const uplinks = rawUplinks
+      .map((raw, i) => ({
+        id: text(raw.id) ?? text(raw.wanId) ?? text(raw.interface) ?? `wan${i + 1}`,
+        ...(text(raw.ispName) ? { ispName: text(raw.ispName)! } : {}),
+        ...(text(raw.publicIp) ?? text(raw.ipAddress)
+          ? { publicIp: (text(raw.publicIp) ?? text(raw.ipAddress))! }
+          : {}),
+        ...(num(raw.uptime) !== undefined ? { uptimePercent: num(raw.uptime)! } : {}),
+        ...(num(raw.downtime) !== undefined ? { downtimeSeconds: num(raw.downtime)! } : {}),
+        ...(num(raw.avgLatency) !== undefined ? { averageLatencyMs: num(raw.avgLatency)! } : {}),
+        ...(num(raw.maxLatency) !== undefined ? { maxLatencyMs: num(raw.maxLatency)! } : {}),
+        ...(num(raw.packetLoss) !== undefined ? { packetLossPercent: num(raw.packetLoss)! } : {}),
+        ...(num(raw.download_kbps) !== undefined ? { downloadKbps: num(raw.download_kbps)! } : {}),
+        ...(num(raw.upload_kbps) !== undefined ? { uploadKbps: num(raw.upload_kbps)! } : {}),
+        ...(text(last.metricTime) ? { at: text(last.metricTime)! } : {}),
+      }))
+      // A row with a name and no numbers is worse than no row.
+      .filter((u) => u.ispName || u.uptimePercent !== undefined || u.averageLatencyMs !== undefined);
+
     return {
       siteId,
       interval: text(mine.metricType) ?? '5m',
@@ -314,6 +359,7 @@ export async function wanHealth(hostId: string, siteId: string): Promise<WanHeal
         ...(num(p.data?.wan?.avgLatency) !== undefined ? { averageLatencyMs: num(p.data?.wan?.avgLatency)! } : {}),
       })),
       downtimeSeconds,
+      ...(uplinks.length > 1 ? { uplinks } : {}),
     };
   });
 }

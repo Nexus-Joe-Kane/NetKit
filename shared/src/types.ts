@@ -884,6 +884,27 @@ export interface WanHealth {
   samples: Array<{ at?: string; uptimePercent?: number; averageLatencyMs?: number }>;
   /** Downtime across the whole window, in seconds. */
   downtimeSeconds: number;
+  /**
+   * Per-uplink figures, where the feed gives them.
+   *
+   * Absent is the normal case: the metrics feed reports one aggregate for
+   * the site. When it is absent the WAN list shows a single row labelled
+   * `WAN` rather than `WAN 1`, because attributing one set of numbers to the
+   * first of two uplinks would be a fabricated split.
+   */
+  uplinks?: Array<{
+    id?: string;
+    ispName?: string;
+    publicIp?: string;
+    uptimePercent?: number;
+    downtimeSeconds?: number;
+    averageLatencyMs?: number;
+    maxLatencyMs?: number;
+    packetLossPercent?: number;
+    downloadKbps?: number;
+    uploadKbps?: number;
+    at?: string;
+  }>;
 }
 
 /**
