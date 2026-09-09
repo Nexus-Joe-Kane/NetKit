@@ -412,7 +412,9 @@ function probes(): Probe[] {
       key: 'resend',
       name: 'Resend',
       vendor: 'Resend',
-      capability: 'Transactional email — required before email two-factor authentication can be enabled',
+      capability:
+        'Transactional email. Required for email two-factor authentication and for account invites; optional for ' +
+        'everything else, because notices go to Zendesk as internal tickets when Zendesk is configured',
       docsUrl: 'https://resend.com/docs',
       configured: () => cfg.resend.configured,
       run: async () => {

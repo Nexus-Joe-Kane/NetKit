@@ -1,6 +1,7 @@
 import { config } from '../config';
 import { audit, isProviderEnabled, listUsers } from '../auth/store';
-import { escalationEmail, recoveryEmail, sendEmail, twoFactorAvailable } from '../auth/email';
+import { escalationEmail, recoveryEmail } from '../auth/email';
+import { notifyChannel, sendNotice } from '../services/notify';
 import { probeService, serviceStatuses, type ServiceStatus } from './health';
 import { resetZenTokens } from '../providers/zen/client';
 import { clearZenCaches } from '../providers/zen/adapters';
@@ -470,29 +471,41 @@ async function attemptRecovery(health: IntegrationHealth): Promise<boolean> {
  * Escalation
  * ------------------------------------------------------------------ */
 
-/** Emails every active administrator. Failures are logged, never thrown. */
+/**
+ * Tells every active administrator. Failures are logged, never thrown.
+ *
+ * Goes through the notice router rather than straight to the mailer, so an
+ * escalation becomes a Zendesk ticket where Zendesk is configured — which is
+ * what an escalation wants to be. It is a thing somebody has to pick up, and
+ * a ticket can be assigned and closed where an email can only be read.
+ *
+ * There is no early return when nothing is configured: the router records the
+ * escalation in the audit log with the reason it could not be sent, which is
+ * how a deployment with no channel at all still leaves a trail.
+ */
 async function notifyAdmins(
   message: { subject: string; html: string; text: string },
   action: string,
   detail: Record<string, unknown>,
 ): Promise<void> {
-  // Only when email has actually been proved to work — an unverified key
-  // would turn every escalation into a silent no-op.
-  if (!twoFactorAvailable()) return;
-
   const admins = listUsers().filter((u) => u.role === 'admin' && !u.disabled);
-  if (!admins.length) return;
 
-  const results = await Promise.all(
-    admins.map((admin) => sendEmail(admin.email, message.subject, message.html, message.text)),
-  );
-  const sent = results.filter((r) => r.ok).length;
-
-  audit({
+  await sendNotice(
+    {
+      subject: message.subject,
+      text: message.text,
+      html: message.html,
+      recipients: admins.map((a) => a.email),
+      tags: ['netkit-supervisor'],
+      priority: action === 'supervisor.escalated' ? 'high' : 'low',
+    },
     action,
-    detail: { ...detail, recipients: admins.length, sent, ...(sent === 0 ? { emailFailed: results[0]?.error } : {}) },
-  });
+    detail,
+  );
 }
+
+/** Which channel escalations would use right now, for the status board. */
+export const escalationChannel = notifyChannel;
 
 /**
  * Tells a human once an integration has been failing long enough that

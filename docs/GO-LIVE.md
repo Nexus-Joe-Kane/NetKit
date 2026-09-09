@@ -365,7 +365,7 @@ address validation as a second opinion on the Openreach address key.
 Note: **Giacom publish no fault or diagnostics API**, so line testing and
 fault raising stay Zen-only. Every Giacom line says so on its own record.
 
-### Resend — turns on email 2FA and watch alerts
+### Resend — optional, and only for credentials
 
 ```
 RESEND_API_KEY=
@@ -374,10 +374,17 @@ RESEND_FROM_EMAIL=no-reply@supportwizard.net
 
 Restart, then **Admin portal → Service status → Send test email**. 2FA only
 becomes available once a send has actually succeeded — an unverified key
-would otherwise lock people out of their own accounts. Also enables the
-escalation email when the supervisor cannot repair an integration, and the
-alerts from **Watched premises** — a watch still records what changed without
-a mailer, but nobody gets told, which is most of the point.
+would otherwise lock people out of their own accounts.
+
+Two things need a mailer and cannot use anything else: **sign-in codes** and
+**account invites**, because both carry a credential and a credential does
+not belong in a queue every agent can open. Everything else NetKit sends —
+supervisor escalations, watched-premises alerts — goes down whichever channel
+is configured, and prefers Zendesk. See the next section.
+
+With no Resend key at all, NetKit still runs: 2FA is unavailable, new
+accounts get their temporary password shown on screen to the admin who
+created them, and notices become Zendesk tickets.
 
 ### Zendesk — the ticket side of a fault
 
@@ -403,6 +410,20 @@ Three things turn on:
 - **The site-visit message.** The one deliberately public reply: a visit is
   booked with the supplier, a slot will follow, 24 hours' notice to change
   it, and a charge if nobody is on site.
+- **Outbound notices.** With Zendesk configured, anything NetKit needs to
+  tell a person becomes an internal ticket tagged `netkit-alert` rather than
+  an email: a supervisor escalation when an integration stays broken, and a
+  change at a watched premises. That is the better home for them — a ticket
+  can be assigned and closed, where an email is read once and gone. The
+  people who would have been emailed are added as collaborators, so they
+  still get Zendesk's own notification. If Zendesk rejects the ticket and a
+  Resend key is present, the notice falls back to email and the audit log
+  records both the fallback and Zendesk's reason.
+
+**Admin portal → Service status** names the live channel, so there is no
+guessing from which keys are filled in. With neither Zendesk nor Resend, a
+notice is still written to the audit log with the reason it could not be
+sent — nothing is silently dropped.
 
 The agent needs to see tickets, users and organisations, and to comment. A
 restricted agent will read some tickets and not others, which shows up as

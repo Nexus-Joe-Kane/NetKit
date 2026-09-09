@@ -118,7 +118,8 @@ the symlink comes out. Details and the revert command are in `GO-LIVE.md`.
 | `BT_HOME_NETWORK_KEY` | "Is this mobile actually on the network right now" |
 | `BT_IMEI_LOOKUP_KEY` | The handset behind a number |
 | `BT_LOCATION_INSIGHTS_KEY` | Footfall, Greater London only |
-| `RESEND_API_KEY` | Email two-factor, and the escalation email when a provider stays down |
+| `RESEND_API_KEY` | Email two-factor and account invites. Optional otherwise — notices prefer Zendesk |
+| `ZENDESK_SUBDOMAIN`, `ZENDESK_EMAIL`, `ZENDESK_API_TOKEN` | Ticket notes, site contacts, and outbound notices as internal tickets |
 
 **Admin portal → Service status** lists all 27 integration probes with
 exactly what each is waiting for. That is the authoritative view, not this

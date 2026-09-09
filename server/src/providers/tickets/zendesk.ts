@@ -361,3 +361,73 @@ export async function clientContextByName(name: string): Promise<ClientContext |
     openTicketCount: open.length,
   };
 }
+
+/* ------------------------------------------------------------------ *
+ * Internal alerts
+ * ------------------------------------------------------------------ */
+
+/**
+ * The tag every alert this tool raises carries.
+ *
+ * So a view can hold them and they never look like customer work sitting
+ * unanswered in the main queue.
+ */
+export const ALERT_TAG = 'netkit-alert';
+
+export interface InternalTicketResult {
+  ticketId: string;
+  url?: string;
+}
+
+/**
+ * Raises an internal ticket.
+ *
+ * Distinct from creating one on a customer's behalf, which this deliberately
+ * will not do: a ticket needs a requester, and inventing one puts a
+ * customer's name against something they never raised. Here the requester is
+ * the API user — us — so there is nobody to misrepresent.
+ *
+ * This is what lets the tool tell somebody something without a mail
+ * provider. Zendesk sends the email, the thread is where the reply goes, and
+ * the alert is findable next month instead of being in one person's inbox.
+ */
+export async function createInternalTicket(input: {
+  subject: string;
+  body: string;
+  /** Agents to put on it. Emails, not ids, because that is what we hold. */
+  assigneeEmail?: string;
+  ccEmails?: string[];
+  tags?: string[];
+  priority?: 'low' | 'normal' | 'high' | 'urgent';
+}): Promise<InternalTicketResult> {
+  const cfg = config().zendesk;
+
+  const response = await fetchJson<{ ticket?: ZendeskTicket }>(`${base()}/tickets.json`, {
+    label: 'Zendesk',
+    method: 'POST',
+    headers: { Authorization: `Basic ${auth()}` },
+    body: {
+      ticket: {
+        subject: input.subject,
+        comment: { body: input.body, public: false },
+        // The API user raises it, so there is no customer to misattribute.
+        requester: { name: 'NetKit', email: cfg.email },
+        ...(input.assigneeEmail ? { assignee_email: input.assigneeEmail } : {}),
+        ...(input.ccEmails?.length ? { additional_collaborators: input.ccEmails } : {}),
+        tags: [ALERT_TAG, ...(input.tags ?? [])],
+        priority: input.priority ?? 'normal',
+      },
+    },
+    timeoutMs: Math.min(config().requestTimeoutMs, 8000),
+    // Not retried: a retry after a timeout that succeeded raises the alert
+    // twice, and a duplicated alert is how people learn to ignore them.
+    retries: 0,
+    notFoundAsNull: true,
+  });
+
+  if (!response?.ticket?.id) throw new Error('Zendesk accepted the request but returned no ticket.');
+  return {
+    ticketId: String(response.ticket.id),
+    ...(response.ticket.url ? { url: response.ticket.url } : {}),
+  };
+}

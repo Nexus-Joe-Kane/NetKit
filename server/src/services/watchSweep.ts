@@ -1,5 +1,6 @@
 import { config } from '../config';
-import { sendEmail, watchChangeEmail } from '../auth/email';
+import { watchChangeEmail } from '../auth/email';
+import { sendNotice } from './notify';
 import { audit, findUserById } from '../auth/store';
 import { addressByUprn, buildSiteReport } from './resolve';
 import { consumeQuota, quotaState } from './quota';
@@ -8,7 +9,7 @@ import { scanLines } from './inbox';
 import { identify, type LineRecord } from '@sw/shared';
 
 /**
- * Re-checks watched premises and emails what changed.
+ * Re-checks watched premises and tells the watcher what changed.
  *
  * Runs on a slow schedule on purpose. The changes worth watching for -- a
  * planned FTTP build going live, an RFS date moving -- happen over months,
@@ -61,11 +62,12 @@ export interface SweepOutcome {
   changed: number;
   skippedForBudget: number;
   failed: number;
-  emailed: number;
+  /** Watchers actually told, down whichever channel is configured. */
+  notified: number;
 }
 
 export async function sweepWatches(): Promise<SweepOutcome> {
-  const outcome: SweepOutcome = { checked: 0, changed: 0, skippedForBudget: 0, failed: 0, emailed: 0 };
+  const outcome: SweepOutcome = { checked: 0, changed: 0, skippedForBudget: 0, failed: 0, notified: 0 };
 
   const due = selectDue(allWatches());
 
@@ -103,14 +105,27 @@ export async function sweepWatches(): Promise<SweepOutcome> {
         detail: { uprn: watch.uprn, changes },
       });
 
-      // The email is the point of the feature, but a watch whose owner has
-      // been deleted, or a deployment with no mailer, should still record
-      // the change rather than throwing it away.
+      // Telling somebody is the point of the feature, but a watch whose owner
+      // has been deleted, or a deployment with no channel at all, should still
+      // record the change rather than throwing it away — hence the audit above
+      // happening whatever the notice does.
       const user = findUserById(userId);
-      if (user?.email && config().resend.configured) {
+      if (user?.email) {
         const mail = watchChangeEmail({ address: address.singleLine, uprn: watch.uprn, changes });
-        const sent = await sendEmail(user.email, mail.subject, mail.html, mail.text);
-        if (sent.ok) outcome.emailed += 1;
+        const sent = await sendNotice(
+          {
+            subject: mail.subject,
+            text: mail.text,
+            html: mail.html,
+            recipients: [user.email],
+            tags: ['netkit-watch'],
+            assigneeEmail: user.email,
+            priority: 'normal',
+          },
+          'watch.notified',
+          { uprn: watch.uprn, changes: changes.length },
+        );
+        if (sent.ok) outcome.notified += 1;
       }
     } catch (err) {
       recordCheckFailure(userId, watch.id, err instanceof Error ? err.message : String(err));

@@ -4,6 +4,7 @@ import type { ApiResult } from '@sw/shared';
 import { badRequest, HttpError, notFound } from '../lib/errors';
 import { checkPasswordPolicy, hashPassword, randomToken } from '../auth/passwords';
 import { EMAIL_FONT, emailLayout, sendEmail, verifyResend } from '../auth/email';
+import { notifyChannel, notifyChannelDetail } from '../services/notify';
 import { requireAdmin } from '../auth/routes';
 import {
   audit,
@@ -92,6 +93,7 @@ export function adminRouter(): Router {
           sessionSecretSet: Boolean(cfg.sessionSecret),
         },
         resend: settings().resend,
+        notifications: { channel: notifyChannel(), detail: notifyChannelDetail() },
         ordering: {
           ...settings().ordering,
           /** Read-only here: only a deploy can change the environment flag. */

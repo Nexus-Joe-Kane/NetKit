@@ -56,7 +56,7 @@ export function WatchPanel({ onOpenSite }: { onOpenSite?: (uprn: string) => void
       {watches?.length === 0 && (
         <Empty title="Nothing watched yet">
           Open a premises under Lookup and use “Watch this premises”. It gets re-checked about once a day and you
-          are emailed only when something actually moves — a build going live, an RFS date changing, a technology
+          tell you only when something actually moves — a build going live, an RFS date changing, a technology
           arriving.
         </Empty>
       )}
@@ -197,7 +197,7 @@ export function WatchButton({ uprn }: { uprn: string }): ReactElement {
         className="btn btn--ghost btn--small"
         onClick={() => void add()}
         disabled={state === 'busy'}
-        title="Re-checked about once a day. You are emailed only when something changes."
+        title="Re-checked about once a day. You only hear about it when something changes."
       >
         {state === 'busy' ? 'Adding…' : 'Watch this premises'}
       </button>
