@@ -1,5 +1,5 @@
 import { useState, type ReactElement } from 'react';
-import type { LineRecord, LineStatus, LineTestResult } from '@sw/shared';
+import type { LineRecord, LineSearchDiagnostic, LineStatus, LineTestResult } from '@sw/shared';
 import { Card, Cell, Chip, CopyButton, Label, formatBytes, formatDateTime, formatDate, formatDuration, type ChipTone } from './ui';
 import { Tabs, TabPanel, type TabDef } from './Tabs';
 import { Modal } from './overlay';
@@ -335,8 +335,19 @@ function LineDetail({ line, latestTest }: { line: LineRecord; latestTest?: LineT
 export function LinesPanel({
   lines,
   nearbyLines = [],
+  lineSearch = [],
 }: {
   lines: LineRecord[];
+  /**
+   * What was actually asked of each provider.
+   *
+   * Only shown when nothing was found, because that is the only time anybody
+   * needs it -- and it is exactly the time somebody needs it. "No lines
+   * found" is a claim, and an engineer who knows we supply the site should be
+   * able to see whether the supplier returned nothing or returned something
+   * we excluded.
+   */
+  lineSearch?: LineSearchDiagnostic[];
   /**
    * Lines at this postcode that could not be tied to this premises.
    *
@@ -360,6 +371,7 @@ export function LinesPanel({
             by another provider, or has never had a fixed line. Availability under Broadband still applies.
           </p>
         </div>
+        {lineSearch.length > 0 && <SearchWorking notes={lineSearch} />}
         {nearbyLines.length > 0 && <NearbyLines lines={nearbyLines} />}
       </Card>
     );
@@ -396,6 +408,58 @@ export function LinesPanel({
  * is the customer, the address on the row is what to correct with the
  * supplier.
  */
+/**
+ * The working behind "no lines found".
+ *
+ * Shows which provider was asked, how, and what came back. Without it the
+ * panel makes an unfalsifiable claim: an engineer who knows the site has a
+ * circuit has no way to tell a supplier that returned nothing from one whose
+ * answer we threw away, and those need entirely different fixes.
+ */
+function SearchWorking({ notes }: { notes: LineSearchDiagnostic[] }): ReactElement {
+  return (
+    <div style={{ padding: '0 18px 18px' }}>
+      <Label>What was searched</Label>
+      <div className="table-wrap" style={{ marginTop: 8 }}>
+        <table className="data">
+          <thead>
+            <tr>
+              <th>Provider</th>
+              <th>Asked by</th>
+              <th>Returned</th>
+              <th>Outcome</th>
+            </tr>
+          </thead>
+          <tbody>
+            {notes.map((note) => (
+              <tr key={note.provider}>
+                <td>{note.provider}</td>
+                <td>{note.tried.length ? note.tried.join(', ') : 'no usable search key'}</td>
+                <td className="num">{note.candidates}</td>
+                <td>
+                  {note.error ? (
+                    <Chip tone="crit">{note.error}</Chip>
+                  ) : note.candidates === 0 ? (
+                    'nothing at this premises or postcode'
+                  ) : note.matched > 0 ? (
+                    `${note.matched} at this premises`
+                  ) : (
+                    `${note.excluded} at the postcode, none at this address`
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="muted" style={{ marginTop: 8, fontSize: 12.5 }}>
+        A provider that returned nothing has no record of this site under the keys above. If you know we supply it,
+        the account is filed under something else — send this table on and it can be matched properly.
+      </p>
+    </div>
+  );
+}
+
 function NearbyLines({ lines }: { lines: LineRecord[] }): ReactElement {
   return (
     <div style={{ padding: '0 18px 18px' }}>

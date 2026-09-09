@@ -117,10 +117,30 @@ test('a UPRN match wins outright', () => {
     belongsToPremises(line({ address: address({ uprn: '123' }) }), address({ uprn: '123' })),
     true,
   );
+});
+
+test('UPRNs that disagree about the same doorstep no longer lose the line', () => {
+  // A supplier carries whatever UPRN it was handed at order time, which is
+  // routinely the parent shell record for a building whose units are the real
+  // addresses. This used to be decisive and it cost us a live circuit at the
+  // right address, so a mismatch now falls through to the address comparison.
   assert.equal(
     belongsToPremises(line({ address: address({ uprn: '999' }) }), address({ uprn: '123' })),
-    false,
+    true,
   );
+});
+
+test('a different address is still a different premises, whatever the UPRN', () => {
+  const elsewhere = line({
+    address: address({
+      uprn: '999',
+      singleLine: '12 Deansgate, MANCHESTER, M3 2BW',
+      buildingNumber: '12',
+      thoroughfare: 'Deansgate',
+      postcode: 'M3 2BW',
+    }),
+  });
+  assert.equal(belongsToPremises(elsewhere, address({ uprn: '123' })), false);
 });
 
 test('the Openreach address key ties a line with no UPRN to the premises', () => {

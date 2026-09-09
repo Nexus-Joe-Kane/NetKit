@@ -403,7 +403,23 @@ export function createZenLineProvider(): LineProvider {
       return [];
     },
 
-    /** Postcode sweep — the practical way to find every line at a site. */
-    byPostcode: (postcode) => searchEverything(postcode),
+    /**
+     * Postcode sweep — the practical way to find every line at a site.
+     *
+     * Both spellings, because Zen's search matches the postcode as text and
+     * a service filed as `SE231JG` is invisible to a search for `SE23 1JG`.
+     * The two calls are cached separately and a site report only makes them
+     * once, so the second is close to free.
+     */
+    async byPostcode(postcode) {
+      const spaced = postcode.trim().toUpperCase();
+      const tight = spaced.replace(/\s+/g, '');
+      const found = await searchEverything(spaced);
+      if (found.length || tight === spaced) return found;
+      return searchEverything(tight);
+    },
+
+    /** Anything Zen's own service search will take: a name, a site, a ref. */
+    byFreeText: (term) => searchEverything(term),
   };
 }

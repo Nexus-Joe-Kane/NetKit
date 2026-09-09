@@ -1,7 +1,15 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { finaliseAddress, type AddressRecord } from './index';
-import { rankAddresses, rankAddressMatches, tokeniseQuery, tokenMatches, addressWords, samePremises } from './addressMatch';
+import {
+  rankAddresses,
+  rankAddressMatches,
+  tokeniseQuery,
+  tokenMatches,
+  addressWords,
+  samePremises,
+  premisesFacts,
+} from './addressMatch';
 
 const addr = (over: Partial<AddressRecord> & { postTown: string; postcode: string }): AddressRecord =>
   finaliseAddress({ ...over, source: 'test' } as never);
@@ -185,4 +193,122 @@ test('a missing postcode on either side is not a match', () => {
   const a = addr({ buildingNumber: '45', thoroughfare: 'Brockley Rise', postTown: 'LONDON', postcode: '' });
   const b = addr({ buildingNumber: '45', thoroughfare: 'Brockley Rise', postTown: 'LONDON', postcode: 'SE23 1JG' });
   assert.equal(samePremises(a, b), false);
+});
+
+/* ---- samePremises: what a supplier actually hands back ---------------- */
+
+test('a supplier that returns one formatted string still matches the premises', () => {
+  // Some suppliers give an address as a single line and nothing else: no
+  // building number, no thoroughfare, no organisation. The comparison used to
+  // have nothing on that side to work with and gave up, which read on the
+  // report as "no lines found" at a premises we demonstrably supply.
+  const os = addr({
+    organisation: 'Willow Estate Agents Ltd',
+    buildingNumber: '45',
+    thoroughfare: 'Brockley Rise',
+    postTown: 'LONDON',
+    postcode: 'SE23 1JG',
+    uprn: '100023253338',
+  });
+  const fromSupplier = finaliseAddress({
+    singleLine: '45 BROCKLEY RISE, LONDON, SE23 1JG',
+    postTown: 'LONDON',
+    postcode: 'SE23 1JG',
+    source: 'test',
+  } as never);
+  assert.equal(samePremises(fromSupplier, os), true);
+});
+
+test('a formatted line with the trading name in front of the number still matches', () => {
+  const os = addr({
+    organisation: 'Willow Estate Agents Ltd',
+    buildingNumber: '45',
+    thoroughfare: 'Brockley Rise',
+    postTown: 'LONDON',
+    postcode: 'SE23 1JG',
+  });
+  const fromSupplier = finaliseAddress({
+    singleLine: 'Willow Estate Agents, 45 Brockley Rise, LONDON, SE23 1JG',
+    postTown: 'LONDON',
+    postcode: 'SE23 1JG',
+    source: 'test',
+  } as never);
+  assert.equal(samePremises(fromSupplier, os), true);
+});
+
+test('the parsed number still rules out the neighbour', () => {
+  const os = addr({ buildingNumber: '45', thoroughfare: 'Brockley Rise', postTown: 'LONDON', postcode: 'SE23 1JG' });
+  const neighbour = finaliseAddress({
+    singleLine: '43 BROCKLEY RISE, LONDON, SE23 1JG',
+    postTown: 'LONDON',
+    postcode: 'SE23 1JG',
+    source: 'test',
+  } as never);
+  assert.equal(samePremises(neighbour, os), false);
+});
+
+test('the postcode is not mistaken for a house number', () => {
+  // "SE23" leads with digits once the letters are split off. Reading it as a
+  // number would match every premises in the postcode against each other.
+  const facts = premisesFacts(
+    finaliseAddress({
+      singleLine: 'Some Building, Brockley Rise, LONDON, SE23 1JG',
+      postTown: 'LONDON',
+      postcode: 'SE23 1JG',
+      source: 'test',
+    } as never),
+  );
+  assert.equal(facts.number, '');
+  assert.ok(!facts.nameWords.includes('se23'));
+  assert.ok(!facts.nameWords.includes('london'));
+});
+
+test('two UPRNs that disagree fall through to the address rather than deciding it', () => {
+  // A supplier carries whatever UPRN it was handed at order time, which is
+  // routinely the parent shell record for a building. Treating a mismatch as
+  // proof of two different premises threw away a live circuit at the right
+  // doorstep.
+  const os = addr({
+    buildingNumber: '45',
+    thoroughfare: 'Brockley Rise',
+    postTown: 'LONDON',
+    postcode: 'SE23 1JG',
+    uprn: '100023253338',
+  });
+  const parentShell = addr({
+    buildingNumber: '45',
+    thoroughfare: 'Brockley Rise',
+    postTown: 'LONDON',
+    postcode: 'SE23 1JG',
+    uprn: '10009876543',
+  });
+  assert.equal(samePremises(parentShell, os), true);
+
+  // But a different doorstep is still a different doorstep.
+  const nextDoor = addr({
+    buildingNumber: '43',
+    thoroughfare: 'Brockley Rise',
+    postTown: 'LONDON',
+    postcode: 'SE23 1JG',
+    uprn: '10009876544',
+  });
+  assert.equal(samePremises(nextDoor, os), false);
+});
+
+test('a flat number that disagrees still wins over a parsed line', () => {
+  const flat1 = addr({
+    subBuilding: 'Flat 1',
+    buildingNumber: '12',
+    thoroughfare: 'Hill Street',
+    postTown: 'RICHMOND',
+    postcode: 'TW9 1TN',
+  });
+  const flat2 = finaliseAddress({
+    singleLine: 'FLAT 2, 12 HILL STREET, RICHMOND, TW9 1TN',
+    subBuilding: 'Flat 2',
+    postTown: 'RICHMOND',
+    postcode: 'TW9 1TN',
+    source: 'test',
+  } as never);
+  assert.equal(samePremises(flat2, flat1), false);
 });

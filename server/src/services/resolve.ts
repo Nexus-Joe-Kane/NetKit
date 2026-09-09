@@ -9,6 +9,7 @@ import {
   type BroadbandAvailability,
   type BroadbandOffer,
   type LineRecord,
+  type LineSearchDiagnostic,
   type ResolvedIdentifier,
   type SearchResponse,
   type SectionStatus,
@@ -154,7 +155,12 @@ export async function findLines(id: ResolvedIdentifier): Promise<{ lines: LineRe
  * neighbour's circuit appearing on a site report is worse than a missing one.
  */
 function belongsToPremises(line: LineRecord, address: AddressRecord): boolean {
-  if (address.uprn && line.address.uprn) return line.address.uprn === address.uprn;
+  // A UPRN agreeing on both sides settles it. A UPRN *disagreeing* does not:
+  // a supplier carries whatever UPRN it was handed at order time, often the
+  // parent shell record for a building, and reading that as "different
+  // premises" threw away a live circuit at the right doorstep. See
+  // samePremises, which the mismatch now falls through to.
+  if (address.uprn && line.address.uprn && line.address.uprn === address.uprn) return true;
 
   // The Openreach address key, which is what Giacom return and what an order
   // is built from — so a match here is as good as a UPRN match.
@@ -169,14 +175,37 @@ function belongsToPremises(line: LineRecord, address: AddressRecord): boolean {
   return samePremises(line.address, address);
 }
 
-export async function allLinesAtPremises(
-  address: AddressRecord,
-): Promise<{ lines: LineRecord[]; nearby: LineRecord[]; status: SectionStatus }> {
+/**
+ * Names to try in a supplier's own inventory search when nothing else found
+ * the site.
+ *
+ * A supplier files an account under the customer's name, so a name is often
+ * the only key that works when a postcode search comes back empty. Generic
+ * company suffixes are dropped: searching a supplier for "Ltd" would match
+ * half its book.
+ */
+const COMPANY_NOISE = /\b(ltd|limited|llp|plc|uk|group|holdings|company|co)\b/gi;
+
+export function premisesNames(address: AddressRecord): string[] {
+  const names = [address.organisation, address.buildingName]
+    .map((n) => (n ?? '').replace(COMPANY_NOISE, ' ').replace(/[^A-Za-z0-9&' ]+/g, ' ').replace(/\s+/g, ' ').trim())
+    // A one-word fragment of two characters is not a search, it is a wildcard.
+    .filter((n) => n.length >= 3);
+  return [...new Set(names)];
+}
+
+export async function allLinesAtPremises(address: AddressRecord): Promise<{
+  lines: LineRecord[];
+  nearby: LineRecord[];
+  status: SectionStatus;
+  diagnostics: LineSearchDiagnostic[];
+}> {
   const reg = providers();
   const started = Date.now();
   const seen = new Map<string, LineRecord>();
   const unmatched = new Map<string, LineRecord>();
   const errors: Error[] = [];
+  const diagnostics: LineSearchDiagnostic[] = [];
   let mode: 'live' | 'skipped' = 'skipped';
   let answered = false;
 
@@ -193,38 +222,83 @@ export async function allLinesAtPremises(
 
   await Promise.all(
     reg.lines.map(async (p) => {
+      const note: LineSearchDiagnostic = {
+        provider: p.label ?? p.name,
+        tried: [],
+        candidates: 0,
+        matched: 0,
+        excluded: 0,
+      };
+
+      /** Files one batch of candidates, counting what happened to each. */
+      const consider = (rows: LineRecord[], strict: boolean): number => {
+        let kept = 0;
+        note.candidates += rows.length;
+        for (const line of rows) {
+          if (!strict || belongsToPremises(line, address)) {
+            if (!seen.has(identity(line))) kept += 1;
+            add(line);
+            note.matched += 1;
+            continue;
+          }
+          // Kept rather than discarded. A line at this postcode that cannot
+          // be tied to this premises is usually a neighbour — but it is
+          // sometimes this customer with an address the supplier records
+          // differently, and silently dropping it is what made a real
+          // circuit look like no circuit at all. Shown separately so it is
+          // never mistaken for a line at this address.
+          unmatched.set(identity(line), line);
+          note.excluded += 1;
+        }
+        return kept;
+      };
+
       try {
         // UPRN first where the provider supports it, then a postcode sweep
         // narrowed back to this premises — Zen has no UPRN search key.
-        const direct = address.uprn ? await p.byUprn(address.uprn) : [];
-        for (const line of direct) add(line);
+        let found = 0;
+        if (address.uprn) {
+          note.tried.push(`UPRN ${address.uprn}`);
+          found += consider(await p.byUprn(address.uprn), false);
+        }
 
-        if (!direct.length && p.byPostcode && address.postcode) {
-          for (const line of await p.byPostcode(address.postcode)) {
-            if (belongsToPremises(line, address)) add(line);
-            // Kept rather than discarded. A line at this postcode that
-            // cannot be tied to this premises is usually a neighbour — but
-            // it is sometimes this customer with an address the supplier
-            // records differently, and silently dropping it is what made a
-            // real circuit look like no circuit at all. Shown separately so
-            // it is never mistaken for a line at this address.
-            else unmatched.set(identity(line), line);
+        if (!found && p.byPostcode && address.postcode) {
+          note.tried.push(`postcode ${address.postcode}`);
+          found += consider(await p.byPostcode(address.postcode), true);
+        }
+
+        // Last resort: the customer's own name. A supplier whose postcode
+        // search comes back empty for a site we demonstrably supply will
+        // often find the circuit under the name the account is filed under.
+        // Still put through the premises test, so a namesake in another town
+        // is excluded on its postcode.
+        if (!found && p.byFreeText) {
+          for (const name of premisesNames(address)) {
+            note.tried.push(`name “${name}”`);
+            found += consider(await p.byFreeText(name), true);
+            if (found) break;
           }
         }
+
         answered = true;
         if (p.mode === 'live') mode = 'live';
       } catch (err) {
-        errors.push(err instanceof Error ? err : new Error(String(err)));
+        const error = err instanceof Error ? err : new Error(String(err));
+        errors.push(error);
+        note.error = error.message;
       }
+
+      diagnostics.push(note);
     }),
   );
 
   const lines = [...seen.values()];
   // Anything that did match is not also "nearby".
   const nearby = [...unmatched.values()].filter((line) => !seen.has(identity(line)));
+  diagnostics.sort((a, b) => a.provider.localeCompare(b.provider));
 
-  if (!answered && errors.length) return { lines, nearby, status: failed(errors) };
-  return { lines, nearby, status: ok(mode, Date.now() - started) };
+  if (!answered && errors.length) return { lines, nearby, status: failed(errors), diagnostics };
+  return { lines, nearby, status: ok(mode, Date.now() - started), diagnostics };
 }
 
 /* ------------------------------------------------------------------ *
@@ -504,6 +578,7 @@ export async function buildSiteReport(
     ...(signal.value ? { signal: signal.value } : {}),
     lines: lines.lines,
     ...(lines.nearby.length ? { nearbyLines: lines.nearby } : {}),
+    ...(lines.diagnostics.length ? { lineSearch: lines.diagnostics } : {}),
     siblings: siblings
       .filter((a) => a.uprn !== address.uprn)
       .slice(0, 60)

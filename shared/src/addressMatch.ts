@@ -260,27 +260,143 @@ function unitKey(value?: string): string[] {
  * Zen routinely omit a flat number that AddressBase carries -- but a field
  * present on both and disagreeing is decisive.
  */
+/**
+ * A UK postcode anywhere in a string, so it can be lifted out before the rest
+ * of a formatted address is read as a name and a street.
+ */
+const POSTCODE_IN_TEXT = /([A-PR-UWYZ][A-HK-Y]?[0-9][0-9A-HJKPSTUW]?\s*[0-9][ABD-HJLNP-UW-Z]{2})/i;
+
+/** The first standalone house number in a string: `45`, `12a`, `45-47`. */
+function firstNumber(text: string): string {
+  const m = /(?:^|[\s,])(\d+)\s*(?:-\s*\d+)?([a-z])?(?=$|[\s,])/i.exec(text);
+  if (!m) return '';
+  return `${m[1]}${(m[2] ?? '').toUpperCase()}`;
+}
+
+/**
+ * What a premises comparison actually needs, read from the structured fields
+ * where a provider gave them and parsed out of the formatted line where it
+ * did not.
+ *
+ * The parsing half exists because of a real missing circuit. Some suppliers
+ * hand back an address as one string and nothing else -- no building number,
+ * no thoroughfare, sometimes not even an organisation -- so a comparison that
+ * only ever looked at the structured fields had nothing on one side to
+ * compare and gave up, which read on the report as "no lines found" at a
+ * premises we demonstrably supply.
+ *
+ * Parsing a formatted address is guesswork in general. It is not guesswork
+ * here, because it is only ever used to answer "is this the same doorstep as
+ * that one", where the postcode is already known to agree and a wrong guess
+ * has to survive the number, the unit and the street as well.
+ */
+interface PremisesFacts {
+  postcode: string;
+  /** House number, uppercased, suffix kept: `45`, `12A`. */
+  number: string;
+  /** What distinguishes a unit inside the building. */
+  unit: string[];
+  streetWords: string[];
+  nameWords: string[];
+}
+
+function plainWords(value?: string): string[] {
+  return deapostrophe(value ?? '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length > 1);
+}
+
+export function premisesFacts(r: AddressRecord): PremisesFacts {
+  const postcode = (r.postcode ?? '').replace(/\s+/g, '').toUpperCase();
+  const street = r.thoroughfare ?? r.dependentThoroughfare;
+  const structuredNumber = (r.buildingNumber ?? '').trim().toUpperCase().replace(/\s+/g, '');
+
+  const facts: PremisesFacts = {
+    postcode,
+    number: structuredNumber,
+    unit: unitKey(r.subBuilding),
+    streetWords: plainWords(street),
+    nameWords: [...plainWords(r.buildingName), ...plainWords(r.organisation)],
+  };
+
+  // Enough to work with already.
+  if (facts.number && facts.streetWords.length) return facts;
+
+  // Fall back to the formatted line. Postcode out first so `SE23` is not read
+  // as a house number, and the post town dropped from the tail so a town does
+  // not become part of the street it is not.
+  const line = (r.singleLine ?? '').replace(POSTCODE_IN_TEXT, ' ');
+  const town = (r.postTown ?? '').trim();
+  const withoutTown = town
+    ? line.replace(new RegExp(`(^|[\\s,])${town.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([\\s,]|$)`, 'gi'), ' ')
+    : line;
+
+  if (!facts.number) facts.number = firstNumber(withoutTown);
+
+  if (facts.number) {
+    // Split the line at the number: what comes before names the premises,
+    // what comes after names the street.
+    const at = withoutTown.search(new RegExp(`(?:^|[\\s,])${facts.number.replace(/([A-Z])$/, '\\s*$1?')}(?=$|[\\s,])`, 'i'));
+    if (at >= 0) {
+      const before = withoutTown.slice(0, at);
+      const after = withoutTown.slice(at).replace(/^[\s,]*\S+/, '');
+      if (!facts.streetWords.length) facts.streetWords = plainWords(after);
+      if (!facts.nameWords.length) facts.nameWords = plainWords(before);
+    }
+  } else if (!facts.nameWords.length) {
+    // No number at all: the whole line, less the street where one is known,
+    // is the best name we have.
+    const known = new Set(facts.streetWords);
+    facts.nameWords = plainWords(withoutTown).filter((w) => !known.has(w));
+  }
+
+  return facts;
+}
+
+/**
+ * Whether two address records describe the same doorstep.
+ *
+ * This exists because a real line went missing. Willow Estate Agents have an
+ * Openreach fibre circuit through Zen, and the site report said "No lines
+ * found" -- because the only fallback for matching a line to a premises was
+ * exact string equality on the whole formatted address. Zen's address for a
+ * service and OS Places' address for the same building are never byte
+ * identical: OS carry the organisation name and Zen do not, capitalisation
+ * differs, and street types are abbreviated on one side and not the other.
+ * So the comparison could only ever succeed by accident.
+ *
+ * The order below is deliberate. Postcode is a gate, not a score: two
+ * different postcodes are two different premises, always. Within a postcode
+ * the building number is the strongest signal, and where a number is absent
+ * on both sides the building name stands in. The street is checked only to
+ * separate the rare case of the same number on two streets sharing one
+ * postcode.
+ *
+ * Where a field is missing on one side it is not held against the match --
+ * Zen routinely omit a flat number that AddressBase carries -- but a field
+ * present on both and disagreeing is decisive.
+ */
 export function samePremises(a: AddressRecord, b: AddressRecord): boolean {
-  // A UPRN on both sides settles it outright.
-  if (a.uprn && b.uprn) return a.uprn === b.uprn;
+  // A UPRN on both sides settles it outright -- when they agree.
+  //
+  // A disagreement used to settle it too, and that was wrong. A supplier
+  // carries whatever UPRN it was handed at order time, which is routinely the
+  // parent shell record for a building whose units are the real addresses, or
+  // a record AddressBase has since superseded and replaced. Reading a
+  // mismatch as proof of two different premises threw away a live circuit at
+  // the right doorstep. A mismatch now falls through to the address
+  // comparison, which is strict on its own account: the same postcode, the
+  // same building number, the same street, and no disagreeing flat number.
+  if (a.uprn && b.uprn && a.uprn === b.uprn) return true;
 
-  const postcode = (v?: string): string => (v ?? '').replace(/\s+/g, '').toUpperCase();
-  const pcA = postcode(a.postcode);
-  const pcB = postcode(b.postcode);
+  const fa = premisesFacts(a);
+  const fb = premisesFacts(b);
+
   // Without a postcode on both sides there is not enough to be sure.
-  if (!pcA || !pcB || pcA !== pcB) return false;
+  if (!fa.postcode || !fb.postcode || fa.postcode !== fb.postcode) return false;
 
-  const numberOf = (r: AddressRecord): string =>
-    (r.buildingNumber ?? '').trim().toUpperCase().replace(/\s+/g, '');
-  const numA = numberOf(a);
-  const numB = numberOf(b);
-  if (numA && numB && numA !== numB) return false;
-
-  const words = (v?: string): string[] =>
-    deapostrophe(v ?? '')
-      .toLowerCase()
-      .split(/[^a-z0-9]+/)
-      .filter((w) => w.length > 1);
+  if (fa.number && fb.number && fa.number !== fb.number) return false;
 
   // Sub-building: a flat number both sides carry must agree, or two flats in
   // one block read as the same premises and a neighbour's circuit lands on
@@ -290,27 +406,21 @@ export function samePremises(a: AddressRecord, b: AddressRecord): boolean {
   // and "Flat 2" share the word "flat", so a plain word-overlap test passes
   // them -- and dropping single characters, as the general tokeniser does,
   // throws away the only part that matters.
-  const subA = unitKey(a.subBuilding);
-  const subB = unitKey(b.subBuilding);
-  if (subA.length && subB.length && !subA.some((w) => subB.includes(w))) return false;
+  if (fa.unit.length && fb.unit.length && !fa.unit.some((w) => fb.unit.includes(w))) return false;
 
   // Street, where both name one. Synonyms so `Rd` and `Road` agree.
-  const streetA = a.thoroughfare ?? a.dependentThoroughfare;
-  const streetB = b.thoroughfare ?? b.dependentThoroughfare;
-  if (streetA && streetB) {
-    const bWords = words(streetB);
-    const shared = words(streetA).some((w) => tokenMatches(w, bWords));
-    if (!shared) return false;
+  if (fa.streetWords.length && fb.streetWords.length) {
+    if (!fa.streetWords.some((w) => tokenMatches(w, fb.streetWords))) return false;
   }
 
   // With a number agreeing on both sides, and postcode and street already
   // checked, this is the same doorstep.
-  if (numA && numB) return true;
+  if (fa.number && fb.number) return true;
 
-  // No number to go on: fall back to the building name sharing a word.
-  const nameA = [...words(a.buildingName), ...words(a.organisation)];
-  const nameB = [...words(b.buildingName), ...words(b.organisation)];
-  if (nameA.length && nameB.length) return nameA.some((w) => nameB.includes(w));
+  // No number to go on: fall back to the premises name sharing a word.
+  if (fa.nameWords.length && fb.nameWords.length) {
+    return fa.nameWords.some((w) => tokenMatches(w, fb.nameWords));
+  }
 
   // One side is a bare street and postcode. That is not enough to claim a
   // premises match, and claiming it would put a neighbour's circuit on the
