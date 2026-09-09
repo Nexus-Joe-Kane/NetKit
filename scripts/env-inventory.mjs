@@ -70,8 +70,7 @@ function discover() {
 
 const GROUPS = [
   {
-    title: 'REQUIRED — the application will not start, or will lose data, without these',
-    note: 'Set these first. Everything else is optional.',
+    shortTitle: 'REQUIRED',
     keys: {
       DATA_DIR:
         'Absolute path, OUTSIDE the deployment directory, where user accounts, the credential vault, the\n' +
@@ -85,7 +84,7 @@ const GROUPS = [
     },
   },
   {
-    title: 'STRONGLY RECOMMENDED',
+    shortTitle: 'RECOMMENDED',
     keys: {
       PUBLIC_URL:
         'The address the portal is reached on, e.g. https://comms.supportwizard.net — used to build the\n' +
@@ -96,10 +95,7 @@ const GROUPS = [
     },
   },
   {
-    title: 'FIRST RUN ONLY — delete these lines once the admin account exists',
-    note:
-      'Read only when the very first administrator is created. What is stored is a scrypt hash, never the\n' +
-      'password, so leaving the plain password here afterwards is a risk for no benefit.',
+    shortTitle: 'FIRST RUN ONLY',
     keys: {
       ADMIN_EMAIL: 'The first administrator. Defaults to joe@supportwizard.net.',
       ADMIN_PASSWORD:
@@ -109,10 +105,7 @@ const GROUPS = [
     },
   },
   {
-    title: 'CREDENTIALS — all of these can be set in the portal instead (Admin → Credentials)',
-    note:
-      'Setting them here still works and takes effect at boot. The portal is easier: it takes effect\n' +
-      'immediately, tests the key before saving, and encrypts it at rest.',
+    shortTitle: 'CREDENTIALS (settable in the portal instead)',
     keys: {
       ZEN_CLIENT_ID: 'Zen API client id.',
       ZEN_CLIENT_SECRET: 'Zen API client secret.',
@@ -149,7 +142,7 @@ const GROUPS = [
     },
   },
   {
-    title: 'BEHAVIOUR — all have sensible defaults. Set only to change them',
+    shortTitle: 'BEHAVIOUR (all have defaults)',
     keys: {
       ZEN_ALLOW_ORDERING:
         'true to permit real orders. Off by default, and the portal has a second switch that must also be\n' +
@@ -169,74 +162,68 @@ const GROUPS = [
     },
   },
   {
-    title: 'ENDPOINTS — override only if a supplier moves one',
-    note: 'Every one of these has a working default. An empty value here is not a problem.',
+    shortTitle: 'ENDPOINTS (all have defaults)',
     keys: {},
   },
 ];
 
 /* ---- Rendering ------------------------------------------------------- */
 
+/**
+ * A list of names, and almost nothing else.
+ *
+ * The file's job is one thing: letting somebody check that what they typed
+ * into Plesk matches what the code reads. Prose gets in the way of that —
+ * the explanations live in the portal, on the Credentials page, where they
+ * are next to the boxes they describe.
+ *
+ * The two markers are worth the four characters. Removing SESSION_SECRET
+ * does not break anything visibly, it makes every credential stored in the
+ * portal undecryptable, and they still look present until an integration
+ * says it is not connected.
+ */
 function render(found) {
   const documented = new Set();
   for (const group of GROUPS) for (const key of Object.keys(group.keys)) documented.add(key);
-
-  // Anything the code reads that no group claims is an endpoint override.
-  const endpoints = [...found.keys()]
-    .filter((name) => !documented.has(name))
-    .sort();
+  const endpoints = [...found.keys()].filter((name) => !documented.has(name)).sort();
 
   const lines = [];
-  const rule = (ch) => ch.repeat(78);
+  lines.push('SUPPORTWIZARD NETKIT — ENVIRONMENT VARIABLE NAMES');
+  lines.push('');
+  lines.push('Generated from the source by `npm run env:list`. `npm run check:env` fails');
+  lines.push('the build if the code reads a name this file does not list, so it cannot');
+  lines.push('drift. Nothing here is a secret — these are the names of the boxes.');
+  lines.push('');
+  lines.push('  (!)  removing this loses data or stops the app booting');
+  lines.push('  (1)  read only when the first admin account is created — safe to delete');
+  lines.push('  (-)  documented but nothing reads it yet — setting it now does nothing');
+  lines.push('');
 
-  lines.push(rule('='));
-  lines.push('  SUPPORTWIZARD NETKIT — PLESK ENVIRONMENT VARIABLES');
-  lines.push(rule('='));
-  lines.push('');
-  lines.push('  Plesk → Websites & Domains → your domain → Node.js → Custom environment');
-  lines.push('  variables. Add them one at a time; there is no file to upload.');
-  lines.push('');
-  lines.push('  This file is GENERATED from the source. Do not edit it by hand — run');
-  lines.push('  `npm run env:list`. A variable the code reads and this file does not');
-  lines.push('  mention fails the build, so it cannot drift.');
-  lines.push('');
-  lines.push('  NOTHING IN HERE IS A SECRET. These are the names of the boxes, not what');
-  lines.push('  goes in them.');
-  lines.push('');
+  const CRITICAL = new Set(['DATA_DIR', 'SESSION_SECRET']);
+  const FIRST_RUN = new Set(['ADMIN_EMAIL', 'ADMIN_PASSWORD', 'ADMIN_NAME']);
+
+  // A key pasted into Plesk for an integration that is not built yet does
+  // nothing, and somebody who set one deserves to know that rather than
+  // wondering why the integration never appears.
+  const mark = (name) =>
+    !found.has(name) ? '(-) ' : CRITICAL.has(name) ? '(!) ' : FIRST_RUN.has(name) ? '(1) ' : '    ';
 
   for (const group of GROUPS) {
     const keys = group.keys === GROUPS[GROUPS.length - 1].keys ? endpoints : Object.keys(group.keys);
     if (!keys.length) continue;
-
+    lines.push(`--- ${group.shortTitle} ${'-'.repeat(Math.max(0, 66 - group.shortTitle.length))}`);
     lines.push('');
-    lines.push(rule('-'));
-    lines.push(`  ${group.title}`);
-    lines.push(rule('-'));
-    if (group.note) {
-      lines.push('');
-      for (const l of group.note.split('\n')) lines.push(`  ${l}`);
+    for (const name of keys.slice().sort()) {
+      lines.push(`${mark(name)}${name}`);
     }
     lines.push('');
-
-    for (const name of keys) {
-      const meta = found.get(name) ?? {};
-      const def = meta.default !== undefined ? meta.default.replace(/^'|'$/g, '') : undefined;
-      lines.push(`  ${name}`);
-      const description = group.keys[name];
-      if (description) {
-        for (const l of description.split('\n')) lines.push(`      ${l}`);
-      } else {
-        lines.push('      Endpoint override. The default works.');
-      }
-      if (def !== undefined && def !== '') lines.push(`      Default: ${def}`);
-      if (!found.has(name)) lines.push('      (not read by the current build)');
-      lines.push('');
-    }
   }
 
-  lines.push(rule('='));
-  lines.push(`  ${found.size} variables read by this build. Generated ${new Date().toISOString().slice(0, 10)}.`);
-  lines.push(rule('='));
+  lines.push(`${found.size} variables.`);
+  lines.push('');
+  lines.push('OPENCELLID, OPENCELLID_API_KEY and OPENCELLID_TOKEN are three names for');
+  lines.push('the same key. Set one. If more than one is set, the first of those three');
+  lines.push('wins and the others are ignored.');
   lines.push('');
   return lines.join('\n');
 }
