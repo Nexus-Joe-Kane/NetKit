@@ -21,8 +21,6 @@ import type {
   RdnsRecord,
   ServiceHistory,
   ServiceHistoryEvent,
-  SimEstate,
-  SimRecord,
   SimState,
 } from '@sw/shared';
 import { zenCall } from './client';
@@ -465,80 +463,17 @@ export async function fetchEthernetQuotes(address: AddressRecord): Promise<Ether
  * Cellular / SIM estate
  * ------------------------------------------------------------------ */
 
-function simState(raw?: string): SimState {
-  const v = (raw ?? '').toUpperCase();
-  if (v.includes('ACTIVE') || v.includes('LIVE')) return 'active';
-  if (v.includes('SUSPEND') || v.includes('BAR')) return 'suspended';
-  if (v.includes('CEAS') || v.includes('TERMINAT')) return 'ceased';
-  if (v.includes('PENDING') || v.includes('STOCK')) return 'pending';
-  if (v.includes('TEST')) return 'test';
-  return 'unknown';
-}
 
-/**
- * The SIM estate. Zen's cellular endpoints are Jola-backed, so this covers
- * the business SIM question without a separate Jola integration — Zen
- * answers 503 with "Jola ID or pool ID is not assigned yet" when the account
- * has not been linked.
+/*
+ * Zen's SIM estate used to be read here and is not any more.
+ *
+ * Zen's cellular endpoints are Jola-backed, the SIMs are held directly with
+ * Jola, and asking both produced a second copy of the same estate with fewer
+ * fields on it — which then won the dedupe about half the time and blanked
+ * the customer name, the number and the usage on rows Jola had answered
+ * properly. Removed rather than left switched off, so nobody re-enables it
+ * looking for SIMs that were never really there. Mobile is Jola's job.
  */
-export async function fetchSimEstate(): Promise<SimEstate> {
-  const [usageJson, listJson] = await Promise.all([
-    zenCall<unknown>('/api/cellular/usages', { scope: 'indirect-broadbandconnection', emptyAsNull: true }).catch(() => null),
-    zenCall<unknown>('/api/cellular/sims', { scope: 'indirect-broadbandconnection', emptyAsNull: true }).catch(() => null),
-  ]);
-
-  const byIccid = new Map<string, SimRecord>();
-
-  for (const row of pickArray(usageJson, 'sims')) {
-    const iccid = pickString(row, 'iccId', 'iccid');
-    if (!iccid) continue;
-    byIccid.set(iccid, {
-      iccid,
-      ...(pickString(row, 'zenReference') ? { zenReference: pickString(row, 'zenReference') } : {}),
-      state: simState(pickString(row, 'state', 'status')),
-      ...(pickString(row, 'postcode', 'postCode') ? { postcode: pickString(row, 'postcode', 'postCode') } : {}),
-      ...(pickNumber(row, 'allowance') != null ? { allowanceBytes: pickNumber(row, 'allowance') } : {}),
-      ...(pickNumber(row, 'boltOnAllowance') != null ? { boltOnBytes: pickNumber(row, 'boltOnAllowance') } : {}),
-      ...(pickNumber(row, 'usage') != null ? { usedBytes: pickNumber(row, 'usage') } : {}),
-      provider: 'Zen Internet (Jola)',
-      source: 'zen:self-service',
-    });
-  }
-
-  // The plain SIM list carries status for SIMs with no usage recorded yet.
-  for (const row of Array.isArray(listJson) ? listJson : pickArray(listJson, 'sims', 'results', 'data')) {
-    const iccid = pickString(row, 'iccId', 'iccid');
-    if (!iccid) continue;
-    const existing = byIccid.get(iccid);
-    if (existing) {
-      if (existing.state === 'unknown') existing.state = simState(pickString(row, 'status', 'state'));
-    } else {
-      byIccid.set(iccid, {
-        iccid,
-        state: simState(pickString(row, 'status', 'state')),
-        provider: 'Zen Internet (Jola)',
-        source: 'zen:self-service',
-      });
-    }
-  }
-
-  const poolRaw = (usageJson as { pool?: unknown })?.pool;
-  const pool = poolRaw
-    ? {
-        ...(pickNumber(poolRaw, 'size') != null ? { sizeBytes: pickNumber(poolRaw, 'size') } : {}),
-        ...(pickNumber(poolRaw, 'usage') != null ? { usedBytes: pickNumber(poolRaw, 'usage') } : {}),
-        ...(pickNumber(poolRaw, 'simCount') != null ? { simCount: pickNumber(poolRaw, 'simCount') } : {}),
-        ...(pickNumber(poolRaw, 'overage') != null ? { overageBytes: pickNumber(poolRaw, 'overage') } : {}),
-      }
-    : undefined;
-
-  return {
-    sims: [...byIccid.values()],
-    ...(pool && Object.keys(pool).length ? { pool } : {}),
-    checkedAt: new Date().toISOString(),
-    sources: ['zen:self-service'],
-  };
-}
 
 /* ------------------------------------------------------------------ *
  * Call records
@@ -895,5 +830,5 @@ export async function fetchEstateUsage(period?: string): Promise<EstateUsageRepo
   };
 }
 
-export const __selfServiceTesting = { orderState, orderType, simState, notificationSeverity };
+export const __selfServiceTesting = { orderState, orderType, notificationSeverity };
 

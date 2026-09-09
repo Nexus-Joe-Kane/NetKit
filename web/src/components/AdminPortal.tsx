@@ -276,7 +276,15 @@ function StatusBoard(): ReactElement {
         </Alert>
       )}
 
-      {status && !status.resend.verified && (
+      {/*
+        * Only when there is a key to test.
+        *
+        * With Resend deliberately unused, this banner was a standing warning
+        * about a service nobody wants: unactionable, and on every page of the
+        * portal. Notices go to Zendesk now, so an absent mailer costs email
+        * two-factor and nothing else.
+        */}
+      {status && status.resend.configured && !status.resend.verified && (
         <Alert tone="info">
           <span>
             Email two-factor authentication is unavailable until a Resend delivery test passes.
@@ -835,8 +843,12 @@ function UsersBoard({ me }: { me: PublicUser }): ReactElement {
                 <option value="admin">Administrator — full access</option>
               </select>
             </label>
+            {/* True either way, so it needs no knowledge of the mailer:
+                saying "emailed to them" flat out sent people looking for a
+                message that, with Resend switched off, was never sent. */}
             <p className="field__hint" style={{ marginBottom: 12 }}>
-              A temporary password is generated and emailed to them. They must change it at first sign-in.
+              A temporary password is generated. It is emailed to them where a mailer is configured, and shown to
+              you here otherwise. Either way they must change it at first sign-in.
             </p>
             <button className="btn btn--primary" type="submit" disabled={busy}>
               {busy ? 'Creating…' : 'Create user'}

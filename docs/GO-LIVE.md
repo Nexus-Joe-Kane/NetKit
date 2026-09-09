@@ -384,6 +384,62 @@ address validation as a second opinion on the Openreach address key.
 Note: **Giacom publish no fault or diagnostics API**, so line testing and
 fault raising stay Zen-only. Every Giacom line says so on its own record.
 
+### Jola — what their API actually calls things
+
+Read from their own Help pages at developers.mobilemanager.co.uk. Worth
+writing down, because four of these cost us a page of blanks:
+
+- **Everything is PascalCase**: `MobileNumber`, `ICCID`, `Usage`, `State`.
+- **`State` is an integer**, and `Active` is **0** — `Active=0,
+  Unactivated=1, Decommissioned=2, ActiveTest=3`. Reading it as a string got
+  nothing, so every live SIM rendered as no state at all. Their XML samples
+  show `<State>Active</State>` next to `"State": 0`, which is a good way to
+  be misled by the documentation itself.
+- **There is no `Barred` state.** A barred SIM is `State = 0` with a separate
+  `Barred: true` boolean, so the bar has to be applied on top or a barred SIM
+  reads as live.
+- **The allowance field is misspelled `Allownace`** in the live contract on
+  the SIM endpoints — and spelled correctly on the pool model. Both are read.
+- **The customer name is not on the SIM**, only a `CustomerId` GUID, so the
+  estate is fetched per customer and the name comes from the join.
+- **There is no site and no postcode anywhere in their API.** A site name only
+  exists if somebody typed it into `SimTag`, which is what NetKit reads.
+- **There is no per-SIM usage endpoint** (`/sims/{id}/usage` is a genuine 404)
+  and no voice or SMS figures at all. `Usage` on the SIM record is everything
+  there is.
+- **Units are undocumented** for `Usage` and `Allownace`. NetKit treats them
+  as megabytes for display but drives the near-or-over-allowance alerting off
+  their own `AllowanceUsedPercent`, which needs no unit — so a wrong unit
+  shows a wrong size, which is visible, rather than a wrong alert, which is
+  not.
+- Paging is `skip`/`take` and their default `take` is **10**, so it is always
+  sent explicitly. No total-count header except on orders.
+- Rate limits are **undocumented**.
+
+Their write endpoints *are* documented — bar, full bar, unbar, cease, tariff
+change, bolt-on, activation, SIM swap — which is the next thing worth
+building. One to remember: the tariff-change path is misspelled
+`orders/tarrifchange` in the live API.
+
+### Mobile is Jola, and only Jola
+
+Zen's cellular endpoints are Jola-backed, the SIMs are held directly with
+Jola, and asking both produced a second copy of the same estate with fewer
+fields on it — which then won the dedupe about half the time and blanked the
+customer name, the number and the usage on rows Jola had answered properly.
+
+So the Zen SIM path is **removed**, not switched off, and there is nothing to
+configure: `ZEN_CLIENT_ID` no longer buys you a mobile estate and is not
+supposed to.
+
+A note on what looks like missing data: an estate of a couple of hundred SIMs
+usually has a large minority sitting in a drawer. Those genuinely have no
+number, no usage and no customer, and NetKit now says **stock** rather than
+**unknown** — reclassified only where the provider gave no state at all,
+there is no number, and no usage. A SIM with a number is somebody's, whatever
+it is tagged. The SIMs page opens on **Active** for the same reason, with
+stock on its own tab.
+
 ### Resend — optional, and only for credentials
 
 ```

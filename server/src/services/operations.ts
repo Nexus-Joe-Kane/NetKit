@@ -404,25 +404,25 @@ export function ethernetQuotes(address: AddressRecord): Promise<Sourced<Ethernet
 }
 
 /**
- * Every SIM, from every mobile account we hold.
+ * The mobile estate.
  *
- * Zen and Jola are separate accounts. This used to treat Jola as a fallback
- * behind Zen -- try Zen, and only ask Jola if Zen came back empty -- which is
- * wrong in both directions: a Zen outage hid the Jola estate entirely, and a
- * Zen estate with rows in it hid Jola's even when Jola held most of the SIMs.
+ * Jola only, and that is a decision rather than a gap. Zen's cellular
+ * endpoints are Jola-backed anyway, the SIMs are held directly with Jola, and
+ * asking Zen produced a second copy of the same estate with fewer fields on
+ * it — which then won the dedupe half the time and blanked the customer name,
+ * the number and the usage on rows that Jola had answered properly. One
+ * source that knows the answer beats two that half-know it.
  *
- * Both are asked, in parallel, always. Rows are merged and deduped by ICCID,
- * and each vendor's outcome is reported separately so one being down reads as
- * one being down rather than as an empty estate.
+ * The Zen path is deleted rather than switched off, so nobody re-enables it
+ * looking for SIMs that were never there.
  */
 export async function simEstate(): Promise<Sourced<SimEstate>> {
-  const zenConfigured = zenReady('indirect-broadbandconnection') && isProviderEnabled('zen-broadbandconnection');
   const jolaConfigured = jolaReady() && isProviderEnabled('jola-mobile-manager');
 
-  if (!zenConfigured && !jolaConfigured) {
+  if (!jolaConfigured) {
     throw notConfigured(
-      'No mobile account is connected. Set the Jola keys, or grant the Zen ' +
-        'broadbandconnection scope. Admin portal → Service status says which.',
+      'Jola is not connected, so there is no mobile estate to show. Set the Jola keys in ' +
+        'Admin portal → Credentials.',
     );
   }
 
@@ -450,42 +450,31 @@ export async function simEstate(): Promise<Sourced<SimEstate>> {
     }
   };
 
-  const [zen, jolaResult] = await Promise.all([
-    attempt('zen-broadbandconnection', 'Zen', zenConfigured, () => selfService.fetchSimEstate()),
-    attempt('jola-mobile-manager', 'Jola Mobile Manager', jolaConfigured, () => jola.fetchJolaEstate()),
-  ]);
+  const jolaResult = await attempt('jola-mobile-manager', 'Jola', jolaConfigured, () =>
+    jola.fetchJolaEstate(),
+  );
 
-  const estates = [zen.estate, jolaResult.estate].filter((e): e is SimEstate => e !== null);
-
-  // Every vendor that was asked failed. That is an outage, not an empty
-  // estate, and it must not come back as a page of zeroes.
-  if (estates.length === 0) {
-    const errors = [zen.result, jolaResult.result]
-      .filter((r) => r.error)
-      .map((r) => `${r.name}: ${r.error}`);
-    throw upstream(errors.join(' · ') || 'No mobile provider returned a result.');
+  // The only vendor asked failed. That is an outage, not an empty estate, and
+  // it must not come back as a page of zeroes.
+  if (!jolaResult.estate) {
+    throw upstream(jolaResult.result.error ?? 'Jola returned no result.');
   }
 
-  // Deduped by ICCID, first vendor wins. The same SIM can appear twice where
-  // one is bought through the other.
+  // Still deduped by ICCID: Jola's own list can repeat a SIM across two
+  // customer records when one has been transferred.
   const byIccid = new Map<string, SimRecord>();
-  for (const estate of estates) {
-    for (const sim of estate.sims) {
-      const key = (sim.iccid || sim.msisdn || '').replace(/\s+/g, '');
-      if (!key || byIccid.has(key)) continue;
-      byIccid.set(key, sim);
-    }
+  for (const sim of jolaResult.estate.sims) {
+    const key = (sim.iccid || sim.msisdn || '').replace(/\s+/g, '');
+    if (!key || byIccid.has(key)) continue;
+    byIccid.set(key, sim);
   }
 
   const data: SimEstate = {
     sims: [...byIccid.values()],
-    // Only one vendor reports a shared pool; taking the first that does is
-    // right, because adding two vendors' pools together would be a number
-    // that exists nowhere.
-    ...(estates.find((e) => e.pool)?.pool ? { pool: estates.find((e) => e.pool)!.pool } : {}),
-    providers: [zen.result, jolaResult.result],
+    ...(jolaResult.estate.pool ? { pool: jolaResult.estate.pool } : {}),
+    providers: [jolaResult.result],
     checkedAt: new Date().toISOString(),
-    sources: [...new Set(estates.flatMap((e) => e.sources))],
+    sources: jolaResult.estate.sources,
   };
 
   return { data, mode: 'live' };
