@@ -4,6 +4,7 @@ import {
   statusRank,
   technologyRank,
   toSuggestion,
+  unitQuestion,
   unmatchedTokens,
   type AddressRecord,
   type AddressSuggestion,
@@ -699,7 +700,23 @@ export async function resolveQuery(rawQuery: string, opts: ResolveOptions = {}):
         return { query, suggestions: [], report: await buildSiteReport(list[0]!, query, budget) };
       }
       const unmatched = unmatchedTokens(list, query.normalised);
-      return { query, suggestions: list.map(toSuggestion), ...(unmatched.length ? { unmatched } : {}) };
+      /*
+       * Ask which unit before offering the address list, where the
+       * candidates differ by nothing but their sub-building or their
+       * business name. A building of forty premises shares one street
+       * address, and picking the door number means every lookup after it is
+       * about the wrong place with nothing to say so.
+       *
+       * Decided here rather than in the browser because a suggestion carries
+       * only a label — the sub-building exists solely on the full record.
+       */
+      const unit = unitQuestion({ addresses: list, query: query.normalised });
+      return {
+        query,
+        suggestions: list.map(toSuggestion),
+        ...(unmatched.length ? { unmatched } : {}),
+        ...(unit.ask ? { unitChoice: unit } : {}),
+      };
     }
   }
 }
