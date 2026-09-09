@@ -7,6 +7,7 @@ export * from './credentials';
 export * from './csv';
 export * from './operations';
 export * from "./addressMatch";
+export * from './siteMatch';
 export * from "./rate";
 export * from "./companies";
 export * from "./sla";
