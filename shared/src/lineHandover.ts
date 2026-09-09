@@ -17,11 +17,13 @@ import type { LineRecord, SiteContact } from './index';
 /**
  * The provider's no-show charge, passed on to the customer.
  *
- * Here as a constant, in one place, because it goes in every customer email
- * about a visit and getting it wrong in one template is the kind of mistake
- * that costs an argument. Update it here when the supplier does.
+ * Re-exported from `charges`, which is where it now lives. It has to be a
+ * leaf module: this file imports `lineTestAdvice`, so `lineTestAdvice`
+ * cannot import this one, and the one place that needed the figure had it
+ * typed out by hand instead — which meant a price change updated everywhere
+ * except there.
  */
-export const NO_SHOW_CHARGE = '£165 + VAT';
+export { NO_SHOW_CHARGE } from './charges';
 
 /** One copyable fact. */
 export interface HandoverField {

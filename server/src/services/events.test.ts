@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { FAILURES_TO_RAISE, isUnstable, type CheckResult } from '@sw/shared';
+import { FAILURES_TO_RAISE, UNSTABLE_DISCONNECTS, isUnstable, type CheckResult } from '@sw/shared';
 import {
   attachDiagnosis,
   attachTicket,
@@ -192,4 +192,45 @@ test('cleared events are hidden by default and available on request', () => {
 
   assert.equal(listEvents().some((e) => e.id === event.id), false);
   assert.equal(listEvents({ includeCleared: true }).some((e) => e.id === event.id), true);
+});
+
+/* ---- One counter per site, not one for the estate -------------------- */
+
+test('drops are counted per site, so a normal morning across the estate raises nothing', () => {
+  // The thing to get wrong: one shared counter. Forty sites each dropping
+  // once is a normal morning and is 40 drops — eight times the threshold —
+  // so a shared counter would flag the whole estate as unstable by 07:00.
+  resetEvents();
+  const sites = Array.from({ length: 40 }, (_, i) => `site-${String(i).padStart(2, '0')}`);
+  let n = 0;
+  for (const key of sites) {
+    const drops = key === 'site-07' ? UNSTABLE_DISCONNECTS + 1 : 1;
+    for (let d = 0; d < drops; d += 1) {
+      recordCheck(key, key, down(n), at(n));
+      n += 1;
+      recordCheck(key, key, up(n), at(n));
+      n += 1;
+    }
+  }
+
+  const now = at(n);
+  const flagged = sites.filter((key) => isUnstable(watchState(key, key), now));
+  assert.deepEqual(flagged, ['site-07'], 'only the site that actually flapped');
+
+  const total = sites.reduce((sum, key) => sum + watchState(key, key).disconnections.length, 0);
+  assert.equal(total, 39 + UNSTABLE_DISCONNECTS + 1, 'and the estate total is nowhere near any threshold');
+});
+
+test('one site’s drops never reach another site’s counter', () => {
+  resetEvents();
+  for (let i = 0; i < 20; i += 2) {
+    recordCheck('noisy', 'Noisy Ltd', down(i), at(i));
+    recordCheck('noisy', 'Noisy Ltd', up(i + 1), at(i + 1));
+  }
+  recordCheck('quiet', 'Quiet Ltd', down(21), at(21));
+  recordCheck('quiet', 'Quiet Ltd', up(22), at(22));
+
+  assert.equal(watchState('noisy', 'Noisy Ltd').disconnections.length, 10);
+  assert.equal(watchState('quiet', 'Quiet Ltd').disconnections.length, 1);
+  assert.equal(isUnstable(watchState('quiet', 'Quiet Ltd'), at(23)), false);
 });

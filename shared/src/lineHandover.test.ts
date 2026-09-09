@@ -212,7 +212,7 @@ test('an unpowered ONT sends somebody to the phone, not to site', () => {
   assert.equal(findings[0]?.kind, 'ont-power');
   assert.equal(findings[0]?.side, 'customer');
   assert.match(findings[0]?.steps[0] ?? '', /Ring the customer before anything else/);
-  assert.match(findings[0]?.beforeBooking ?? '', /£165 \+ VAT/);
+  assert.match(findings[0]?.beforeBooking ?? '', /£199 \+ VAT/);
 });
 
 test('loss of light is the provider’s side and does go to site', () => {
@@ -297,5 +297,5 @@ test('the opening sentence stays plain, because it is prose', () => {
 });
 
 test('the no-show charge lives in exactly one place', () => {
-  assert.equal(NO_SHOW_CHARGE, '£165 + VAT');
+  assert.equal(NO_SHOW_CHARGE, '£199 + VAT');
 });

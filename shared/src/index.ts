@@ -12,6 +12,8 @@ export * from './clientIndex';
 export * from './activity';
 export * from './watchdog';
 export * from './events';
+export * from './charges';
+export * from './providerStatus';
 export * from "./rate";
 export * from "./companies";
 export * from "./sla";

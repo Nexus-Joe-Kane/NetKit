@@ -67,7 +67,7 @@ test('the free-cancellation window is counted in hours left', () => {
 test('inside the window it says the charge applies either way', () => {
   const w = cancelWindow(visit({ slot: { date: '2026-09-09', window: 'PM' } }), NOW);
   assert.equal(w?.chargeable, true);
-  assert.match(w!.label, /£165 \+ VAT/);
+  assert.match(w!.label, /£199 \+ VAT/);
 });
 
 test('no slot is not the same answer as plenty of time', () => {
@@ -115,12 +115,12 @@ test('with no deep link the note still says where to go', () => {
 test('inside the window the approval note says so up front', () => {
   const note = approvalRequestNote({ visit: visit({ slot: { date: '2026-09-09', window: 'PM' } }), now: NOW });
   assert.match(note, /already inside the 24-hour window/);
-  assert.match(note, /£165 \+ VAT/);
+  assert.match(note, /£199 \+ VAT/);
 });
 
 test('the cancellation message tells the customer there is nothing to pay', () => {
   // The last thing they were told about this appointment was that it could
-  // cost them £165 + VAT, so silence on the point is not reassurance.
+  // cost them £199 + VAT, so silence on the point is not reassurance.
   const message = visitCancelledMessage({
     contactName: 'Jane',
     slot: { date: '2026-09-11', window: 'AM' },
