@@ -25,10 +25,23 @@
   --sw-masthead: linear-gradient(105deg, var(--sw-grad-a) 0%, var(--sw-grad-b) 50%, var(--sw-grad-c) 100%);
 
   /* ---- Internal / engineer palette (§3) ---------------------------- */
-  --sw-page-a: #bde5fc;
-  --sw-page-b: #c9d7fa;
-  --sw-card-strip: #dce8f8;
-  --sw-cell-rule: #c0ceea;
+  /*
+   * The page ground.
+   *
+   * Pulled right down from the mid-blue it was. A saturated gradient behind
+   * white cards makes the cards read as tiles on a poster rather than as
+   * content, which is most of what "looks like a template" actually is —
+   * and it fights every status colour on the page for attention. This is
+   * still unmistakably blue and it lets white mean something.
+   */
+  --sw-page-a: #eef4fc;
+  --sw-page-b: #e6edf8;
+  --sw-card-strip: #eaf1fb;
+  /*
+   * Card and cell rules. Lightened with the ground: a #c0ceea hairline read
+   * as a heavy border once the page behind it stopped being blue.
+   */
+  --sw-cell-rule: #dbe4f2;
   --sw-slate: #0f172a;
   --sw-navy: #0d1b3e;
 
@@ -106,6 +119,14 @@
    * ask for `tabular-nums` and add a little tracking. That keeps a column of
    * numbers readable and roughly aligned without a monospace face.
    */
+  /*
+   * One font throughout, Poppins, as specified. But a MAC address, a UPRN or
+   * a service reference in a proportional face is genuinely harder to read
+   * and to check against a card — so `.sw-mono` keeps Poppins and adds
+   * tabular figures and a little tracking, which is what actually makes an
+   * identifier scannable. A second font family would have been the easy
+   * answer and the wrong one.
+   */
   --sw-font-mono: 'Poppins', 'Segoe UI', system-ui, -apple-system, sans-serif;
 
   /* Weights. Poppins 400 reads light against data, so body sits at 400 and
@@ -128,14 +149,33 @@
   --sw-label-weight: 600;
 
   /* ---- Geometry ---------------------------------------------------- */
-  --sw-radius-sm: 6px;
-  --sw-radius: 10px;
-  --sw-radius-lg: 14px;
+  /*
+   * Corners.
+   *
+   * Pulled in from 6/10/14. Large radii on every surface is the most
+   * recognisable tell of a generated interface -- it reads as decoration
+   * applied uniformly rather than as a decision about each element -- and
+   * software people trust for work is squarer than software people are
+   * sold. Still rounded, because hard corners on a data table look like
+   * 2009, just no longer pill-shaped.
+   */
+  --sw-radius-sm: 4px;
+  --sw-radius: 7px;
+  --sw-radius-lg: 10px;
   --sw-gap: 16px;
 
   /* Shadows stay soft — the guide's look is flat cards on a gradient. */
-  --sw-shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px -12px rgba(15, 23, 42, 0.16);
-  --sw-shadow-raised: 0 2px 4px rgba(15, 23, 42, 0.06), 0 18px 40px -16px rgba(15, 23, 42, 0.24);
+  /*
+   * Shadows.
+   *
+   * Tighter and cooler. A wide soft drop shadow under every card is the
+   * other half of the generated-interface look: it makes each panel float
+   * separately when what is wanted is one document with sections in it. The
+   * tint is blue rather than neutral grey, so a shadow on a blue-white
+   * ground reads as depth rather than as dirt.
+   */
+  --sw-shadow-card: 0 1px 1px rgba(28, 52, 102, 0.04), 0 4px 12px -6px rgba(28, 52, 102, 0.1);
+  --sw-shadow-raised: 0 2px 3px rgba(28, 52, 102, 0.06), 0 12px 28px -12px rgba(28, 52, 102, 0.18);
   --sw-shadow-focus: 0 0 0 3px rgba(59, 130, 246, 0.28);
 
   --sw-max-width: 1280px;

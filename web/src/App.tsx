@@ -70,7 +70,10 @@ const NAV: Array<{ id: Exclude<View, 'admin'>; label: string }> = [
   // this", and belongs next to the thing that answers "what is here".
   { id: 'clients', label: 'Clients' },
   { id: 'inbox', label: 'Inbox' },
-  { id: 'network', label: 'Network status' },
+  // 'Status' rather than 'Network status': ten items stopped fitting when Home
+  // and Clients were added, and this one loses the least by being shortened —
+  // the page itself is headed "Network status" once you are on it.
+  { id: 'network', label: 'Status' },
   { id: 'faults', label: 'Faults' },
   { id: 'visits', label: 'Visits' },
   { id: 'orders', label: 'Orders' },
