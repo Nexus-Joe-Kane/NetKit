@@ -1,3 +1,4 @@
+import { NO_SHOW_CHARGE } from './charges';
 import type { LineTestResult, TestMetric } from './operations';
 import type { AccessTechnology } from './types';
 
@@ -213,7 +214,7 @@ const PATTERNS: readonly Pattern[] = [
       'If the photo shows the power light on and the network still cannot see it, the ONT itself has failed — book the visit.',
     ],
     beforeBooking:
-      'A photo showing the ONT powered on. Booking a visit to a switched-off ONT is a £165 + VAT charge for a plug.',
+      `A photo showing the ONT powered on. Booking a visit to a switched-off ONT is a ${NO_SHOW_CHARGE} charge for a plug.`,
     suggestedReason: 'ont-damage',
     severity: 'critical',
   },

@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import {
   GATE_ITEMS,
   SITE_VISIT_REASONS,
+  chargeWithVat,
   gateBlockers,
   gateFor,
   gateNote,
@@ -75,11 +76,14 @@ test('what the line test asked for specifically joins the gate', () => {
 });
 
 test('the charge is quoted on the questions that exist because of it', () => {
-  const withCharge = GATE_ITEMS.filter((i) => i.why.includes('£165 + VAT'));
+  const withCharge = GATE_ITEMS.filter((i) => i.why.includes('£199 + VAT'));
   assert.ok(withCharge.some((i) => i.id === 'access'), 'nobody on site is the classic charge');
   assert.ok(withCharge.some((i) => i.id === 'test-socket'));
-  // Never added together, anywhere.
-  for (const item of GATE_ITEMS) assert.doesNotMatch(item.why, /£198|£19[0-9]/);
+  // The VAT-inclusive figure must never appear. The customer is quoted
+  // ex-VAT like every other line on their bill, and quoting one number
+  // inclusive and the rest exclusive is how an invoice query starts.
+  // Derived, so it cannot go stale the next time the price moves.
+  for (const item of GATE_ITEMS) assert.ok(!item.why.includes(chargeWithVat()), item.why);
 });
 
 test('the gate is written out for the ticket, including what was skipped', () => {
@@ -106,7 +110,7 @@ test('the reasons the test suggested come first, in severity order', () => {
 test('booking a network visit for a customer-side fault is called out', () => {
   const { conflict, warning } = reasonConflict('ont-no-light', 'customer');
   assert.equal(conflict, true);
-  assert.match(warning!, /£165 \+ VAT/, 'the cost of being wrong is the point of the warning');
+  assert.match(warning!, /£199 \+ VAT/, 'the cost of being wrong is the point of the warning');
 });
 
 test('agreement, and an unclear test, raise nothing', () => {
@@ -135,7 +139,7 @@ test('both variants carry the charge and the notice period', () => {
   const without = siteVisitMessage({ reason: 'ont-no-light', access: 'inside', supplier: 'Openreach' });
 
   for (const message of [withSlot, without]) {
-    assert.match(message.body, /£165 \+ VAT/);
+    assert.match(message.body, /£199 \+ VAT/);
     assert.match(message.body, /24 hours/);
     assert.match(message.body, /SupportWizard Network Support Team$/);
   }
@@ -148,7 +152,7 @@ test('both variants carry the charge and the notice period', () => {
 test('the charge figure is never added up', () => {
   const message = siteVisitMessage({ reason: 'cabinet', access: 'unknown' });
   assert.doesNotMatch(message.body, /£198/);
-  assert.match(message.body, /£165 \+ VAT/);
+  assert.match(message.body, /£199 \+ VAT/);
 });
 
 test('the customer is told why, in words that are not an accusation', () => {
@@ -197,13 +201,13 @@ test('the booking note records the basis, not just the booking', () => {
   assert.match(note, /Slot: Tuesday 15 September, AM/);
   assert.match(note, /Booked by: Joe Kane/);
   assert.match(note, /Checks before booking:/);
-  assert.match(note, /Missed-appointment charge quoted to the customer: £165 \+ VAT/);
+  assert.match(note, /Missed-appointment charge quoted to the customer: £199 \+ VAT/);
 });
 
 test('a disagreement between the reason and the test is on the record', () => {
   const note = visitBookedNote({ reason: 'ont-no-light', access: 'inside', testSide: 'customer' });
   assert.match(note, /Flagged at booking:/);
-  assert.match(note, /£165 \+ VAT/);
+  assert.match(note, /£199 \+ VAT/);
 });
 
 test('an unconfirmed slot says so rather than reading as booked for today', () => {
