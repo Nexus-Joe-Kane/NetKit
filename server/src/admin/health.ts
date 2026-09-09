@@ -7,6 +7,8 @@ import { datasetStatus } from '../providers/signal/ofcom';
 import { fixedDatasetConfigured, fixedDatasetStatus } from '../providers/coverage/ofcomFixedDataset';
 import { zendeskConfigured, zendeskPing } from '../providers/tickets/zendesk';
 import { giacomPing } from '../providers/giacom/client';
+import { itGlueConfigured, itGluePing } from '../providers/docs/itGlue';
+import { unifiConfigured, unifiPing } from '../providers/network/unifi';
 
 /**
  * Service status for the admin portal.
@@ -35,6 +37,8 @@ export interface ServiceStatus {
     | 'Resend'
     | 'OpenCelliD'
     | 'Zendesk'
+    | 'IT Glue'
+    | 'Ubiquiti'
     | 'Internal';
   /** What this integration gives the portal. */
   capability: string;
@@ -399,6 +403,46 @@ function probes(): Probe[] {
       run: async () => {
         const started = Date.now();
         const result = await zendeskPing();
+        return {
+          state: result.ok ? ('ok' as const) : ('down' as const),
+          detail: result.detail,
+          meta: { probeMs: Date.now() - started },
+        };
+      },
+    },
+
+    // ---- IT Glue --------------------------------------------------------
+    {
+      key: 'itglue',
+      name: 'IT Glue',
+      vendor: 'IT Glue',
+      capability:
+        'What the site is documented as having: equipment, locations, and which credentials exist (never their values)',
+      docsUrl: 'https://api.itglue.com/developer/',
+      configured: () => itGlueConfigured(),
+      run: async () => {
+        const started = Date.now();
+        const result = await itGluePing();
+        return {
+          state: result.ok ? ('ok' as const) : ('down' as const),
+          detail: result.detail,
+          meta: { probeMs: Date.now() - started },
+        };
+      },
+    },
+
+    // ---- UniFi Site Manager ---------------------------------------------
+    {
+      key: 'unifi',
+      name: 'UniFi Site Manager',
+      vendor: 'Ubiquiti',
+      capability:
+        'What the network says: the sites on the account, the equipment on each console, and WAN health over the last day',
+      docsUrl: 'https://developer.ui.com/site-manager/v1.0.0/gettingstarted',
+      configured: () => unifiConfigured(),
+      run: async () => {
+        const started = Date.now();
+        const result = await unifiPing();
         return {
           state: result.ok ? ('ok' as const) : ('down' as const),
           detail: result.detail,

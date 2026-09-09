@@ -22,6 +22,7 @@ import type {
   NetworkConnectivityCheck,
   NumberPortCheck,
   SecretStatus,
+  SiteContext,
   VisitRecord,
   OrderingGate,
   OrderQuote,
@@ -350,6 +351,13 @@ export const api = {
       evidence?: string[];
     },
   ) => post<{ visit: VisitRecord; ticket: TicketNoteOutcome }>(`/api/visits/${encodeURIComponent(id)}/close`, input),
+
+  /* ---- What is at this site ------------------------------------------- */
+
+  siteContext: (uprn: string, name?: string) =>
+    request<SiteContext>(
+      `/api/site-context/${encodeURIComponent(uprn)}${name ? `?name=${encodeURIComponent(name)}` : ''}`,
+    ),
 
   /* ---- Credentials --------------------------------------------------- */
 

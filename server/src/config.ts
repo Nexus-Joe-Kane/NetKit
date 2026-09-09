@@ -273,6 +273,23 @@ export interface AppConfig {
   ofcomBroadband: { apiKey: string; baseUrl: string; datasetPath: string; configured: boolean };
   /** Zendesk Support: ticket notes, and the customer's own site contacts. */
   zendesk: { subdomain: string; email: string; apiToken: string; configured: boolean };
+  /**
+   * IT Glue, for what the site is documented as having.
+   *
+   * The base URL is configurable because IT Glue run three regional hosts
+   * and an EU account is a 404 against the US one, which reads as "no such
+   * organisation" rather than "wrong data centre".
+   */
+  itGlue: { apiKey: string; baseUrl: string; configured: boolean };
+  /**
+   * UniFi Site Manager — Ubiquiti's cloud API, rather than a controller.
+   *
+   * Site Manager over a local controller on purpose: it reaches every site
+   * on the account through one key, where a controller is one site and a
+   * hole in somebody's firewall. Its key is read-only for now, which suits
+   * a tool that has no business changing a customer's network.
+   */
+  unifi: { apiKey: string; baseUrl: string; configured: boolean };
   openCellId: { apiKey: string; baseUrl: string; searchPath: string; radiusMetres: number; configured: boolean };
   /**
    * The recovery supervisor: probes every integration on an interval and
@@ -425,6 +442,16 @@ export function config(): AppConfig {
       email: str('ZENDESK_EMAIL'),
       apiToken: str('ZENDESK_API_TOKEN'),
       configured: Boolean(str('ZENDESK_SUBDOMAIN') && str('ZENDESK_EMAIL') && str('ZENDESK_API_TOKEN')),
+    },
+    itGlue: {
+      apiKey: str('ITGLUE_API_KEY'),
+      baseUrl: str('ITGLUE_BASE_URL', 'https://api.itglue.com').replace(/\/+$/, ''),
+      configured: Boolean(str('ITGLUE_API_KEY')),
+    },
+    unifi: {
+      apiKey: str('UNIFI_API_KEY'),
+      baseUrl: str('UNIFI_BASE_URL', 'https://api.ui.com').replace(/\/+$/, ''),
+      configured: Boolean(str('UNIFI_API_KEY')),
     },
     ofcomBroadband: {
       apiKey: str('OFCOM_BROADBAND_API_KEY'),

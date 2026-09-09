@@ -47,6 +47,7 @@ import { config } from '../config';
 import { runBulkLookup } from '../services/bulk';
 import { addWatch, listWatches, removeWatch } from '../services/watches';
 import { closeVisit, getVisit, listVisits, markApprovalAsked, recordVisit } from '../services/visits';
+import { buildSiteContext } from '../services/siteContext';
 
 /**
  * Operational routes: network status, faults, diagnostics, orders, SIMs and
@@ -742,6 +743,31 @@ export function operationsRouter(): Router {
       });
 
       return { visit: updated ?? visit, ticket };
+    }),
+  );
+
+  /* ---- What is at this site --------------------------------------- */
+
+  /**
+   * The documentation and the network, for one premises.
+   *
+   * Keyed on the UPRN plus a name, because the join between these systems is
+   * a company name and the premises decides which of that company's twenty
+   * sites is meant. The name defaults to whatever AddressBase holds as the
+   * organisation, which is right often enough to be the default and wrong
+   * often enough to be overridable.
+   */
+  router.get(
+    '/site-context/:uprn',
+    handler(async (req) => {
+      const uprn = String(req.params.uprn ?? '').trim();
+      if (!/^\d{1,12}$/.test(uprn)) throw badRequest('Provide a UPRN.');
+
+      const address = await addressByUprn(uprn);
+      if (!address) throw uprnNotFound(uprn);
+
+      const name = String(req.query.name ?? '').trim() || address.organisation || address.buildingName || '';
+      return buildSiteContext({ name, address });
     }),
   );
 

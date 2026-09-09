@@ -8,6 +8,7 @@ import { BroadbandPanel, OpenreachPanel } from './components/BroadbandPanel';
 import { SignalPanel } from './components/SignalPanel';
 import { LinesPanel } from './components/LinesPanel';
 import { CompaniesPanel } from './components/CompaniesPanel';
+import { SitePanel } from './components/SitePanel';
 import { AdminPortal } from './components/AdminPortal';
 import { NetworkStatusPage } from './pages/NetworkStatus';
 import { FaultsPage } from './pages/Faults';
@@ -38,7 +39,7 @@ import { loadSections } from './lib/printStorage';
  */
 
 type View = 'lookup' | 'inbox' | 'network' | 'faults' | 'visits' | 'orders' | 'sims' | 'tools' | 'admin';
-type ReportTab = 'broadband' | 'openreach' | 'signal' | 'lines' | 'companies';
+type ReportTab = 'broadband' | 'openreach' | 'signal' | 'lines' | 'site' | 'companies';
 
 /** The primary navigation. `admin` is reached by its own button. */
 const NAV: Array<{ id: Exclude<View, 'admin'>; label: string }> = [
@@ -129,7 +130,7 @@ function Portal({
   const [result, setResult] = useState<SearchResponse | null>(null);
   const [report, setReport] = useState<SiteReport | null>(null);
 
-  const REPORT_TABS: ReportTab[] = ['broadband', 'openreach', 'signal', 'lines', 'companies'];
+  const REPORT_TABS: ReportTab[] = ['broadband', 'openreach', 'signal', 'lines', 'site', 'companies'];
   const routedTab = REPORT_TABS.find((t) => t === route.b);
   const [fallbackTab, setFallbackTab] = useState<ReportTab>('broadband');
   const tab: ReportTab = routedTab ?? fallbackTab;
@@ -487,6 +488,7 @@ function SiteReportView({
       ...(report.lines.length ? { count: report.lines.length } : {}),
       ...(openFaults ? { tone: 'crit' as const } : {}),
     },
+    { id: 'site', label: 'On site' },
     { id: 'companies', label: 'Who is here' },
   ];
 
@@ -606,6 +608,13 @@ function SiteReportView({
 
         {tab === 'lines' && (
           <LinesPanel lines={report.lines} nearbyLines={report.nearbyLines ?? []} lineSearch={report.lineSearch ?? []} />
+        )}
+
+        {tab === 'site' && (
+          <SitePanel
+            {...(report.uprn ?? report.address.uprn ? { uprn: report.uprn ?? report.address.uprn } : {})}
+            {...(report.address.organisation ? { clientName: report.address.organisation } : {})}
+          />
         )}
 
         {tab === 'companies' && (
