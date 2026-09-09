@@ -11,8 +11,18 @@ import {
   parseBulkInput,
   firstName,
   paygEmail,
-  siteVisitBookedMessage,
+  gateBlockers,
+  gateFor,
+  gateNote,
+  reasonConflict,
+  siteVisitMessage,
+  visitBookedNote,
   snoozeUntil,
+  type AccessNeed,
+  type AccessTechnology,
+  type GateAnswer,
+  type Side,
+  type SiteVisitReason,
   type ApiResult,
   type LineTestType,
 } from '@sw/shared';
@@ -441,19 +451,80 @@ export function operationsRouter(): Router {
    * books with the supplier and presses this -- and the moment it does, this
    * is what it will call.
    */
+  const siteVisitSchema = z.object({
+    supplier: z.string().max(80).optional(),
+    contactName: z.string().max(120).optional(),
+    reason: z.string().max(40),
+    access: z.enum(['inside', 'outside', 'unknown']),
+    /** Absent when the supplier has not confirmed a slot yet. */
+    slot: z
+      .object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), window: z.string().min(1).max(60) })
+      .nullish(),
+    technology: z.string().max(20).optional(),
+    /** Which side the last line test pointed at, for the record and the warning. */
+    testSide: z.enum(['customer', 'network', 'unclear']).optional(),
+    /** Anything the line test itself asked for, so the gate can include it. */
+    extraChecks: z.array(z.object({ id: z.string().max(60), question: z.string().max(300) })).max(10).optional(),
+    gate: z.record(z.string(), z.enum(['done', 'not-applicable', 'not-done'])).default({}),
+    ccEngineer: z.boolean().optional(),
+  });
+
   router.post(
     '/tickets/:id/site-visit',
     handler(async (req) => {
       const ticketId = String(req.params.id);
-      const body = (req.body ?? {}) as { supplier?: string; contactName?: string; ccEngineer?: boolean };
+      const parsed = siteVisitSchema.safeParse(req.body ?? {});
+      if (!parsed.success) throw badRequest('That site-visit booking is incomplete or malformed.');
+      const body = parsed.data;
 
+      /*
+       * The gate is enforced here, not in the form.
+       *
+       * A checklist a client can skip is a checklist that will be skipped on
+       * the day somebody is in a hurry, and the cost of skipping it lands on
+       * the customer's invoice. So the server rebuilds the same list from the
+       * technology and the test's own requests, and refuses a booking with
+       * anything still open.
+       */
+      const items = [
+        ...gateFor(
+          body.technology as AccessTechnology | undefined,
+          (body.extraChecks ?? []).map((c) => ({
+            kind: c.id,
+            meaning: '',
+            side: 'unclear' as Side,
+            steps: [],
+            beforeBooking: c.question,
+            severity: 'info' as const,
+          })),
+        ),
+      ];
+      const answers = body.gate as Record<string, GateAnswer | undefined>;
+      const blockers = gateBlockers(items, answers);
+      if (blockers.length) {
+        throw badRequest(
+          `${blockers.length} check${blockers.length === 1 ? '' : 's'} still open before this visit can be ` +
+            `booked: ${blockers.map((b) => b.question).join(' ')}`,
+        );
+      }
+
+      const details = {
+        ...(body.supplier ? { supplier: body.supplier } : {}),
+        ...(body.contactName ? { contactName: body.contactName } : {}),
+        reason: body.reason as SiteVisitReason,
+        access: body.access as AccessNeed,
+        ...(body.slot ? { slot: body.slot } : {}),
+      };
+
+      const message = siteVisitMessage(details);
+
+      // The customer-facing message first. If that cannot be posted the
+      // booking is not recorded either, because a private note saying a
+      // customer was told something they were not is worse than no note.
       const note = await noteOnTicket({
         ticketId,
         visibility: 'public',
-        body: siteVisitBookedMessage({
-          ...(body.supplier ? { supplier: String(body.supplier).slice(0, 80) } : {}),
-          ...(body.contactName ? { contactName: String(body.contactName).slice(0, 120) } : {}),
-        }),
+        body: message.body,
         ...(body.ccEngineer && req.user?.email ? { ccEmails: [req.user.email] } : {}),
       });
 
@@ -461,14 +532,40 @@ export function operationsRouter(): Router {
         throw badRequest(note.error ?? 'The update was not written to the ticket.');
       }
 
+      // Then the engineering record: the reason as an engineer would put it,
+      // which side the test pointed at, and the checks somebody confirmed
+      // before spending the customer's money.
+      const record = await noteOnTicket({
+        ticketId,
+        visibility: 'private',
+        body: visitBookedNote({
+          ...details,
+          ...(body.testSide ? { testSide: body.testSide as Side } : {}),
+          ...(req.user?.name ? { bookedBy: req.user.name } : {}),
+          gate: gateNote(items, answers),
+        }),
+      });
+
+      const conflict = body.testSide
+        ? reasonConflict(body.reason as SiteVisitReason, body.testSide as Side)
+        : { conflict: false };
+
       audit({
         actorId: req.user?.id,
         actorEmail: req.user?.email,
         action: 'ticket.site_visit_notified',
-        detail: { ticketId: note.ticketId, supplier: body.supplier ?? 'unspecified' },
+        detail: {
+          ticketId: note.ticketId,
+          supplier: body.supplier ?? 'unspecified',
+          reason: body.reason,
+          access: body.access,
+          slot: body.slot ? `${body.slot.date} ${body.slot.window}` : 'unconfirmed',
+          recordPosted: record.posted,
+          ...(conflict.conflict ? { reasonConflictsWithTest: true } : {}),
+        },
         ip: req.ip,
       });
-      return { ticket: note };
+      return { ticket: note, subject: message.subject, record, ...(conflict.conflict ? { warning: conflict.warning } : {}) };
     }),
   );
 

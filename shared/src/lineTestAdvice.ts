@@ -452,7 +452,7 @@ export const flaggedMetrics = (metrics: TestMetric[]): TestMetric[] =>
   metrics.filter((m) => m.verdict === 'fail' || m.verdict === 'warn');
 
 /** Which side the findings point at, for the fault form's internal/external question. */
-export function overallSide(findings: TestFinding[]): Side {
+export function overallSide(findings: readonly TestFinding[]): Side {
   const sides = new Set(findings.filter((f) => f.severity !== 'info').map((f) => f.side));
   if (sides.size === 1) return [...sides][0]!;
   if (sides.has('network') && !sides.has('customer')) return 'network';
