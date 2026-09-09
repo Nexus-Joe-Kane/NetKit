@@ -18,3 +18,6 @@ export * from './areaCoverage';
 export * from './houseContact';
 export * from './simReportOptions';
 export * from './networkAdvice';
+export * from './downtime';
+export * from './lineTestAdvice';
+export * from './lineHandover';
