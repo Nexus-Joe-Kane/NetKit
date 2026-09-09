@@ -22,3 +22,4 @@ export * from './downtime';
 export * from './lineTestAdvice';
 export * from './lineHandover';
 export * from './accountStanding';
+export * from './inbox';

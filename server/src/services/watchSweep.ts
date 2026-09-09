@@ -4,7 +4,8 @@ import { audit, findUserById } from '../auth/store';
 import { addressByUprn, buildSiteReport } from './resolve';
 import { consumeQuota, quotaState } from './quota';
 import { allWatches, applyCheck, recordCheckFailure } from './watches';
-import { identify } from '@sw/shared';
+import { scanLines } from './inbox';
+import { identify, type LineRecord } from '@sw/shared';
 
 /**
  * Re-checks watched premises and emails what changed.
@@ -86,6 +87,11 @@ export async function sweepWatches(): Promise<SweepOutcome> {
       }
 
       const report = await buildSiteReport(address, identify(watch.uprn), { includeSiblings: false });
+
+      // The lines are in hand, so look for anything worth raising while we
+      // have them.
+      scanForFindings(report.lines);
+
       const changes = applyCheck(userId, watch.id, report);
       outcome.checked += 1;
       if (!changes.length) continue;
@@ -114,3 +120,23 @@ export async function sweepWatches(): Promise<SweepOutcome> {
 
   return outcome;
 }
+
+/**
+ * Looks for things nobody asked about.
+ *
+ * Runs over the lines at the premises people are already watching, which is
+ * the cheap way to do it: those reports are being fetched anyway, so this
+ * costs no extra provider calls. It means the inbox only sees premises
+ * somebody cared enough about to watch — a real limitation, and the honest
+ * alternative (sweeping every line on the account every day) is a load on the
+ * wholesale account nobody asked for.
+ */
+export function scanForFindings(lines: LineRecord[]): void {
+  if (lines.length === 0) return;
+  try {
+    scanLines(lines);
+  } catch {
+    // A finding that cannot be recorded must not fail the sweep it rode in on.
+  }
+}
+

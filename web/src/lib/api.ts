@@ -43,6 +43,7 @@ import type {
   WatchRecord,
   SiteContact,
   AccountStanding,
+  InboxItem,
 } from '@sw/shared';
 
 /**
@@ -263,6 +264,23 @@ export const api = {
    */
   raiseFault: (input: RaiseFaultInput) =>
     post<Sourced & { fault: FaultRecord; ticket?: TicketNoteOutcome }>('/api/faults', input),
+
+  /* ---- The shared inbox --------------------------------------------- */
+
+  inbox: () => request<{ actionable: InboxItem[]; closed: InboxItem[] }>('/api/inbox'),
+
+  /** Snooze, dismiss with a reason, or convert to a ticket. */
+  actOnInboxItem: (
+    id: string,
+    input: {
+      state: 'snoozed' | 'dismissed' | 'converted';
+      resolution?: string;
+      snoozeDays?: number;
+      snoozeReason?: string;
+      ticketId?: string;
+      createTicket?: boolean;
+    },
+  ) => post<{ item: InboxItem }>(`/api/inbox/${encodeURIComponent(id)}/act`, input),
 
   /* ---- Tickets ------------------------------------------------------ */
 

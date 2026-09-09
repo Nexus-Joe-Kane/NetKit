@@ -14,6 +14,7 @@ import { FaultsPage } from './pages/Faults';
 import { OrdersPage } from './pages/Orders';
 import { SimsPage } from './pages/Sims';
 import { ToolsPage } from './pages/Tools';
+import { InboxPage } from './pages/Inbox';
 import { ForcePasswordChange, Login } from './components/Login';
 import { Alert, Card, Chip, Empty, Label, Spinner } from './components/ui';
 import { Tabs, TabPanel, type TabDef } from './components/Tabs';
@@ -34,12 +35,13 @@ import { loadSections } from './lib/printStorage';
  * report it produces, so URL state is limited to the deep link for a UPRN.
  */
 
-type View = 'lookup' | 'network' | 'faults' | 'orders' | 'sims' | 'tools' | 'admin';
+type View = 'lookup' | 'inbox' | 'network' | 'faults' | 'orders' | 'sims' | 'tools' | 'admin';
 type ReportTab = 'broadband' | 'openreach' | 'signal' | 'lines' | 'companies';
 
 /** The primary navigation. `admin` is reached by its own button. */
 const NAV: Array<{ id: Exclude<View, 'admin'>; label: string }> = [
   { id: 'lookup', label: 'Lookup' },
+  { id: 'inbox', label: 'Inbox' },
   { id: 'network', label: 'Network status' },
   { id: 'faults', label: 'Faults' },
   { id: 'orders', label: 'Orders' },
@@ -111,7 +113,7 @@ function Portal({
   const route = useRoute();
   const view: View = ((): View => {
     if (route.view === 'site') return 'lookup';
-    const known: View[] = ['lookup', 'network', 'faults', 'orders', 'sims', 'tools', 'admin'];
+    const known: View[] = ['lookup', 'inbox', 'network', 'faults', 'orders', 'sims', 'tools', 'admin'];
     return known.find((v) => v === route.view) ?? 'lookup';
   })();
   const setView = (next: View): void => go(toHash(next));
@@ -280,6 +282,7 @@ function Portal({
         {view === 'faults' && <FaultsPage />}
         {view === 'orders' && <OrdersPage />}
         {view === 'sims' && <SimsPage />}
+        {view === 'inbox' && <InboxPage />}
         {view === 'tools' && <ToolsPage onOpenSite={(uprn) => go(toHash('site', uprn))} />}
 
         {view === 'lookup' && (

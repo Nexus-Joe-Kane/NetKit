@@ -12,9 +12,11 @@ import {
   firstName,
   paygEmail,
   siteVisitBookedMessage,
+  snoozeUntil,
   type ApiResult,
   type LineTestType,
 } from '@sw/shared';
+import { actOnItem, listInbox } from '../services/inbox';
 import {
   clientContextByName,
   comment,
@@ -48,6 +50,28 @@ const handler =
   };
 
 const TEST_TYPES = ['linetest', 'xdsltest', 'tamtest', 'kbdtest', 'servicetest', 'profilechange'] as const;
+
+/**
+ * The finding, as a private note on the ticket it became.
+ *
+ * Written from the stored item so the ticket carries the same evidence the
+ * inbox showed, rather than a summary somebody retyped.
+ */
+function inboxNote(id: string): string {
+  const item = listInbox().actionable.find((i) => i.id === id);
+  if (!item) return `Raised from the NetKit inbox (${id}).`;
+  return [
+    `Raised from the NetKit inbox: ${item.subject}`,
+    '',
+    item.detail,
+    '',
+    ...item.evidence.map((e) => `${e.label}: ${e.value}`),
+    '',
+    `First seen ${item.raisedAt}, seen ${item.seenCount} time${item.seenCount === 1 ? '' : 's'}.`,
+    ...(item.resolution ? ['', `Previously dismissed as: ${item.resolution}`] : []),
+  ].join('\n');
+}
+
 
 /**
  * Leaves a note on a customer's ticket, without letting it break the thing
@@ -316,6 +340,72 @@ export function operationsRouter(): Router {
         ip: req.ip,
       });
       return { fault: result.data, mode: result.mode, ticket: note };
+    }),
+  );
+
+  /* ---- The shared inbox --------------------------------------------- */
+
+  /**
+   * Things nobody asked about that somebody should look at.
+   *
+   * One list everybody sees. Not per-user: a per-user inbox becomes four
+   * copies of the same finding, and the first person to fix it has no way of
+   * telling the other three.
+   */
+  router.get('/inbox', handler(async () => listInbox()));
+
+  router.post(
+    '/inbox/:id/act',
+    handler(async (req) => {
+      const body = z
+        .object({
+          state: z.enum(['snoozed', 'dismissed', 'converted']),
+          resolution: z.string().trim().max(2000).optional(),
+          snoozeDays: z.number().int().min(1).max(730).optional(),
+          snoozeReason: z.string().trim().max(500).optional(),
+          ticketId: z.string().trim().max(16).optional(),
+          /** Set to create the ticket here rather than quoting an existing one. */
+          createTicket: z.boolean().optional(),
+        })
+        .parse(req.body ?? {});
+
+      const id = String(req.params.id ?? '');
+      let ticketId = body.ticketId;
+
+      // Converting can either quote a ticket that exists or write the finding
+      // onto one as a private note. Creating a ticket outright is not offered:
+      // Zendesk needs a requester, and inventing one puts a customer's name on
+      // a ticket they did not raise.
+      if (body.createTicket && ticketId) {
+        const note = await noteOnTicket({
+          ticketId,
+          visibility: 'private',
+          body: inboxNote(id),
+        });
+        if (!note.posted) throw badRequest(note.error ?? 'The finding was not written to the ticket.');
+      }
+
+      const result = actOnItem({
+        id,
+        state: body.state,
+        ...(body.resolution ? { resolution: body.resolution } : {}),
+        ...(body.snoozeDays ? { snoozedUntil: snoozeUntil(body.snoozeDays) } : {}),
+        ...(body.snoozeReason ? { snoozeReason: body.snoozeReason } : {}),
+        ...(ticketId ? { ticketId } : {}),
+        ...(req.user?.name ? { actedBy: req.user.name } : {}),
+      });
+
+      if (!result.ok) throw badRequest(result.message);
+
+      audit({
+        actorId: req.user?.id,
+        actorEmail: req.user?.email,
+        action: `inbox.${body.state}`,
+        detail: { id, ...(ticketId ? { ticketId } : {}), ...(body.resolution ? { resolution: body.resolution } : {}) },
+        ip: req.ip,
+      });
+
+      return { item: result.item };
     }),
   );
 
