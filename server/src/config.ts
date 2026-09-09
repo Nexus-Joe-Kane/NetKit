@@ -271,6 +271,13 @@ export interface AppConfig {
    * rather than among them.
    */
   ofcomBroadband: { apiKey: string; baseUrl: string; datasetPath: string; configured: boolean };
+  /**
+   * Ofcom's Mobile Checker: per-UPRN, per-operator coverage.
+   *
+   * A separate subscription from the broadband API, on a different host,
+   * with its own key — so having one does not give you the other.
+   */
+  ofcomMobile: { apiKey: string; baseUrl: string; configured: boolean };
   /** Zendesk Support: ticket notes, and the customer's own site contacts. */
   zendesk: { subdomain: string; email: string; apiToken: string; configured: boolean };
   /**
@@ -482,6 +489,11 @@ export function config(): AppConfig {
       datasetPath: str('OFCOM_BROADBAND_DATASET_PATH'),
       baseUrl: str('OFCOM_BROADBAND_BASE_URL', 'https://api-proxy.ofcom.org.uk/broadband'),
       configured: Boolean(str('OFCOM_BROADBAND_API_KEY')),
+    },
+    ofcomMobile: {
+      apiKey: str('OFCOM_MOBILE_API_KEY'),
+      baseUrl: str('OFCOM_MOBILE_BASE_URL', 'https://apim-cnapi-shared-prod.azure-api.net/mobilechecker'),
+      configured: Boolean(str('OFCOM_MOBILE_API_KEY')),
     },
     thinkbroadband: {
       apiKey: str('THINKBROADBAND_API_KEY'),
