@@ -1,4 +1,12 @@
-import { looksSpare, type SimEstate, type SimRecord, type SimState } from '@sw/shared';
+import {
+  looksSpare,
+  simActionPath,
+  type SimAction,
+  type SimEstate,
+  type SimNetworkState,
+  type SimRecord,
+  type SimState,
+} from '@sw/shared';
 import { config } from '../../config';
 import { fetchJson } from '../../lib/http';
 import { notConfigured } from '../../lib/errors';
@@ -135,6 +143,32 @@ async function jolaCall<T>(path: string, query: Record<string, string | number |
 }
 
 /**
+ * A write, which Jola take as a POST with a JSON body.
+ *
+ * Separate from `jolaCall` because the two must not share a retry policy.
+ * A read that times out is retried; a cease that times out is *not*, because
+ * a retry that succeeds after a first attempt that also succeeded is a
+ * second order on the same SIM, and half of these cannot be undone.
+ */
+async function jolaPost<T>(path: string, body: unknown): Promise<T | null> {
+  const cfg = config();
+  if (!cfg.jola.configured) {
+    throw notConfigured(
+      'Jola is not configured. Set JOLA_API_KEY and JOLA_SECRET_KEY — the API uses HTTP Basic and needs both halves.',
+    );
+  }
+
+  return fetchJson<T>(`${cfg.jola.baseUrl.replace(/\/$/, '')}/${path.replace(/^\//, '')}`, {
+    method: 'POST',
+    body,
+    headers: { Authorization: authHeader(), Accept: 'application/json' },
+    label: 'Jola SIM Portal',
+    timeoutMs: cfg.requestTimeoutMs,
+    retries: 0,
+  });
+}
+
+/**
  * Jola wrap list responses inconsistently across endpoints -- sometimes a
  * bare array, sometimes under `items`, `data`, `customers` or `sims`.
  */
@@ -202,6 +236,14 @@ const BAR_WORDS = /\b(bar|barred|barring|block|blocked|suspend|suspended|restric
 export function mapJolaSim(raw: unknown, customer?: JolaCustomer): SimRecord | null {
   const iccid = pickString(raw, 'iccid', 'ICCID', 'Iccid', 'iccId', 'simSerial');
   if (!iccid) return null;
+
+  /*
+   * Jola's own SIM id, which their order and session endpoints key on rather
+   * than the card number. Falling back to the ICCID is deliberate: some rows
+   * carry no separate id, and an action with nothing to address is worse
+   * than one addressed by the card.
+   */
+  const providerId = pickString(raw, 'SimId', 'simId', 'Id', 'id') ?? iccid;
 
   // Jola's own field is `MobileNumber`; the rest are kept for resellers who
   // rename it.
@@ -272,6 +314,7 @@ export function mapJolaSim(raw: unknown, customer?: JolaCustomer): SimRecord | n
 
   const record: SimRecord = {
     iccid,
+    providerId,
     ...(msisdn ? { msisdn } : {}),
     ...(pickString(raw, 'imsi', 'IMSI') ? { imsi: pickString(raw, 'imsi', 'IMSI') } : {}),
     state: jolaState(rawField(raw, 'State', 'state', 'status', 'Status', 'simStatus')),
@@ -426,3 +469,90 @@ export const __jolaTesting = { jolaState, mapJolaSim, mapJolaCustomer, rowsFrom,
  * always answers "no usage" reads on screen as "this SIM has never been
  * used", which is a different and wrong statement.
  */
+
+/* ------------------------------------------------------------------ *
+ * Doing things to a SIM
+ * ------------------------------------------------------------------ */
+
+/**
+ * Runs one action against Jola's order endpoints.
+ *
+ * The paths are theirs, misspelling included -- `tarrifchange` really is
+ * spelled that way in the live API, and spelling it correctly gives a 404.
+ *
+ * Bodies are built per action rather than from one shape, because Jola do
+ * not use one: an activation wants a tariff, a swap wants the new card's
+ * ICCID, and a bar wants only the SIM. Sending fields an endpoint does not
+ * expect has them rejected wholesale rather than ignored.
+ */
+export async function runJolaAction(input: {
+  action: SimAction;
+  simId: string;
+  tariff?: string;
+  boltOn?: string;
+  newIccid?: string;
+}): Promise<{ ok: boolean; reference?: string; detail: string }> {
+  const path = simActionPath(input.action);
+
+  const body: Record<string, unknown> = { SimId: input.simId };
+  if (input.action === 'activate' || input.action === 'tariffchange') {
+    body.Tariff = input.tariff;
+    body.TariffName = input.tariff;
+  }
+  if (input.action === 'bolton') {
+    body.Bolton = input.boltOn;
+    body.BoltonName = input.boltOn;
+  }
+  if (input.action === 'simswap') {
+    body.NewIccid = input.newIccid;
+    body.Iccid = input.newIccid;
+  }
+
+  try {
+    const result = await jolaPost<Record<string, unknown>>(path, body);
+    const reference =
+      pickString(result, 'OrderId', 'orderId', 'Reference', 'reference', 'Id', 'id') ?? undefined;
+
+    /*
+     * Jola answer a successful order with 200 and, sometimes, nothing in the
+     * body. An empty 200 is a success -- `fetchJson` would have thrown on
+     * anything else -- so absence of a reference is not absence of an order.
+     */
+    return {
+      ok: true,
+      ...(reference ? { reference } : {}),
+      detail: reference
+        ? `Jola accepted the order. Their reference is ${reference}.`
+        : 'Jola accepted the order. They returned no reference for it.',
+    };
+  } catch (err) {
+    return { ok: false, detail: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Whether the SIM is holding a data session right now.
+ *
+ * A different question from its billing state, and the one somebody rings
+ * up about: a SIM can be `active` in Jola's system and not have connected
+ * for a week.
+ */
+export async function fetchJolaNetworkState(simId: string): Promise<SimNetworkState> {
+  try {
+    const raw = await jolaCall<Record<string, unknown>>(`sims/${encodeURIComponent(simId)}/networkdetails`);
+    if (!raw) return { unknown: true };
+
+    const online = pickBool(raw, 'OnlineStatus', 'onlineStatus', 'Online', 'online');
+    return {
+      ...(online === undefined ? { unknown: true } : { online }),
+      ...(pickString(raw, 'PrivateIPAddress', 'privateIpAddress', 'PrivateIp')
+        ? { privateIp: pickString(raw, 'PrivateIPAddress', 'privateIpAddress', 'PrivateIp')! }
+        : {}),
+      ...(pickString(raw, 'SessionStart', 'sessionStart') ? { sessionStart: pickString(raw, 'SessionStart', 'sessionStart')! } : {}),
+      ...(pickString(raw, 'SessionEnd', 'sessionEnd') ? { sessionEnd: pickString(raw, 'SessionEnd', 'sessionEnd')! } : {}),
+    };
+  } catch {
+    // Undocumented rate limits, and this is decoration next to the estate.
+    return { unknown: true };
+  }
+}

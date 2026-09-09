@@ -711,6 +711,15 @@ export function looksSpare(sim: {
 
 export interface SimRecord {
   iccid: string;
+  /**
+   * The provider's own identifier for the SIM.
+   *
+   * Distinct from the ICCID and needed because Jola's order and session
+   * endpoints key on this, not on the card number. Falls back to the ICCID
+   * where a provider does not keep a separate id, so a caller always has
+   * something to send.
+   */
+  providerId?: string;
   /** Zen service reference where the SIM is sold through Zen. */
   zenReference?: string;
   /* ---- Whose SIM is this ------------------------------------------- *

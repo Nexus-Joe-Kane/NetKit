@@ -24,6 +24,11 @@ import {
   visitStillNeededNote,
   snoozeUntil,
   withTrail,
+  SIM_ACTIONS,
+  confirmationFor,
+  sessionSummary,
+  simActionDef,
+  simActionProblem,
   type AccessNeed,
   type AccessTechnology,
   type GateAnswer,
@@ -34,6 +39,7 @@ import {
 } from '@sw/shared';
 import { actOnItem, listInbox } from '../services/inbox';
 import { activityFor, type ActivityScope } from '../services/activity';
+import { fetchJolaNetworkState, findJolaSim, runJolaAction } from '../providers/jola/adapters';
 import {
   clientContextByName,
   comment,
@@ -1208,6 +1214,126 @@ export function operationsRouter(): Router {
       return { sim: result.data, mode: result.mode };
     }),
   );
+
+  /**
+   * Whether a SIM is holding a session right now.
+   *
+   * A different question from its billing state, and the one somebody
+   * actually rings up about: a SIM can be `active` in Jola's system and not
+   * have connected for a week.
+   */
+  router.get(
+    '/sims/:identifier/session',
+    handler(async (req) => {
+      const identifier = String(req.params.identifier ?? '').trim();
+      if (!identifier) throw badRequest('Provide an ICCID or a number.');
+      const sim = await findJolaSim(identifier);
+      if (!sim) throw notFound('No SIM matched that ICCID or number.');
+      const state = await fetchJolaNetworkState(sim.providerId ?? sim.iccid);
+      return { sim: { id: sim.providerId ?? sim.iccid, msisdn: sim.msisdn, iccid: sim.iccid }, state, summary: sessionSummary(state) };
+    }),
+  );
+
+  /**
+   * Does something to a SIM.
+   *
+   * Every guard is enforced here rather than only in the form, because a
+   * form is a suggestion and this ends a service. Three of them:
+   *
+   * The SIM's state has to make the action sensible — Jola answer a bar on
+   * an already-barred SIM with a generic failure, and an engineer who gets
+   * that at eight in the morning concludes the integration is broken.
+   *
+   * The two irreversible actions need the SIM's own number typed back.
+   * Not a checkbox: a checkbox is muscle memory, and a ceased number cannot
+   * be recovered.
+   *
+   * And the order is never retried. A cease that times out and succeeded is
+   * a ceased SIM; retrying it is a second order on a service that no longer
+   * exists, or worse, on one that does.
+   */
+  router.post(
+    '/sims/:identifier/action',
+    handler(async (req) => {
+      const body = z
+        .object({
+          action: z.enum(['bar', 'fullbar', 'unbar', 'cease', 'activate', 'tariffchange', 'bolton', 'simswap']),
+          tariff: z.string().trim().max(120).optional(),
+          boltOn: z.string().trim().max(120).optional(),
+          newIccid: z.string().trim().max(24).optional(),
+          confirm: z.string().trim().max(24).optional(),
+        })
+        .parse(req.body ?? {});
+
+      const identifier = String(req.params.identifier ?? '').trim();
+      if (!identifier) throw badRequest('Provide an ICCID or a number.');
+
+      const sim = await findJolaSim(identifier);
+      if (!sim) throw notFound('No SIM matched that ICCID or number.');
+
+      const def = simActionDef(body.action);
+      const problem = simActionProblem({
+        action: body.action,
+        ...(sim.state ? { state: sim.state } : {}),
+        ...(body.tariff ? { tariff: body.tariff } : {}),
+        ...(body.boltOn ? { boltOn: body.boltOn } : {}),
+        ...(body.newIccid ? { newIccid: body.newIccid } : {}),
+        ...(body.confirm ? { typedConfirmation: body.confirm } : {}),
+        ...(confirmationFor(sim) ? { expectedConfirmation: confirmationFor(sim)! } : {}),
+      });
+      if (problem) throw badRequest(problem);
+
+      // Audited before the call, not after: an order that times out still
+      // happened, and a log that only records successes cannot answer
+      // "did we cease that SIM" the next morning.
+      audit({
+        actorId: req.user?.id,
+        actorEmail: req.user?.email,
+        action: `sim.${body.action}`,
+        detail: {
+          simId: sim.providerId ?? sim.iccid,
+          ...(sim.msisdn ? { msisdn: sim.msisdn } : {}),
+          ...(sim.iccid ? { iccid: sim.iccid } : {}),
+          ...(sim.clientName ? { clientName: sim.clientName } : {}),
+          from: sim.state,
+          reversible: def?.reversible ?? false,
+          ...(body.tariff ? { tariff: body.tariff } : {}),
+          ...(body.boltOn ? { boltOn: body.boltOn } : {}),
+          ...(body.newIccid ? { newIccid: body.newIccid } : {}),
+          submitting: true,
+        },
+        ip: req.ip,
+      });
+
+      const result = await runJolaAction({
+        action: body.action,
+        simId: sim.providerId ?? sim.iccid,
+        ...(body.tariff ? { tariff: body.tariff } : {}),
+        ...(body.boltOn ? { boltOn: body.boltOn } : {}),
+        ...(body.newIccid ? { newIccid: body.newIccid } : {}),
+      });
+
+      audit({
+        actorId: req.user?.id,
+        actorEmail: req.user?.email,
+        action: `sim.${body.action}`,
+        detail: {
+          simId: sim.providerId ?? sim.iccid,
+          ...(sim.msisdn ? { msisdn: sim.msisdn } : {}),
+          ok: result.ok,
+          ...(result.reference ? { reference: result.reference } : {}),
+          ...(result.ok ? {} : { error: result.detail }),
+        },
+        ip: req.ip,
+      });
+
+      if (!result.ok) throw badRequest(result.detail);
+      return { ...result, action: body.action, effect: def?.effect };
+    }),
+  );
+
+  /** What can be done to a SIM, so the form does not hard-code its own copy. */
+  router.get('/sim-actions', handler(async () => ({ actions: SIM_ACTIONS })));
 
   /* ---- Tools ------------------------------------------------------- */
 
