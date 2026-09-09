@@ -9,6 +9,9 @@ import type {
   AvailableTests,
   Disposition,
   DispositionDef,
+  AddressAssignment,
+  ClientProfile,
+  ClientSite,
   NetEvent,
   ProviderStatus,
   SiteWatchState,
@@ -628,6 +631,30 @@ export const api = {
       `/api/events/${encodeURIComponent(id)}/note`,
       body,
     ),
+  /* ---- Clients ---------------------------------------------------- */
+
+  clients: (q = '', limit = 25) =>
+    request<{ clients: ClientListRow[]; total: number }>(
+      `/api/clients?limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ''}`,
+    ),
+  /** Named apart from `client`, which is the Zendesk standing lookup. */
+  clientProfile: (key: string) =>
+    request<{ profile: ClientProfile; unassigned: ClientSite[]; assignments: AddressAssignment[] }>(
+      `/api/clients/${encodeURIComponent(key)}`,
+    ),
+  assignments: () => request<{ assignments: AddressAssignment[] }>('/api/assignments'),
+  assignAddress: (body: {
+    uprn: string;
+    clientKey: string;
+    clientName: string;
+    addressLine?: string;
+    postcode?: string;
+    siteName?: string;
+    note?: string;
+  }) => post<{ assignment: AddressAssignment }>('/api/assignments', body),
+  unassignAddress: (uprn: string) =>
+    del<{ uprn: string; removed: boolean }>(`/api/assignments/${encodeURIComponent(uprn)}`),
+
   /** Named apart from the supervisor's own sweep, which checks integrations. */
   checkSitesNow: () => post<SweepOutcome>('/api/events/sweep', {}),
 
@@ -774,6 +801,18 @@ export interface SelfTestReport {
   counts: Record<CheckStatus, number>;
   checks: Check[];
   environment: { dataMode: string; nodeEnv: string; version: string };
+}
+
+/** One row in the client list. */
+export interface ClientListRow {
+  key: string;
+  name: string;
+  display: string;
+  tradingName?: string;
+  sites: number;
+  lookupable: number;
+  serviceRefs: number;
+  sources: string[];
 }
 
 /** What the home page asks for in one call. */

@@ -39,6 +39,16 @@ export interface ClientIndexEntry {
   name: string;
   /** Other spellings, so a search matches whichever one somebody types. */
   aliases: string[];
+  /**
+   * The name they trade under, where it differs from the registered one.
+   *
+   * Distinguished from `aliases` rather than lumped in with them, because it
+   * is the one an engineer and a customer both actually use. "Bellwether
+   * Hospitality Ltd" is on the contract; "Market Halls" is on the door and
+   * is what somebody types into the search box and says on the phone. Both
+   * are searchable; this one decides how the row reads.
+   */
+  tradingName?: string;
   sites: ClientSite[];
   /** Supplier references seen against this client, searchable upstream. */
   serviceRefs: string[];
@@ -93,6 +103,8 @@ export interface ClientContribution {
   sites?: ClientSite[];
   serviceRefs?: string[];
   aliases?: string[];
+  /** The name on the door, where the source distinguishes it. */
+  tradingName?: string;
 }
 
 /**
@@ -108,6 +120,27 @@ export interface ClientContribution {
  * is not. Two sources describing the same shop should not produce two rows,
  * and a source with no postcode should not silently overwrite one that has.
  */
+/**
+ * How a client's name reads on screen.
+ *
+ * `Registered Name (Trading Name)` where the two differ, because both are
+ * needed for different reasons: the registered name is what a supplier's
+ * portal and a contract are filed under, and the trading name is what
+ * everybody says. Showing one and hiding the other means somebody searching
+ * the way they think finds nothing.
+ */
+export function displayName(entry: Pick<ClientIndexEntry, 'name' | 'tradingName'>): string {
+  const trading = (entry.tradingName ?? '').trim();
+  if (!trading) return entry.name;
+  // Not repeated where the trading name is already the display name, and not
+  // where one merely contains the other -- "Market Halls (Market Halls Ltd)"
+  // is noise rather than information.
+  const a = entry.name.toLowerCase();
+  const b = trading.toLowerCase();
+  if (a === b || a.includes(b) || b.includes(a)) return entry.name;
+  return `${entry.name} (${trading})`;
+}
+
 export function foldContribution(
   existing: ClientIndexEntry | undefined,
   contribution: ClientContribution,
@@ -130,6 +163,14 @@ export function foldContribution(
   for (const alias of contribution.aliases ?? []) {
     const cleaned = norm(alias);
     if (cleaned && cleaned !== entry.name && !entry.aliases.includes(cleaned)) entry.aliases.push(cleaned);
+  }
+
+  // A trading name is also an alias, so searching it works, but it keeps its
+  // own field so the row can read "Registered Name (Trading Name)".
+  const trading = norm(contribution.tradingName ?? '');
+  if (trading) {
+    if (!entry.tradingName) entry.tradingName = trading;
+    if (trading !== entry.name && !entry.aliases.includes(trading)) entry.aliases.push(trading);
   }
 
   for (const site of contribution.sites ?? []) {

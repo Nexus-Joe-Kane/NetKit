@@ -6,6 +6,7 @@ import {
   clientIndexStale,
   emptyClientIndex,
   foldContribution,
+  lookupableSites,
   searchClients,
   type ClientContribution,
   type ClientIndexEntry,
@@ -383,6 +384,21 @@ export function learnFromReport(report: SiteReport): void {
  * ------------------------------------------------------------------ */
 
 /** Clients matching a typed term. Local, so it costs nothing. */
+/**
+ * Every client we know about, best-ranked first.
+ *
+ * For the Clients tab's opening view, where there is no search term yet. The
+ * ranking is the same one the search uses — a client with sites you can look
+ * up above one with none — because the list somebody sees before typing
+ * should not be alphabetical noise.
+ */
+export function allClients(): ClientIndexEntry[] {
+  refreshIfStale();
+  return [...state().entries].sort(
+    (a, b) => lookupableSites(b).length - lookupableSites(a).length || a.name.localeCompare(b.name),
+  );
+}
+
 export function findClients(term: string, limit = 6): ClientIndexEntry[] {
   refreshIfStale();
   return searchClients(state().entries, term, limit);
