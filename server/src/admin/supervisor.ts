@@ -321,6 +321,7 @@ export async function sweep(): Promise<SweepResult> {
           result.circuitsClosed.push(status.key);
           audit({
             action: 'supervisor.circuit_closed',
+            automatic: true,
             detail: { key: status.key, name: status.name },
           });
         }
@@ -379,6 +380,7 @@ export async function sweep(): Promise<SweepResult> {
         result.circuitsOpened.push(status.key);
         audit({
           action: 'supervisor.circuit_opened',
+          automatic: true,
           detail: {
             key: status.key,
             name: status.name,
@@ -462,6 +464,7 @@ async function attemptRecovery(health: IntegrationHealth): Promise<boolean> {
 
         audit({
           action: 'supervisor.recovered',
+          automatic: true,
           detail: { key: health.key, name: health.name, action: action.name },
         });
         return true;
@@ -620,7 +623,7 @@ export function reportLiveFailure(key: string, message: string): void {
       backoffSeconds,
     };
     health.state = 'circuit_open';
-    audit({ action: 'supervisor.circuit_opened', detail: { key, viaLiveRequest: true, error: message } });
+    audit({ action: 'supervisor.circuit_opened', automatic: true, detail: { key, viaLiveRequest: true, error: message } });
   }
 }
 
@@ -634,7 +637,7 @@ export function reportLiveSuccess(key: string): void {
   if (health.circuit.open) {
     health.circuit = { open: false, backoffSeconds: 0 };
     health.state = 'healthy';
-    audit({ action: 'supervisor.circuit_closed', detail: { key, viaLiveRequest: true } });
+    audit({ action: 'supervisor.circuit_closed', automatic: true, detail: { key, viaLiveRequest: true } });
   }
 }
 

@@ -68,6 +68,16 @@ export interface AuditEntry {
   action: string;
   detail?: Record<string, unknown>;
   ip?: string;
+  /**
+   * True where nothing human triggered this.
+   *
+   * Stated rather than inferred. "No `actorId`" looks like the same signal
+   * and is not: the watch sweep audits under the watch owner's id while
+   * running unattended at three in the morning, and a seeding step has no id
+   * while being something a person ran. Both readings of an inferred flag are
+   * wrong, and the wrong one credits a person with a decision nothing made.
+   */
+  automatic?: boolean;
 }
 
 interface Database {

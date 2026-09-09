@@ -101,6 +101,9 @@ export async function sweepWatches(): Promise<SweepOutcome> {
       outcome.changed += 1;
       audit({
         action: 'watch.changed',
+        // The sweep runs on a timer. The owner's id is here so the change can
+        // be traced to their watch, not because they asked for this check.
+        automatic: true,
         actorId: userId,
         detail: { uprn: watch.uprn, changes },
       });

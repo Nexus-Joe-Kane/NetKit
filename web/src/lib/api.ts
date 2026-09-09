@@ -745,4 +745,10 @@ export interface AuditEntry {
   action: string;
   detail?: Record<string, unknown>;
   ip?: string;
+  /**
+   * True where nothing human triggered this. Recorded by the server rather
+   * than worked out here: a sweep audits under the watch owner's id, so an
+   * absent actor is not the same signal.
+   */
+  automatic?: boolean;
 }

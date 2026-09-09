@@ -529,6 +529,20 @@
 .chip--idle { background: var(--sw-idle-bg); color: var(--sw-idle-ink); border-color: var(--sw-hairline); }
 .chip--slate { background: var(--sw-slate); color: var(--sw-white); }
 
+/*
+ * Work nobody asked for.
+ *
+ * Dashed rather than another solid colour, so a row the portal did on its own
+ * is distinguishable from a row somebody did at a glance and without having
+ * to remember which shade of blue means what.
+ */
+.chip--auto {
+  background: var(--sw-info-bg);
+  color: var(--sw-info-ink);
+  border-style: dashed;
+  border-color: #b6c6e6;
+}
+
 .chip__dot {
   width: 6px;
   height: 6px;

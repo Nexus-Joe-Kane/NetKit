@@ -1061,8 +1061,9 @@ function UsersBoard({ me }: { me: PublicUser }): ReactElement {
 /** The audit log is evidence, so the export keeps the detail verbatim. */
 const AUDIT_COLUMNS: Array<CsvColumn<AuditEntry>> = [
   { header: 'When', value: (e) => e.at },
-  { header: 'Who', value: (e) => e.actorEmail },
+  { header: 'Who', value: (e) => (e.automatic ? 'NetKit (automatic)' : e.actorEmail) },
   { header: 'User id', value: (e) => e.actorId },
+  { header: 'Automatic', value: (e) => (e.automatic ? 'yes' : 'no') },
   { header: 'Action', value: (e) => e.action },
   { header: 'Detail', value: (e) => (e.detail ? JSON.stringify(e.detail) : '') },
   { header: 'IP', value: (e) => e.ip },
@@ -1119,7 +1120,18 @@ function AuditBoard(): ReactElement {
                 {entries.map((entry, i) => (
                   <tr key={i} className="clickable" onClick={() => setDetail(entry)}>
                     <td style={{ whiteSpace: 'nowrap', fontSize: 12.5 }}>{formatDateTime(entry.at)}</td>
-                    <td style={{ fontSize: 12.5 }}>{entry.actorEmail ?? <span className="muted">—</span>}</td>
+                    <td style={{ fontSize: 12.5 }}>
+                      {entry.automatic ? (
+                        // Flagged rather than left blank. A row with no name
+                        // against it reads as missing data; this one reads as
+                        // work nobody asked for, which is what it is.
+                        <span className="chip chip--auto" title="Nobody triggered this — the portal did it on its own">
+                          Automatic
+                        </span>
+                      ) : (
+                        entry.actorEmail ?? <span className="muted">—</span>
+                      )}
+                    </td>
                     <td className="sw-mono" style={{ fontSize: 12 }}>{entry.action}</td>
                     <td className="sw-mono muted" style={{ fontSize: 11.5, maxWidth: 300, wordBreak: 'break-word' }}>
                       {entry.detail ? JSON.stringify(entry.detail) : '—'}
@@ -1150,7 +1162,7 @@ function AuditBoard(): ReactElement {
             <div className="kv">
               <Cell label="Action" value={detail.action} mono />
               <Cell label="When" value={formatDateTime(detail.at)} />
-              <Cell label="Who" value={detail.actorEmail} />
+              <Cell label="Who" value={detail.automatic ? 'NetKit, automatically' : detail.actorEmail} />
               <Cell label="IP address" value={detail.ip} mono />
             </div>
             {detail.detail && (
