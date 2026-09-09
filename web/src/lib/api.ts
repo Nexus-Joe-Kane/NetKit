@@ -630,7 +630,12 @@ export interface AdminStatus {
     cacheTtlSeconds: number;
     sessionSecretSet: boolean;
   };
-  resend: { verified: boolean; verifiedAt?: string; lastError?: string; lastTestTo?: string };
+  /**
+   * `configured` separates "the test has not been run" from "there is no key
+   * and nobody wants one" — without it the portal nagged about a delivery
+   * test for a service deliberately switched off.
+   */
+  resend: { configured: boolean; verified: boolean; verifiedAt?: string; lastError?: string; lastTestTo?: string };
   ordering: OrderingSettings;
   quotas: QuotaSummary;
 }

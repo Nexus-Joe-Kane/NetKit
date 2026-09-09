@@ -94,15 +94,9 @@ test('order state and type are inferred, with dates as the fallback', () => {
   assert.equal(orderType({ type: 'Cease' }), 'cease');
 });
 
-test('SIM state is read from either field name', () => {
-  const { simState } = __selfServiceTesting;
-  assert.equal(simState('Active'), 'active');
-  assert.equal(simState('Suspended'), 'suspended');
-  assert.equal(simState('Ceased'), 'ceased');
-  assert.equal(simState('In stock'), 'pending');
-  assert.equal(simState(undefined), 'unknown');
-
-  // Jola uses its own vocabulary for the same states.
+test('Jola state names map onto ours', () => {
+  // The Zen half of this test went with the Zen SIM estate: mobile is Jola's
+  // job now, and a mapper with no caller is a mapper nothing keeps honest.
   assert.equal(__jolaTesting.jolaState('Barred'), 'suspended');
   assert.equal(__jolaTesting.jolaState('Disconnected'), 'ceased');
   assert.equal(__jolaTesting.jolaState('Spare'), 'pending');

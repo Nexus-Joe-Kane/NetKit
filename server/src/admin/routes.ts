@@ -96,7 +96,13 @@ export function adminRouter(): Router {
           cacheTtlSeconds: cfg.cacheTtlSeconds,
           sessionSecretSet: Boolean(cfg.sessionSecret),
         },
-        resend: settings().resend,
+        /*
+         * `configured` travels with the state, so the portal can tell "the
+         * test has not been run" from "there is no key and nobody wants
+         * one". Without it every page nagged about a delivery test for a
+         * service deliberately switched off.
+         */
+        resend: { ...settings().resend, configured: config().resend.configured },
         notifications: { channel: notifyChannel(), detail: notifyChannelDetail() },
         ordering: {
           ...settings().ordering,

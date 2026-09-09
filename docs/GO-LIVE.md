@@ -384,6 +384,25 @@ address validation as a second opinion on the Openreach address key.
 Note: **Giacom publish no fault or diagnostics API**, so line testing and
 fault raising stay Zen-only. Every Giacom line says so on its own record.
 
+### Mobile is Jola, and only Jola
+
+Zen's cellular endpoints are Jola-backed, the SIMs are held directly with
+Jola, and asking both produced a second copy of the same estate with fewer
+fields on it — which then won the dedupe about half the time and blanked the
+customer name, the number and the usage on rows Jola had answered properly.
+
+So the Zen SIM path is **removed**, not switched off, and there is nothing to
+configure: `ZEN_CLIENT_ID` no longer buys you a mobile estate and is not
+supposed to.
+
+A note on what looks like missing data: an estate of a couple of hundred SIMs
+usually has a large minority sitting in a drawer. Those genuinely have no
+number, no usage and no customer, and NetKit now says **stock** rather than
+**unknown** — reclassified only where the provider gave no state at all,
+there is no number, and no usage. A SIM with a number is somebody's, whatever
+it is tagged. The SIMs page opens on **Active** for the same reason, with
+stock on its own tab.
+
 ### Resend — optional, and only for credentials
 
 ```

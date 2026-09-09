@@ -668,7 +668,46 @@ export interface CallRecord {
  * SIMs / mobile estate
  * ------------------------------------------------------------------ */
 
-export type SimState = 'active' | 'suspended' | 'ceased' | 'pending' | 'test' | 'unknown';
+/**
+ * What state a SIM is in.
+ *
+ * `spare` is a real state, not a missing one, and telling the two apart
+ * matters: an estate of 236 SIMs where 124 sit in a drawer was showing 124
+ * rows reading "unknown", which looks like a broken integration when it is
+ * simply a bag of unassigned SIMs. A spare has no number, no usage and no
+ * customer, and all three of those absences are correct.
+ */
+export type SimState = 'active' | 'suspended' | 'ceased' | 'pending' | 'test' | 'spare' | 'unknown';
+
+/**
+ * Labels that mean "not issued to anybody yet".
+ *
+ * Read from the SIM's own tags, because that is where this lives in practice:
+ * a bag of spares gets tagged "SIM Bag" or "Sent iPhone SIMs" and nothing
+ * else distinguishes it from a SIM the provider has simply not told us about.
+ */
+const SPARE_WORDS = /\b(spare|bag|stock|unused|unassigned|sent|shelf|drawer|not\s*in\s*use)\b/i;
+
+/**
+ * Whether this looks like a spare rather than an unknown.
+ *
+ * Deliberately conservative: it only reclassifies a SIM the provider gave no
+ * state for, and only when there is no number and no usage against it. A SIM
+ * with a number is somebody's, whatever it is tagged.
+ */
+export function looksSpare(sim: {
+  state: SimState;
+  msisdn?: string;
+  usedBytes?: number;
+  tags?: string[];
+  clientName?: string;
+}): boolean {
+  if (sim.state !== 'unknown') return false;
+  if (sim.msisdn) return false;
+  if ((sim.usedBytes ?? 0) > 0) return false;
+  const haystack = [...(sim.tags ?? []), sim.clientName ?? ''].join(' ');
+  return SPARE_WORDS.test(haystack);
+}
 
 export interface SimRecord {
   iccid: string;

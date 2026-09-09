@@ -1,4 +1,4 @@
-import type { SimEstate, SimRecord, SimState } from '@sw/shared';
+import { looksSpare, type SimEstate, type SimRecord, type SimState } from '@sw/shared';
 import { config } from '../../config';
 import { fetchJson } from '../../lib/http';
 import { notConfigured } from '../../lib/errors';
@@ -186,7 +186,7 @@ export function mapJolaSim(raw: unknown, customer?: JolaCustomer): SimRecord | n
   const postcodeLike = labels.find((l) => /^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/i.test(l.trim()));
   const site = explicitSite ?? labels.find((l) => l !== postcodeLike);
 
-  return {
+  const record: SimRecord = {
     iccid,
     ...(msisdn ? { msisdn } : {}),
     ...(pickString(raw, 'imsi', 'IMSI') ? { imsi: pickString(raw, 'imsi', 'IMSI') } : {}),
@@ -234,6 +234,19 @@ export function mapJolaSim(raw: unknown, customer?: JolaCustomer): SimRecord | n
     provider: 'Jola SIM Portal',
     source: 'jola',
   };
+
+  /*
+   * A spare is a spare, not an unknown.
+   *
+   * An estate of 236 SIMs with 124 in a drawer was rendering 124 rows
+   * reading "unknown" with no number and no usage, which looks like a broken
+   * integration rather than a bag of stock. Reclassified only where the
+   * provider gave no state, there is no number and no usage — a SIM with a
+   * number is somebody's, whatever it is tagged.
+   */
+  if (looksSpare(record)) record.state = 'spare';
+
+  return record;
 }
 
 /** Every customer the credential can see. */

@@ -66,12 +66,26 @@ const STATE_TONE: Record<SimState, ChipTone> = {
   ceased: 'crit',
   pending: 'info',
   test: 'idle',
+  spare: 'idle',
   unknown: 'idle',
 };
 
-type Tab = 'all' | 'active' | 'overage' | 'barred' | 'suspended';
+/** What each state is called on screen, where the raw word is not enough. */
+const STATE_LABEL: Partial<Record<SimState, string>> = {
+  spare: 'spare — not issued',
+  unknown: 'no state reported',
+};
 
-const TABS = ['all', 'active', 'overage', 'barred', 'suspended'] as const;
+type Tab = 'active' | 'all' | 'overage' | 'barred' | 'suspended' | 'spare';
+
+/*
+ * Active leads, not All.
+ *
+ * "All SIMs" opened on 236 rows of which 124 were spares in a drawer with no
+ * number and no usage — a page of blanks as the first thing anybody sees.
+ * The live estate is the useful default and the stock has a tab of its own.
+ */
+const TABS = ['active', 'all', 'overage', 'barred', 'suspended', 'spare'] as const;
 
 /** Share of allowance used, as a percentage. */
 function usedPercent(sim: SimRecord): number | null {
@@ -88,7 +102,7 @@ export function SimsPage(): ReactElement {
   const [loading, setLoading] = useState(true);
   // The open tab lives in the URL, so a refresh or a pasted link comes back
   // to the same one.
-  const [tab, setTab] = useTabRoute<Tab>('sims', TABS, 'all');
+  const [tab, setTab] = useTabRoute<Tab>('sims', TABS, 'active');
   const [filter, setFilter] = useState('');
   /* A SIM named in the URL, so the lookup box can link straight to one. */
   const route = useRoute();
@@ -198,6 +212,9 @@ export function SimsPage(): ReactElement {
       // somebody actually goes looking for.
       barred: sims.filter((s) => (s.bars?.length ?? 0) > 0 && s.state !== 'ceased'),
       suspended: sims.filter((s) => s.state === 'suspended' || s.state === 'ceased'),
+      // Stock: no number, no usage, nobody's yet. Kept out of the other
+      // groups so they read as an estate rather than a stock take.
+      spare: sims.filter((s) => s.state === 'spare'),
     }),
     [sims],
   );
@@ -252,8 +269,8 @@ export function SimsPage(): ReactElement {
   const poolPercent = pool?.sizeBytes && pool.usedBytes != null ? Math.round((pool.usedBytes / pool.sizeBytes) * 100) : null;
 
   const tabs: Array<TabDef<Tab>> = [
-    { id: 'all', label: 'All SIMs', count: buckets.all.length },
     { id: 'active', label: 'Active', count: buckets.active.length },
+    { id: 'all', label: 'All SIMs', count: buckets.all.length },
     {
       id: 'overage',
       label: 'Near or over allowance',
@@ -267,6 +284,7 @@ export function SimsPage(): ReactElement {
       ...(buckets.barred.length ? { tone: 'warn' as const } : {}),
     },
     { id: 'suspended', label: 'Suspended & ceased', count: buckets.suspended.length },
+    { id: 'spare', label: 'Stock', count: buckets.spare.length },
   ];
 
   return (
@@ -424,19 +442,31 @@ export function SimsPage(): ReactElement {
                         <td className="sw-mono" style={{ fontSize: 13 }}>{sim.msisdn ?? '—'}</td>
                         <td className="sw-mono" style={{ fontSize: 11.5 }}>{sim.iccid}</td>
                         <td style={{ fontSize: 12.5, maxWidth: 220 }}>
+                          {/* Whichever of the two exists, and never a
+                              dangling separator: a missing client name was
+                              rendering as "– Sent iPhone SIMs". */}
                           {sim.clientName ? (
                             <>
                               <strong style={{ color: 'var(--sw-ink)' }}>{sim.clientName}</strong>
                               {sim.site && <div className="muted" style={{ fontSize: 11.5 }}>{sim.site}</div>}
                             </>
+                          ) : sim.site ? (
+                            <>
+                              <strong style={{ color: 'var(--sw-ink)' }}>{sim.site}</strong>
+                              <div className="muted" style={{ fontSize: 11.5 }}>
+                                {sim.state === 'spare' ? 'stock, not issued to a client' : 'no client recorded'}
+                              </div>
+                            </>
                           ) : (
-                            <span className="muted">Not assigned</span>
+                            <span className="muted">
+                              {sim.state === 'spare' ? 'Stock' : 'Not assigned'}
+                            </span>
                           )}
                           <div className="muted" style={{ fontSize: 11 }}>{vendorLabel(sim.provider)}</div>
                         </td>
                         <td>
                           <Chip tone={STATE_TONE[sim.state]} dot>
-                            {sim.state}
+                            {STATE_LABEL[sim.state] ?? sim.state}
                           </Chip>
                           {(sim.bars?.length ?? 0) > 0 && (
                             <div style={{ marginTop: 3 }}>
