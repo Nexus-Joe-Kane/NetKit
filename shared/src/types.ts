@@ -607,6 +607,29 @@ export interface SectionStatus {
   durationMs?: number;
 }
 
+/**
+ * What was actually asked, per provider, when looking for lines at a premises.
+ *
+ * "No lines found" is a claim about the world, and it was being made without
+ * showing any working. This is the working: which provider was asked, how it
+ * was asked, how many circuits came back and how many of those could be tied
+ * to this doorstep. An engineer who knows we supply the site can then see
+ * whether the supplier returned nothing at all or returned something we
+ * excluded, which are entirely different problems.
+ */
+export interface LineSearchDiagnostic {
+  provider: string;
+  /** How the provider was asked, in the order it was tried. */
+  tried: string[];
+  /** Circuits the provider returned across all those attempts. */
+  candidates: number;
+  /** Of those, how many are at this premises. */
+  matched: number;
+  /** Of those, how many were at the postcode but not this premises. */
+  excluded: number;
+  error?: string;
+}
+
 export interface SiteReport {
   query: ResolvedIdentifier;
   /** The identity box: always the full address + UPRN. */
@@ -632,6 +655,8 @@ export interface SiteReport {
     signal: SectionStatus;
     lines: SectionStatus;
   };
+  /** Per-provider working for the line search. Present even when it found nothing. */
+  lineSearch?: LineSearchDiagnostic[];
   generatedAt: string;
 }
 

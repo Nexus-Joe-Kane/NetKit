@@ -569,7 +569,7 @@ function SiteReportView({
           ))}
 
         {tab === 'lines' && (
-          <LinesPanel lines={report.lines} nearbyLines={report.nearbyLines ?? []} />
+          <LinesPanel lines={report.lines} nearbyLines={report.nearbyLines ?? []} lineSearch={report.lineSearch ?? []} />
         )}
 
         {tab === 'companies' && (

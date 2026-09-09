@@ -66,4 +66,15 @@ export interface LineProvider extends ProviderMeta {
    * line at a premises means listing the postcode and filtering by UPRN.
    */
   byPostcode?(postcode: string): Promise<LineRecord[]>;
+  /**
+   * Optional free-text search over the provider's own inventory.
+   *
+   * The last resort for finding a line at a premises, and it earned its
+   * place: a supplier whose postcode search returns nothing for a site will
+   * often find the same circuit by the customer's name, because the name is
+   * what the account is filed under. Results are still put through the
+   * premises test before they reach a report, so a namesake in another town
+   * is excluded on the postcode.
+   */
+  byFreeText?(term: string): Promise<LineRecord[]>;
 }
