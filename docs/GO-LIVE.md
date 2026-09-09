@@ -429,6 +429,24 @@ because four characters of an API key is four characters an attacker does not
 have to guess. The list says where the live value comes from, how long it is,
 and who set it when.
 
+### What the lookup box can find
+
+Three kinds of thing, with their own icon in the list: an office for a
+premises, a globe for a broadband service, a handset for a mobile. Picking a
+premises opens its report, a broadband service opens the report with that
+circuit on it, and a mobile opens that SIM in the estate.
+
+One honest limit, stated on the list rather than left to look like a bug: the
+suppliers' service searches match a reference, a postcode or a phone number —
+**not a customer name**. So a client name finds their premises and their SIMs
+straight away, and their circuits once there is a postcode or a reference to
+search by. The mobile estate is fetched whole and cached, which is why that
+half searches by name, site, number, ICCID or postcode.
+
+A number typed with a leading `0` matches one stored as `+44`, and only the
+leading digits are rewritten — doing it anywhere in the string would match an
+ICCID against a phone number and put somebody else's SIM in the list.
+
 ### IT Glue — what the site is documented as having
 
 ```

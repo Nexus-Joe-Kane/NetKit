@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ReactElement } from 'react';
-import type { AddressSuggestion, SearchResponse, SiteReport, PrintSection } from '@sw/shared';
+import type { AddressSuggestion, LookupSuggestion, SearchResponse, SiteReport, PrintSection } from '@sw/shared';
 import { ApiClientError, api, type PublicUser, type SessionState } from './lib/api';
 import { SearchBar } from './components/SearchBar';
 import { IdentityBox } from './components/IdentityBox';
@@ -225,6 +225,25 @@ function Portal({
     return runSearch(suggestion.label);
   };
 
+  /**
+   * A broadband service or a mobile, which open different things.
+   *
+   * Broadband goes through the ordinary search: a service reference already
+   * resolves to the premises report with that circuit on it, so there is
+   * nothing to build and nothing that can drift out of step with it.
+   *
+   * A mobile goes to the SIM estate with that SIM open — the page already
+   * has a detail panel per SIM and fetches the full record on open, so this
+   * is a deep link into it rather than a second view of the same thing.
+   */
+  const pickService = async (suggestion: LookupSuggestion) => {
+    if (suggestion.kind === 'mobile' && suggestion.iccid) {
+      go(toHash('sims', 'all', suggestion.iccid));
+      return;
+    }
+    return runSearch(suggestion.query);
+  };
+
   const signOut = async () => {
     try {
       await api.logout();
@@ -306,6 +325,7 @@ function Portal({
             <SearchBar
               onSubmit={runSearch}
               onPickAddress={pickAddress}
+              onPickService={pickService}
               busy={busy}
               initialValue={initialQuery}
             />

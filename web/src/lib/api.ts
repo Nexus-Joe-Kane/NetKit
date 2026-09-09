@@ -21,6 +21,7 @@ import type {
   NetworkConfiguration,
   NetworkConnectivityCheck,
   NumberPortCheck,
+  LookupSuggestion,
   SecretStatus,
   SiteContext,
   VisitRecord,
@@ -228,6 +229,12 @@ export const api = {
       postcodes: string[];
       /** Words nothing in `suggestions` accounts for. */
       unmatched?: string[];
+      /** Broadband services matching the term, where it could be searched. */
+      broadband?: LookupSuggestion[];
+      /** Mobiles matching the term. */
+      mobile?: LookupSuggestion[];
+      /** True when the term is a name, which no supplier's inventory can search. */
+      broadbandNeedsIdentifier?: boolean;
     }>(
       `/api/suggest?q=${encodeURIComponent(q)}`,
     ),

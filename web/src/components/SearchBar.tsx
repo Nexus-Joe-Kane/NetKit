@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
-import { identify, kindLabel, type AddressSuggestion, type IdentifierKind } from '@sw/shared';
+import { identify, kindLabel, type AddressSuggestion, type IdentifierKind, type LookupSuggestion } from '@sw/shared';
+import { KIND_LABEL, LookupIcon } from './LookupIcon';
 import { api, type RecentLookup } from '../lib/api';
 import { Chip, Label, relativeTime, type ChipTone } from './ui';
 
@@ -46,11 +47,14 @@ const TONE_BY_KIND: Record<IdentifierKind, ChipTone> = {
 export function SearchBar({
   onSubmit,
   onPickAddress,
+  onPickService,
   busy,
   initialValue = '',
 }: {
   onSubmit: (query: string) => void;
   onPickAddress: (suggestion: AddressSuggestion) => void;
+  /** A broadband service or a mobile, which open different things. */
+  onPickService: (suggestion: LookupSuggestion) => void;
   busy: boolean;
   initialValue?: string;
 }): ReactElement {
@@ -59,6 +63,19 @@ export function SearchBar({
   /* Words the search could not account for. See SearchResponse.unmatched. */
   const [unmatched, setUnmatched] = useState<string[]>([]);
   const [postcodes, setPostcodes] = useState<string[]>([]);
+  /*
+   * Services matching what was typed.
+   *
+   * Kept apart from the address suggestions rather than merged into one
+   * list: they are three different kinds of thing, they open three different
+   * pages, and a flat list of them would need the icon to carry meaning it
+   * cannot carry on its own.
+   */
+  const [services, setServices] = useState<{
+    broadband: LookupSuggestion[];
+    mobile: LookupSuggestion[];
+    needsIdentifier: boolean;
+  }>({ broadband: [], mobile: [], needsIdentifier: false });
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(-1);
   /**
@@ -95,14 +112,17 @@ export function SearchBar({
       setSuggestions([]);
       setPostcodes([]);
       setUnmatched([]);
+      setServices({ broadband: [], mobile: [], needsIdentifier: false });
       return;
     }
-    // Line identifiers have no address list — submitting is the only action.
-    if (['cli', 'lineAccessId', 'serviceId', 'ontSerial'].includes(resolved.kind)) {
-      setSuggestions([]);
-      setPostcodes([]);
-      return;
-    }
+    /*
+     * Line identifiers used to stop here, on the reasoning that submitting
+     * was the only action available for one. That stopped being true when
+     * the box started finding services: a phone number now has both a mobile
+     * and a circuit behind it, and suppressing the list meant an engineer
+     * typing a number could never see the SIM. So the fetch runs for these
+     * too — it simply comes back with services and no premises.
+     */
 
     let cancelled = false;
     const timer = setTimeout(async () => {
@@ -112,17 +132,29 @@ export function SearchBar({
         setSuggestions(result.suggestions);
         setUnmatched(result.unmatched ?? []);
         setPostcodes(result.postcodes ?? []);
+        setServices({
+          broadband: result.broadband ?? [],
+          mobile: result.mobile ?? [],
+          needsIdentifier: result.broadbandNeedsIdentifier ?? false,
+        });
         // Only pop the list open if the user has typed something new since
         // the last submission.
-        setOpen(
-          trimmed !== submitted && (result.suggestions.length > 0 || (result.postcodes ?? []).length > 0),
-        );
+        // Anything worth showing opens the list, services included — a
+        // number has no premises behind it and its SIM is the whole point.
+        const anything =
+          result.suggestions.length > 0 ||
+          (result.postcodes ?? []).length > 0 ||
+          (result.broadband ?? []).length > 0 ||
+          (result.mobile ?? []).length > 0 ||
+          Boolean(result.broadbandNeedsIdentifier);
+        setOpen(trimmed !== submitted && anything);
         setHighlight(-1);
       } catch {
         if (!cancelled) {
           setSuggestions([]);
           setUnmatched([]);
           setPostcodes([]);
+          setServices({ broadband: [], mobile: [], needsIdentifier: false });
         }
       }
     }, 220);
@@ -175,6 +207,20 @@ export function SearchBar({
     setTimeout(loadRecent, 1200);
   };
 
+  /**
+   * A broadband service or a mobile.
+   *
+   * The box is left showing what identifies the thing rather than its label,
+   * because that is what can be pasted into a ticket and searched again.
+   */
+  const pickService = (suggestion: LookupSuggestion) => {
+    setOpen(false);
+    setValue(suggestion.query);
+    setSubmitted(suggestion.query.trim());
+    onPickService(suggestion);
+    setTimeout(loadRecent, 1200);
+  };
+
   /** Re-runs a recent lookup by its most precise identifier. */
   const rerun = (entry: RecentLookup) => {
     const query = entry.uprn ?? entry.query;
@@ -182,12 +228,47 @@ export function SearchBar({
     submit(query);
   };
 
+  /*
+   * Every selectable row, in the order they are drawn.
+   *
+   * One flat list rather than three offsets into three arrays: the arrow
+   * keys have to walk premises, then broadband, then mobiles, then postcode
+   * completions, and doing that with index arithmetic across four arrays is
+   * how a keyboard path quietly stops matching what is on screen.
+   */
+  const rows: Array<
+    | { row: 'address'; suggestion: AddressSuggestion }
+    | { row: 'service'; suggestion: LookupSuggestion }
+    | { row: 'postcode'; postcode: string }
+  > = [
+    ...suggestions.map((suggestion) => ({ row: 'address' as const, suggestion })),
+    ...services.broadband.map((suggestion) => ({ row: 'service' as const, suggestion })),
+    ...services.mobile.map((suggestion) => ({ row: 'service' as const, suggestion })),
+    ...postcodes.map((postcode) => ({ row: 'postcode' as const, postcode })),
+  ];
+
+  /** Where each group starts, so a row knows its own index. */
+  const offset = {
+    address: 0,
+    broadband: suggestions.length,
+    mobile: suggestions.length + services.broadband.length,
+    postcode: suggestions.length + services.broadband.length + services.mobile.length,
+  };
+
+  const choose = (index: number): void => {
+    const chosen = rows[index];
+    if (!chosen) return;
+    if (chosen.row === 'address') pick(chosen.suggestion);
+    else if (chosen.row === 'service') pickService(chosen.suggestion);
+    else submit(chosen.postcode);
+  };
+
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    const total = suggestions.length + postcodes.length;
+    const total = rows.length;
     if (event.key === 'Enter') {
       event.preventDefault();
-      if (open && highlight >= 0 && highlight < suggestions.length) pick(suggestions[highlight]!);
-      else if (open && highlight >= suggestions.length) submit(postcodes[highlight - suggestions.length]);
+      if (open && highlight >= 0 && highlight < total) choose(highlight);
+
       else submit();
       return;
     }
@@ -229,7 +310,12 @@ export function SearchBar({
               // An empty box offers the history; a part-typed one offers
               // suggestions, unless they are for what was just submitted.
               if (!value.trim()) setOpen(recent.length > 0);
-              else if (value.trim() !== submitted && (suggestions.length || postcodes.length)) setOpen(true);
+              else if (
+                value.trim() !== submitted &&
+                (suggestions.length || postcodes.length || services.broadband.length || services.mobile.length)
+              ) {
+                setOpen(true);
+              }
             }}
             placeholder="Postcode, address, UPRN, CLI or line ID…"
             spellCheck={false}
@@ -300,7 +386,13 @@ export function SearchBar({
         </div>
       </div>
 
-      {open && (suggestions.length > 0 || postcodes.length > 0 || (!value.trim() && recent.length > 0)) && (
+      {open &&
+        (suggestions.length > 0 ||
+          postcodes.length > 0 ||
+          services.broadband.length > 0 ||
+          services.mobile.length > 0 ||
+          services.needsIdentifier ||
+          (!value.trim() && recent.length > 0)) && (
         <div className="typeahead" role="listbox">
           {!value.trim() && recent.length > 0 && (
             <>
@@ -365,10 +457,12 @@ export function SearchBar({
                   type="button"
                   className="typeahead__item"
                   role="option"
-                  aria-selected={highlight === i}
+                  aria-selected={highlight === offset.address + i}
                   onClick={() => pick(s)}
-                  onMouseEnter={() => setHighlight(i)}
+                  onMouseEnter={() => setHighlight(offset.address + i)}
                 >
+                  <LookupIcon kind="address" />
+                  <span className="typeahead__kind">{KIND_LABEL.address}</span>
                   <span className="typeahead__label">{s.label}</span>
                   {/* The postcode, not the UPRN. A UPRN identifies a premises
                       to a database; a postcode identifies it to a person. */}
@@ -376,6 +470,60 @@ export function SearchBar({
                 </button>
               ))}
             </>
+          )}
+
+          {services.broadband.length > 0 && (
+            <>
+              <div className="typeahead__group">
+                <Label>
+                  {services.broadband.length} broadband{' '}
+                  {services.broadband.length === 1 ? 'service' : 'services'}
+                </Label>
+              </div>
+              {services.broadband.map((s, i) => (
+                <ServiceRow
+                  key={s.id}
+                  suggestion={s}
+                  index={offset.broadband + i}
+                  highlight={highlight}
+                  onPick={pickService}
+                  onHover={setHighlight}
+                />
+              ))}
+            </>
+          )}
+
+          {services.mobile.length > 0 && (
+            <>
+              <div className="typeahead__group">
+                <Label>
+                  {services.mobile.length} {services.mobile.length === 1 ? 'mobile' : 'mobiles'}
+                </Label>
+              </div>
+              {services.mobile.map((s, i) => (
+                <ServiceRow
+                  key={s.id}
+                  suggestion={s}
+                  index={offset.mobile + i}
+                  highlight={highlight}
+                  onPick={pickService}
+                  onHover={setHighlight}
+                />
+              ))}
+            </>
+          )}
+
+          {/*
+            * Said out loud, because "no circuits" and "circuits cannot be
+            * searched by name" are different answers and only one of them is
+            * about the customer. The suppliers' service searches match a
+            * reference, a postcode or a number — not a name.
+            */}
+          {services.needsIdentifier && (
+            <div className="typeahead__note">
+              Broadband cannot be searched by name — suppliers only match a postcode, a service reference or a
+              phone number. Mobiles and premises above are searchable by name.
+            </div>
           )}
 
           {postcodes.length > 0 && (
@@ -389,13 +537,14 @@ export function SearchBar({
                   type="button"
                   className="typeahead__item"
                   role="option"
-                  aria-selected={highlight === suggestions.length + i}
+                  aria-selected={highlight === offset.postcode + i}
                   onClick={() => {
                     setValue(pc);
                     submit(pc);
                   }}
-                  onMouseEnter={() => setHighlight(suggestions.length + i)}
+                  onMouseEnter={() => setHighlight(offset.postcode + i)}
                 >
+                  <LookupIcon kind="address" />
                   <span className="typeahead__label sw-mono">{pc}</span>
                 </button>
               ))}
@@ -404,5 +553,49 @@ export function SearchBar({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * One broadband or mobile row.
+ *
+ * The kind is written next to the icon rather than left to it. An icon is a
+ * shortcut for somebody who can see it and nothing at all otherwise, and
+ * "globe" versus "handset" is not a distinction worth betting a lookup on.
+ */
+function ServiceRow({
+  suggestion,
+  index,
+  highlight,
+  onPick,
+  onHover,
+}: {
+  suggestion: LookupSuggestion;
+  index: number;
+  highlight: number;
+  onPick: (suggestion: LookupSuggestion) => void;
+  onHover: (index: number) => void;
+}): ReactElement {
+  return (
+    <button
+      type="button"
+      className="typeahead__item"
+      role="option"
+      aria-selected={highlight === index}
+      onClick={() => onPick(suggestion)}
+      onMouseEnter={() => onHover(index)}
+    >
+      <LookupIcon kind={suggestion.kind} />
+      <span className="typeahead__kind">{KIND_LABEL[suggestion.kind]}</span>
+      <span className="typeahead__label">
+        {suggestion.label}
+        {suggestion.detail && (
+          <span className="muted" style={{ display: 'block', fontSize: 11.5 }}>
+            {suggestion.detail}
+          </span>
+        )}
+      </span>
+      <span className="typeahead__uprn sw-mono">{suggestion.postcode || suggestion.source}</span>
+    </button>
   );
 }
