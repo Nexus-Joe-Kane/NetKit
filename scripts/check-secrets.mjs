@@ -2,7 +2,7 @@
 /**
  * Refuses to let a credential be committed.
  *
- * `.env.example` is tracked by design, and on the live deployment it had been
+ * `.env.example` used to be tracked, and on the live deployment it had been
  * filled in with a real session secret, the admin password and the Zen, OS
  * Places and Companies House keys. None of them did anything -- the app only
  * ever reads `.env` -- but one `git add -A` on that server would have pushed
@@ -25,7 +25,11 @@ const SECRET_KEY = /(SECRET|PASSWORD|PASSWD|_KEY|APIKEY|TOKEN|CREDENTIAL|PRIVATE
 const NOT_SECRET = /(_URL|_PATH|_BASE|_SCOPES?|_ENDPOINT|_ID_URL)$/i;
 
 const files = process.argv.slice(2);
-const targets = files.length > 0 ? files : ['.env.example'];
+// `.env.example` is gone: a tracked template next to a real `.env` is how a
+// live session secret and the admin password ended up filled into the
+// committed file on the server. The generated variable list replaces it, and
+// is checked here too — it is meant to name the boxes, never their contents.
+const targets = files.length > 0 ? files : ['PLESK-ENVIRONMENT-VARIABLES.txt'];
 
 let failures = 0;
 

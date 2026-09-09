@@ -262,7 +262,7 @@ Teams or Slack alerts, and a dark theme — were dropped as agreed.
   Zen, Giacom, BT, Jola, Ofcom, Ordnance Survey, Companies House,
   postcodes.io, thinkbroadband and Resend.
 - **266 tests** (96 shared, 170 server), plus a `check:secrets` guard that
-  fails the build if a credential ever lands in `.env.example`.
+  fails the build if a credential ever lands in `PLESK-ENVIRONMENT-VARIABLES.txt`.
 - **A self-test on every boot** — 29 checks, read-only, results on the admin
   board.
 - **Zero native dependencies**, server compiled to CommonJS for Passenger.
@@ -275,7 +275,10 @@ Teams or Slack alerts, and a dark theme — were dropped as agreed.
   production without `DATA_DIR`, and the backup script refuses relative paths
   for either. A relative path used to resolve inside the Git working tree,
   where a deploy would delete every user account.
-- `.env.example` is committed and the app never reads it. Real values go in
+- There is no committed `.env` template. `PLESK-ENVIRONMENT-VARIABLES.txt` is
+  generated from the code and names the variables without their values; a
+  tracked template sitting next to a real `.env` is how a live session secret
+  and the admin password ended up filled in on the server. Real values go in
   `.env` or, better on Plesk, the Node.js environment panel.
 - Once `public/` holds a built `index.html`, requests to `/` are served
   statically and never reach Passenger — so `touch tmp/restart.txt` only takes

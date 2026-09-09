@@ -5,17 +5,23 @@ import {
   eventSubject,
   eventTicketNote,
   operatorForSim,
+  reconcileWans,
+  wanLinesFrom,
+  wanRow,
   type CheckResult,
+  type EventEnvironment,
   type EventFinding,
   type EventInventory,
   type EventMobile,
+  type EventWan,
+  type NetworkDevice,
   type NetworkSite,
   type SimRecord,
   type WanHealth,
 } from '@sw/shared';
-import { networkSites, unifiConfigured, wanHealth } from '../providers/network/unifi';
+import { devicesForHost, networkSites, unifiConfigured, wanHealth } from '../providers/network/unifi';
 import { ALERT_TAG, createInternalTicket, zendeskConfigured } from '../providers/tickets/zendesk';
-import { attachDiagnosis, attachTicket, raiseEvent, recordCheck } from './events';
+import { attachDiagnosis, attachTicket, raiseEvent, recordCheck, watchState } from './events';
 import { findClients } from './clientIndex';
 import { audit } from '../auth/store';
 import { config } from '../config';
@@ -83,11 +89,34 @@ export function reachabilityFromWan(wan: WanHealth | null): CheckResult['reachab
 }
 
 /** The client this console site belongs to, from our own index. */
-function clientForSite(site: NetworkSite): { key: string; name: string; refs: string[]; address?: string } {
+function clientForSite(site: NetworkSite): {
+  key: string;
+  clientKey?: string;
+  name: string;
+  refs: string[];
+  address?: string;
+} {
+  /*
+   * The watch key is the site's identity, never its name and never the
+   * client's.
+   *
+   * Both alternatives were wrong and one of them shipped. Keying on the name
+   * meant every console's "Default" site — which is what an unrenamed
+   * console calls its site, so most of them — shared a single counter, and
+   * their drops pooled: an event opened saying "5 drops" while the stored
+   * state had 6, because the sixth belonged to somebody else's building.
+   * Keying on the client would pool Market Halls Victoria with Market Halls
+   * Oxford Street, which is the same bug wearing a tie.
+   *
+   * The site id is unique, stable across renames, and per-site by
+   * construction. The client is metadata hung off the event, not identity.
+   */
+  const key = `unifi:${site.siteId}`;
   const [best] = findClients(site.name, 1);
   if (best) {
     return {
-      key: best.key,
+      key,
+      clientKey: best.key,
       name: best.name,
       refs: best.serviceRefs,
       ...(best.sites[0]?.address ? { address: best.sites[0].address } : {}),
@@ -95,7 +124,7 @@ function clientForSite(site: NetworkSite): { key: string; name: string; refs: st
   }
   // No match in the index. Still watch it — an unmatched site going off is
   // worth knowing about, and the Clients tab is where somebody joins it up.
-  return { key: `unifi:${clientKey(site.name) || site.siteId}`, name: site.name, refs: [] };
+  return { key, name: site.name, refs: [] };
 }
 
 /* ------------------------------------------------------------------ *
@@ -142,31 +171,75 @@ async function diagnose(
   attributionBecause: string;
   findings: EventFinding[];
   inventory: EventInventory;
+  environment: EventEnvironment;
+  wans: EventWan[];
   wanVerdict: CheckResult['reachable'];
 }> {
   const findings: EventFinding[] = [];
   const inventory: EventInventory = {};
 
-  // --- The console's own view ----------------------------------------
-  let wanVerdict: CheckResult['reachable'] = 'unknown';
+  /* ---- The environment, which every technical ticket carries -------- */
+  const environment: EventEnvironment = {
+    siteId: site.siteId,
+    ...(site.name ? { consoleName: site.name } : {}),
+    ...(site.gateway?.model ? { gatewayModel: site.gateway.model } : {}),
+    ...(site.counts?.totalDevices !== undefined ? { totalDevices: site.counts.totalDevices } : {}),
+    ...(site.counts?.offlineDevices !== undefined ? { offlineDevices: site.counts.offlineDevices } : {}),
+    ...(site.counts?.wiredClients !== undefined ? { wiredClients: site.counts.wiredClients } : {}),
+    ...(site.counts?.wifiClients !== undefined ? { wifiClients: site.counts.wifiClients } : {}),
+    ...(site.counts?.wanConfigurations !== undefined ? { wanCount: site.counts.wanConfigurations } : {}),
+    ...(site.isp?.name ?? site.isp?.organisation ? { ispName: (site.isp?.name ?? site.isp?.organisation)! } : {}),
+    ...(site.timezone ? { timezone: site.timezone } : {}),
+  };
+
+  // Named devices are worth more than a count. The gateway is the one
+  // anybody asks about first.
   try {
-    const wan = await wanHealth(site.hostId, site.siteId);
-    wanVerdict = reachabilityFromWan(wan);
-    if (wan?.latest) {
-      const uptime = wan.latest.uptimePercent;
+    const devices = await devicesForHost(site.hostId);
+    if (devices.length) {
+      inventory.devices = devices.slice(0, 40).map((d: NetworkDevice) => ({
+        ...(d.name ? { name: d.name } : {}),
+        ...(d.model ? { model: d.model } : {}),
+        ...(d.ip ? { ip: d.ip } : {}),
+        ...(d.status ? { state: d.status } : {}),
+      }));
+      // `isConsole` where the controller says so; the model pattern only as
+      // a fallback, because a device named "Gateway Cupboard AP" would
+      // otherwise be reported as the gateway.
+      const gateway =
+        devices.find((d: NetworkDevice) => d.isConsole) ??
+        devices.find((d: NetworkDevice) =>
+          /\b(udm|uxg|usg|ucg)\b/i.test(`${d.shortModel ?? ''} ${d.model ?? ''}`),
+        );
+      if (gateway?.name) environment.gatewayName = gateway.name;
+      if (gateway?.model && !environment.gatewayModel) environment.gatewayModel = gateway.model;
+      if (environment.totalDevices === undefined) environment.totalDevices = devices.length;
+    }
+  } catch {
+    // The device list is context, not a symptom. Its absence is not either.
+  }
+
+  /* ---- The console's own view of the uplinks ------------------------ */
+  let wanVerdict: CheckResult['reachable'] = 'unknown';
+  let health: WanHealth | null = null;
+  try {
+    health = await wanHealth(site.hostId, site.siteId);
+    wanVerdict = reachabilityFromWan(health);
+    if (health?.latest) {
+      const uptime = health.latest.uptimePercent;
       findings.push({
         source: 'unifi',
         label: 'WAN uptime, last sample',
         ...(uptime !== undefined ? { value: `${uptime}%` } : {}),
-        ...(wan.latest.ispName ? { detail: `via ${wan.latest.ispName}` } : {}),
+        ...(health.latest.ispName ? { detail: `via ${health.latest.ispName}` } : {}),
         verdict: uptime === 0 ? 'bad' : uptime !== undefined && uptime < 100 ? 'warn' : 'good',
-        ...(wan.latest.at ? { at: wan.latest.at } : {}),
+        ...(health.latest.at ? { at: health.latest.at } : {}),
       });
-      if (wan.downtimeSeconds) {
+      if (health.downtimeSeconds) {
         findings.push({
           source: 'unifi',
           label: 'Downtime in the last 24 hours',
-          value: `${Math.round(wan.downtimeSeconds / 60)} minutes`,
+          value: `${Math.round(health.downtimeSeconds / 60)} minutes`,
           verdict: 'warn',
         });
       }
@@ -189,50 +262,127 @@ async function diagnose(
     );
   }
 
-  // --- The circuits, and the tests on them ---------------------------
+  /* ---- The WAN rows, tested where they are ours --------------------- */
   //
-  // The user's ask in their words: having matched the customer to the UniFi
-  // site, run a line test on what they have so the fault is attributed
-  // before anybody picks the ticket up.
+  // The rule the rows follow: a managed line gets a test and a result, and
+  // an unmanaged one says which provider it is and that we cannot test it.
+  // A blank column is a question; "no test: G.Network on WAN 2 is not a
+  // line we manage" is an answer.
+  const uplinks = wanLinesFrom({ site, health, ...(health?.uplinks ? { uplinks: health.uplinks } : {}) });
+  const wans: EventWan[] = [];
   let lineTest: 'network-fault' | 'clean' | 'not-run' = 'not-run';
   let circuit: CheckResult['reachable'] = 'unknown';
 
-  for (const reference of client.refs.slice(0, 2)) {
+  // Our own references, matched to a slot where we can tell which.
+  const ours = client.refs.slice(0, 4).map((reference, i) => ({ id: `line-${i}`, reference, provider: 'Zen' }));
+  const { matched } = reconcileWans(ours, uplinks);
+  const slotFor = new Map<string, string>();
+  for (const [lineId, result] of matched) slotFor.set(result.wan.id, lineId);
+
+  for (const wan of uplinks) {
+    const lineId = slotFor.get(wan.id);
+    const line = ours.find((o) => o.id === lineId);
+
+    if (!line) {
+      wans.push(
+        wanRow({
+          id: wan.id,
+          label: wan.label,
+          providerName: wan.providerName,
+          ...(wan.stats.uptimePercent === undefined ? {} : { online: wan.stats.uptimePercent > 0 }),
+        }),
+      );
+      continue;
+    }
+
+    // A managed line: test it, and record what came back verbatim.
     try {
-      const result = await ops.runTest(reference, 'linetest');
-      const outcome = result.data.outcome;
-      // `inconclusive` is deliberately not a fault. A test that could not
-      // decide is not evidence to raise with a supplier, and treating it as
-      // one is how an engineer gets sent to a site with nothing wrong.
-      const faulty = outcome === 'fail' || Boolean(result.data.faultLocation);
-      findings.push({
-        source: 'line-test',
-        label: `Line test on ${reference}`,
-        value: result.data.summary ?? outcome,
-        ...(result.data.faultLocation ? { detail: `Fault located: ${result.data.faultLocation}` } : {}),
-        verdict: faulty ? 'bad' : 'good',
-      });
+      const result = await ops.runTest(line.reference, 'linetest');
+      const faulty = result.data.outcome === 'fail' || Boolean(result.data.faultLocation);
       if (faulty) {
         lineTest = 'network-fault';
         circuit = 'down';
       } else if (lineTest === 'not-run') {
         lineTest = 'clean';
       }
-      inventory.services = [
-        ...(inventory.services ?? []),
-        { reference, supplier: 'Zen', ...(result.data.summary ? { status: result.data.summary } : {}) },
-      ];
-    } catch (err) {
+
+      wans.push(
+        wanRow({
+          id: wan.id,
+          label: wan.label,
+          providerName: wan.providerName,
+          serviceReference: line.reference,
+          ...(wan.stats.uptimePercent === undefined ? {} : { online: wan.stats.uptimePercent > 0 }),
+          test: {
+            ran: true,
+            passed: !faulty,
+            output: plainTestOutput(result.data),
+          },
+        }),
+      );
+
       findings.push({
         source: 'line-test',
-        label: `Line test on ${reference}`,
-        detail: err instanceof Error ? err.message : String(err),
-        verdict: 'info',
+        label: `Line test on ${line.reference}`,
+        value: result.data.summary ?? result.data.outcome,
+        ...(result.data.faultLocation ? { detail: `Fault located: ${result.data.faultLocation}` } : {}),
+        verdict: faulty ? 'bad' : 'good',
       });
+      inventory.services = [
+        ...(inventory.services ?? []),
+        { reference: line.reference, supplier: 'Zen', ...(result.data.summary ? { status: result.data.summary } : {}) },
+      ];
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      wans.push(
+        wanRow({
+          id: wan.id,
+          label: wan.label,
+          providerName: wan.providerName,
+          serviceReference: line.reference,
+          ...(wan.stats.uptimePercent === undefined ? {} : { online: wan.stats.uptimePercent > 0 }),
+          test: { ran: false, error: message },
+        }),
+      );
+      findings.push({ source: 'line-test', label: `Line test on ${line.reference}`, detail: message, verdict: 'info' });
     }
   }
 
-  // --- The 5G unit and its SIM, which is the pair nobody can find ----
+  // References we hold that no WAN could be matched to. Still tested — a
+  // circuit is a circuit whether or not the console admits to it.
+  for (const line of ours.filter((o) => ![...matched.keys()].includes(o.id))) {
+    try {
+      const result = await ops.runTest(line.reference, 'linetest');
+      const faulty = result.data.outcome === 'fail' || Boolean(result.data.faultLocation);
+      if (faulty) {
+        lineTest = 'network-fault';
+        circuit = 'down';
+      } else if (lineTest === 'not-run') {
+        lineTest = 'clean';
+      }
+      wans.push(
+        wanRow({
+          id: `unmatched-${line.reference}`,
+          label: 'Circuit',
+          providerName: 'Zen Internet',
+          serviceReference: line.reference,
+          test: { ran: true, passed: !faulty, output: plainTestOutput(result.data) },
+        }),
+      );
+    } catch (err) {
+      wans.push(
+        wanRow({
+          id: `unmatched-${line.reference}`,
+          label: 'Circuit',
+          providerName: 'Zen Internet',
+          serviceReference: line.reference,
+          test: { ran: false, error: err instanceof Error ? err.message : String(err) },
+        }),
+      );
+    }
+  }
+
+  /* ---- The 5G unit and its SIM -------------------------------------- */
   try {
     const estate = await ops.simEstate();
     const theirs = estate.data.sims.filter(
@@ -261,7 +411,44 @@ async function diagnose(
     ...(backupCarrying ? { backupCarrying } : {}),
   });
 
-  return { ...verdict, attributionBecause: verdict.because, findings, inventory, wanVerdict };
+  return {
+    ...verdict,
+    attributionBecause: verdict.because,
+    findings,
+    inventory,
+    environment,
+    wans,
+    wanVerdict,
+  };
+}
+
+/**
+ * A line test as plain text, for the code block on the ticket.
+ *
+ * The provider's own figures, verbatim. Summarising a test into "fault
+ * found" loses the attenuation reading the supplier will ask for, and an
+ * engineer who has to re-run the test to get it back has been handed a worse
+ * ticket than no ticket at all.
+ */
+function plainTestOutput(result: {
+  outcome?: string;
+  summary?: string;
+  faultLocation?: string;
+  metrics?: Array<{ label: string; value: string; unit?: string; verdict?: string }>;
+  recommendations?: string[];
+  source?: string;
+}): string {
+  const lines: string[] = [];
+  if (result.outcome) lines.push(`Outcome: ${result.outcome}`);
+  if (result.summary) lines.push(`Summary: ${result.summary}`);
+  if (result.faultLocation) lines.push(`Fault located: ${result.faultLocation}`);
+  for (const metric of result.metrics ?? []) {
+    const flag = metric.verdict && metric.verdict !== 'info' ? `  [${metric.verdict}]` : '';
+    lines.push(`${metric.label}: ${metric.value}${metric.unit ? ` ${metric.unit}` : ''}${flag}`);
+  }
+  for (const recommendation of result.recommendations ?? []) lines.push(`Recommendation: ${recommendation}`);
+  if (result.source) lines.push(`Source: ${result.source}`);
+  return lines.length ? lines.join('\n') : 'The provider returned no detail.';
 }
 
 /* ------------------------------------------------------------------ *
@@ -396,6 +583,16 @@ export async function sweepOutages(now = new Date().toISOString()): Promise<Swee
             attributionBecause: diagnosis.attributionBecause,
             findings: diagnosis.findings,
             inventory: diagnosis.inventory,
+            // `downSince` comes off the watch state rather than the clock:
+            // the ticket should say when the site went, not when we got
+            // round to raising it.
+            environment: {
+              ...diagnosis.environment,
+              ...(watchState(client.key, item.site.name).downSince
+                ? { downSince: watchState(client.key, item.site.name).downSince! }
+                : {}),
+            },
+            wans: diagnosis.wans,
           },
           now,
         ) ?? event;

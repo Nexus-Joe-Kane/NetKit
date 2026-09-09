@@ -3,6 +3,11 @@ dist/
 build/
 .env
 .env.local
+# Removed deliberately: the variable list is generated as
+# PLESK-ENVIRONMENT-VARIABLES.txt, and a tracked template next to a real
+# .env is how a live session secret and the admin password ended up
+# committed on the server.
+.env.example
 *.log
 .DS_Store
 # Test coverage output. Anchored to the repo root and the workspace roots

@@ -1,0 +1,351 @@
+==============================================================================
+  SUPPORTWIZARD NETKIT — PLESK ENVIRONMENT VARIABLES
+==============================================================================
+
+  Plesk → Websites & Domains → your domain → Node.js → Custom environment
+  variables. Add them one at a time; there is no file to upload.
+
+  This file is GENERATED from the source. Do not edit it by hand — run
+  `npm run env:list`. A variable the code reads and this file does not
+  mention fails the build, so it cannot drift.
+
+  NOTHING IN HERE IS A SECRET. These are the names of the boxes, not what
+  goes in them.
+
+
+------------------------------------------------------------------------------
+  REQUIRED — the application will not start, or will lose data, without these
+------------------------------------------------------------------------------
+
+  Set these first. Everything else is optional.
+
+  DATA_DIR
+      Absolute path, OUTSIDE the deployment directory, where user accounts, the credential vault, the
+      audit log and the event history live. Production refuses to start without it rather than guess at
+      somewhere a deploy would wipe. Example: /var/www/vhosts/supportwizard.net/netkit-data
+
+  SESSION_SECRET
+      At least 32 random characters. Signs sessions AND is the key the credential vault is encrypted
+      with, so it CANNOT be stored in the vault. If this changes, every credential saved in the portal
+      becomes unreadable and has to be entered again. Generate with: openssl rand -base64 48
+
+  NODE_ENV
+      Set to: production. Turns on secure cookies and the stricter defaults.
+      Default: development
+
+
+------------------------------------------------------------------------------
+  STRONGLY RECOMMENDED
+------------------------------------------------------------------------------
+
+  PUBLIC_URL
+      The address the portal is reached on, e.g. https://comms.supportwizard.net — used to build the
+      links to events that go on helpdesk tickets. Without it, tickets say the event exists but cannot
+      link to it. Settable in the portal instead.
+
+  PORT
+      Only if Passenger does not set it. Default 3000.
+      Default: 3000
+
+  PUBLIC_DIR
+      Where the built front end is. Leave unset unless the layout is non-standard.
+
+
+------------------------------------------------------------------------------
+  FIRST RUN ONLY — delete these lines once the admin account exists
+------------------------------------------------------------------------------
+
+  Read only when the very first administrator is created. What is stored is a scrypt hash, never the
+  password, so leaving the plain password here afterwards is a risk for no benefit.
+
+  ADMIN_EMAIL
+      The first administrator. Defaults to joe@supportwizard.net.
+
+  ADMIN_PASSWORD
+      The first administrator’s password. If unset, a strong one is generated and printed to the
+      application log once, and must be changed at first sign-in.
+
+  ADMIN_NAME
+      Display name for the first administrator.
+
+
+------------------------------------------------------------------------------
+  CREDENTIALS — all of these can be set in the portal instead (Admin → Credentials)
+------------------------------------------------------------------------------
+
+  Setting them here still works and takes effect at boot. The portal is easier: it takes effect
+  immediately, tests the key before saving, and encrypts it at rest.
+
+  ZEN_CLIENT_ID
+      Zen API client id.
+
+  ZEN_CLIENT_SECRET
+      Zen API client secret.
+
+  OS_PLACES_API_KEY
+      Ordnance Survey Places. The address and UPRN lookup depends on it.
+
+  COMPANIES_HOUSE_API_KEY
+      Companies House. The Primary key on your profile page.
+
+  GIACOM_CLIENT_ID
+      Giacom / Cloud Market client id.
+
+  GIACOM_CLIENT_SECRET
+      Giacom / Cloud Market client secret.
+
+  JOLA_API_KEY
+      Jola. Both halves are needed — the API uses HTTP Basic.
+
+  JOLA_SECRET_KEY
+      Jola secret key.
+
+  ZENDESK_SUBDOMAIN
+      Bare subdomain or a full host; both work.
+
+  ZENDESK_EMAIL
+      The agent account the API acts as.
+
+  ZENDESK_API_TOKEN
+      Admin Centre → Apps and integrations → APIs → Zendesk API.
+
+  ITGLUE_API_KEY
+      IT Glue. Account → Settings → API Keys. Password access does NOT need enabling.
+
+  ITGLUE_BASE_URL
+      The right data centre: https://api.itglue.com, or api.eu.itglue.com / api.au.itglue.com. The
+      wrong one answers as though the data is simply not there.
+      Default: https://api.itglue.com
+
+  UNIFI_API_KEY
+      UniFi Site Manager. Read-only by Ubiquiti’s design. unifi.ui.com → Settings → API Keys.
+
+  UNIFI_INTEGRATION_KEY
+      A DIFFERENT key, and the only one that can restart anything. UniFi Network → Settings →
+      Control Plane → Integrations. Needs console firmware 5.0.3 or newer.
+
+  OFCOM_BROADBAND_API_KEY
+      Ofcom Connected Nations broadband. Sent as Ocp-Apim-Subscription-Key.
+
+  OFCOM_MOBILE_API_KEY
+      Ofcom Mobile Checker UPRN coverage. A separate subscription from the broadband one.
+      (not read by the current build)
+
+  THINKBROADBAND_API_KEY
+      thinkbroadband availability.
+
+  OPENCELLID
+      OpenCelliD token, for the nearest-mast lookup.
+
+  OPENCELLID_API_KEY
+      Accepted as an alias for OPENCELLID. Set either, not both.
+
+  OPENCELLID_TOKEN
+      Accepted as an alias for OPENCELLID. Set either, not both.
+
+  RESEND_API_KEY
+      Only needed for sign-in codes and account invites. Everything else goes to Zendesk.
+
+  RESEND_FROM_EMAIL
+      The address those emails come from.
+      Default: no-reply@supportwizard.net
+
+  BT_HOME_NETWORK_KEY
+      BT Home Network API.
+
+  BT_IMEI_LOOKUP_KEY
+      BT IMEI lookup API.
+
+  BT_LOCATION_INSIGHTS_KEY
+      BT Location Insights API.
+
+  DOWNDETECTOR_CLIENT_ID
+      Downdetector enterprise client id.
+      (not read by the current build)
+
+  DOWNDETECTOR_CLIENT_SECRET
+      Downdetector enterprise client secret.
+      (not read by the current build)
+
+
+------------------------------------------------------------------------------
+  BEHAVIOUR — all have sensible defaults. Set only to change them
+------------------------------------------------------------------------------
+
+  ZEN_ALLOW_ORDERING
+      true to permit real orders. Off by default, and the portal has a second switch that must also be
+      on — two independent locks, because ordering spends money.
+      Default: false
+
+  SUPERVISOR_ENABLED
+      true by default. The five-minute health sweep and the outage watcher ride this.
+      Default: true
+
+  SUPERVISOR_INTERVAL_SECONDS
+      Default 300. The outage check paces itself to five minutes regardless.
+      Default: 300
+
+  SUPERVISOR_ESCALATE_AFTER_MINUTES
+      How long an integration must keep failing before a person is emailed.
+      Default: 60
+
+  SELFTEST_ON_BOOT
+      Run the self-test at start-up.
+      Default: true
+
+  AVAILABILITY_DAILY_BUDGET
+      Per-user daily cap on paid availability lookups.
+      Default: 250
+
+  CACHE_TTL_SECONDS
+      How long provider answers are held.
+      Default: 900
+
+  REQUEST_TIMEOUT_MS
+      Upstream request timeout.
+      Default: 12_000
+
+  RATE_LIMIT_MAX
+      Requests per window, per IP.
+      Default: 120
+
+  RATE_LIMIT_WINDOW_MS
+      The window for the above.
+      Default: 60_000
+
+  CORS_ORIGINS
+      Comma-separated. Only needed if the front end is served from another host.
+
+  APP_VERSION
+      Shown in the footer and on the status page.
+      Default: 1.0.0
+
+  POSTCODES_IO_ENABLED
+      The free postcode fallback. On by default.
+      Default: true
+
+
+------------------------------------------------------------------------------
+  ENDPOINTS — override only if a supplier moves one
+------------------------------------------------------------------------------
+
+  Every one of these has a working default. An empty value here is not a problem.
+
+  BT_TOKEN_URL
+      Endpoint override. The default works.
+
+  COMPANIES_HOUSE_BASE_URL
+      Endpoint override. The default works.
+      Default: https://api.company-information.service.gov.uk
+
+  GIACOM_BASE_URL
+      Endpoint override. The default works.
+      Default: defaultBase
+
+  GIACOM_ENVIRONMENT
+      Endpoint override. The default works.
+      Default: production
+
+  GIACOM_QUALIFICATION_PATH
+      Endpoint override. The default works.
+
+  GIACOM_SCOPES
+      Endpoint override. The default works.
+      Default: [
+      'integrations/serviceInventory.read',
+      'integrations/serviceCatalogue.read',
+      'integrations/resourceInventory.read',
+      'integrations/address.manage',
+      'integrations/serviceQualification.read',
+      'integrations/serviceQualification.submit',
+    ].join(',
+
+  GIACOM_TOKEN_URL
+      Endpoint override. The default works.
+      Default: defaultToken
+
+  JOLA_BASE_URL
+      Endpoint override. The default works.
+      Default: https://simportal-api.azurewebsites.net
+
+  OFCOM_BROADBAND_BASE_URL
+      Endpoint override. The default works.
+      Default: https://api-proxy.ofcom.org.uk/broadband
+
+  OFCOM_BROADBAND_DATASET_PATH
+      Endpoint override. The default works.
+
+  OFCOM_DATASET_PATH
+      Endpoint override. The default works.
+
+  OPENCELLID_BASE_URL
+      Endpoint override. The default works.
+      Default: https://opencellid.org
+
+  OPENCELLID_RADIUS_METRES
+      Endpoint override. The default works.
+      Default: 4000
+
+  OPENCELLID_SEARCH_PATH
+      Endpoint override. The default works.
+      Default: /cell/getInArea
+
+  OS_PLACES_BASE_URL
+      Endpoint override. The default works.
+      Default: https://api.os.uk/search/places/v1
+
+  POSTCODES_IO_BASE_URL
+      Endpoint override. The default works.
+      Default: https://api.postcodes.io
+
+  RESEND_FROM_NAME
+      Endpoint override. The default works.
+      Default: SupportWizard NetKit
+
+  THINKBROADBAND_AVAILABILITY_PATH
+      Endpoint override. The default works.
+      Default: /availability
+
+  THINKBROADBAND_BASE_URL
+      Endpoint override. The default works.
+      Default: https://api.thinkbroadband.com
+
+  THINKBROADBAND_KEY_IN_QUERY
+      Endpoint override. The default works.
+      Default: false
+
+  UNIFI_BASE_URL
+      Endpoint override. The default works.
+      Default: https://api.ui.com
+
+  ZEN_ASSURANCE_BASE_URL
+      Endpoint override. The default works.
+      Default: https://gateway.api.indirect.zen.co.uk/assurance
+
+  ZEN_SCOPES
+      Endpoint override. The default works.
+      Default: [
+      'indirect-availability',
+      'indirect-service',
+      'indirect-order',
+      'indirect-placeorder',
+      'indirect-broadbandconnection',
+      'indirect-diagnostics',
+      'indirect-faults',
+      'indirect-cdr',
+      'indirect-quote',
+      'indirect-customerengagement',
+      'indirect-changeservice',
+    ].join(',
+
+  ZEN_SELF_SERVICE_BASE_URL
+      Endpoint override. The default works.
+      Default: https://gateway.api.indirect.zen.co.uk/self-service
+
+  ZEN_TOKEN_URL
+      Endpoint override. The default works.
+      Default: https://id.zen.co.uk/connect/token
+
+==============================================================================
+  72 variables read by this build. Generated 2026-09-09.
+==============================================================================

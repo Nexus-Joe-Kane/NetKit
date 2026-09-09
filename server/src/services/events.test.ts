@@ -56,7 +56,7 @@ test('a stability report and an outage are different events', () => {
 test('a cleared event does not block the next one', () => {
   resetEvents();
   const first = raise();
-  clear(first.event.id, { disposition: 'resolved', at: at(4) });
+  clear(first.event.id, { disposition: 'resolved', at: at(4), resolution: 'Reseated the ONT.' });
   const second = raise();
   assert.equal(second.created, true);
   assert.notEqual(second.event.id, first.event.id);
@@ -118,23 +118,51 @@ test('clearing an event and moving the watermark are one operation', () => {
   assert.equal(isUnstable(state, at(12)), true, 'six drops');
 
   const event = raise({ kind: 'unstable', because: '6 drops in 24 hours.' });
-  const result = clear(event.event.id, { disposition: 'resolved', at: at(12), by: 'Joe Kane' });
+  const result = clear(event.event.id, {
+    disposition: 'resolved',
+    at: at(12),
+    by: 'Joe Kane',
+    resolution: 'Reseated the ONT and the line tested clean.',
+  });
 
   assert.equal(result?.event.status, 'cleared');
   assert.equal(isUnstable(watchState(KEY, NAME), at(12)), false, 'the watermark moved with it');
 });
 
-test('acknowledging closes the event and moves no watermark', () => {
+test('a known cause closes the event and moves no watermark', () => {
+  // Nothing was fixed, so the history is untouched — what changes is that
+  // nobody is told about it again.
   resetEvents();
   for (let i = 0; i < 12; i += 2) {
     recordCheck(KEY, NAME, down(i), at(i));
     recordCheck(KEY, NAME, up(i + 1), at(i + 1));
   }
   const event = raise({ kind: 'unstable', because: '6 drops in 24 hours.' });
-  clear(event.event.id, { disposition: 'monitoring', at: at(12) });
+  clear(event.event.id, { disposition: 'known-cause', at: at(12) });
 
   assert.equal(openEventFor(KEY, 'unstable'), null, 'the event is closed');
   assert.equal(isUnstable(watchState(KEY, NAME), at(12)), true, 'but the site is still bad');
+});
+
+test('an exception is stored with its reason and who signed it off', () => {
+  resetEvents();
+  recordCheck(KEY, NAME, down(0), at(0));
+  const event = raise();
+  const result = clear(event.event.id, {
+    disposition: 'exception',
+    at: at(4),
+    resolution: 'Line tested clean, console back up.',
+    exceptionReason: 'Fibre is 14 months out on this street.',
+    signedOffBy: 'Sam Roffey',
+  });
+
+  assert.equal(result?.watch.cadence, 'sparse');
+  assert.equal(result?.watch.exception?.signedOffBy, 'Sam Roffey');
+  // And it survives a restart, because an exception nobody can see is an
+  // exception that gets quietly re-raised.
+  reloadEvents();
+  assert.equal(watchState(KEY, NAME).cadence, 'sparse');
+  assert.match(watchState(KEY, NAME).exception?.reason ?? '', /14 months/);
 });
 
 test('a site marked not ours stops being watched at all', () => {
@@ -169,7 +197,7 @@ test('attaching to an event that is not there is answered, not thrown', () => {
   resetEvents();
   assert.equal(attachDiagnosis('evt_nope', { attribution: 'ours' }), null);
   assert.equal(attachTicket('evt_nope', '1'), null);
-  assert.equal(clear('evt_nope', { disposition: 'resolved', at: at(0) }), null);
+  assert.equal(clear('evt_nope', { disposition: 'resolved', at: at(0), resolution: 'x' }), null);
 });
 
 /* ---- Persistence ----------------------------------------------------- */
@@ -188,7 +216,7 @@ test('events survive a restart', () => {
 test('cleared events are hidden by default and available on request', () => {
   resetEvents();
   const { event } = raise({ clientKey: 'hidden', clientName: 'Hidden Ltd', because: 'Two failed checks.' });
-  clear(event.id, { disposition: 'resolved', at: at(1) });
+  clear(event.id, { disposition: 'resolved', at: at(1), resolution: 'Reseated the ONT.' });
 
   assert.equal(listEvents().some((e) => e.id === event.id), false);
   assert.equal(listEvents({ includeCleared: true }).some((e) => e.id === event.id), true);
