@@ -10,6 +10,15 @@
  * These are the company's published details, the same ones in the page
  * footer, so there is nothing here to keep out of the repository.
  */
+/**
+ * How every site-visit message signs off.
+ *
+ * One constant, because these go out under a team name rather than a
+ * person's and a template that signs off differently from its siblings reads
+ * as though it came from somewhere else.
+ */
+export const SITE_VISIT_SIGN_OFF = 'SupportWizard Network Support Team';
+
 export const HOUSE_CONTACT = {
   name: 'SupportWizard Support Desk',
   email: 'help@supportwizard.net',
@@ -170,6 +179,6 @@ export function siteVisitBookedMessage(input: { supplier?: string; contactName?:
       'just reply to this ticket.',
     '',
     'Kind regards',
-    'SupportWizard Support',
+    SITE_VISIT_SIGN_OFF,
   ].join('\n');
 }

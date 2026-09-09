@@ -21,3 +21,4 @@ export * from './networkAdvice';
 export * from './downtime';
 export * from './lineTestAdvice';
 export * from './lineHandover';
+export * from './accountStanding';

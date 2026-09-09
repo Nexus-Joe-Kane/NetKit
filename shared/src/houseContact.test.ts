@@ -85,5 +85,6 @@ test('the site-visit message states both charges and the notice period', () => {
   assert.match(message, /missed appointment/);
   assert.match(message, /somebody will need to be on site/i);
   assert.match(message, /Kind regards/);
+  assert.match(message, /SupportWizard Network Support Team$/, 'these go out under the team name');
   assert.match(message, /^Hello,/, 'no name is not an empty greeting');
 });
