@@ -7,6 +7,10 @@ import type {
   ApiResult,
   AppointmentSlot,
   AvailableTests,
+  Disposition,
+  DispositionDef,
+  NetEvent,
+  SiteWatchState,
   CallRecord,
   CompanyContext,
   EstateUsageReport,
@@ -593,6 +597,39 @@ export const api = {
   deleteUser: (id: string) =>
     request<{ deleted: boolean }>(`/api/admin/users/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   revokeSessions: (id: string) => post<{ revoked: boolean }>(`/api/admin/users/${encodeURIComponent(id)}/revoke-sessions`),
+  /* ---- Events and the dashboard ----------------------------------- */
+
+  dashboard: () => request<DashboardPayload>('/api/dashboard'),
+  events: (includeCleared = false) =>
+    request<{ events: NetEvent[]; dispositions: DispositionDef[] }>(
+      `/api/events${includeCleared ? '?cleared=true' : ''}`,
+    ),
+  event: (id: string) =>
+    request<{ event: NetEvent; watch: SiteWatchState; dispositions: DispositionDef[] }>(
+      `/api/events/${encodeURIComponent(id)}`,
+    ),
+  clearEvent: (
+    id: string,
+    body: {
+      disposition: Disposition;
+      resolution?: string;
+      exceptionReason?: string;
+      signedOffBy?: string;
+      note?: string;
+    },
+  ) =>
+    post<{ event: NetEvent; watch: SiteWatchState; ticket: { posted: boolean; error?: string } }>(
+      `/api/events/${encodeURIComponent(id)}/clear`,
+      body,
+    ),
+  addEventNote: (id: string, body: { visibility: 'private' | 'public'; body: string }) =>
+    post<{ posted: boolean; visibility: 'private' | 'public' }>(
+      `/api/events/${encodeURIComponent(id)}/note`,
+      body,
+    ),
+  /** Named apart from the supervisor's own sweep, which checks integrations. */
+  checkSitesNow: () => post<SweepOutcome>('/api/events/sweep', {}),
+
   audit: (limit = 200) => request<{ entries: AuditEntry[] }>(`/api/admin/audit?limit=${limit}`),
   supervisor: () => request<SupervisorState>('/api/admin/supervisor'),
   sweepNow: () => post<{ sweep: SweepResult; state: SupervisorState }>('/api/admin/supervisor/sweep'),
@@ -736,6 +773,34 @@ export interface SelfTestReport {
   counts: Record<CheckStatus, number>;
   checks: Check[];
   environment: { dataMode: string; nodeEnv: string; version: string };
+}
+
+/** What the home page asks for in one call. */
+export interface DashboardPayload {
+  glance: {
+    appointments: number;
+    faults: number;
+    sitesOff: number;
+    sitesUnstable: number;
+    untouched: number;
+  };
+  events: NetEvent[];
+  visits: VisitRecord[];
+  providers: Array<{ provider: string; openEvents: number; sites: string[] }>;
+  watched: { total: number; onException: number; suppressed: number };
+  /** Present where the assurance API refused, so the number is not a zero. */
+  faultsError?: string;
+}
+
+export interface SweepOutcome {
+  checked: number;
+  down: number;
+  raised: number;
+  unstable: number;
+  recovered: number;
+  diagnosed: number;
+  deferred: number;
+  skipped?: string;
 }
 
 export interface AuditEntry {

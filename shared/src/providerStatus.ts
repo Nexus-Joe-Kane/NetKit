@@ -46,6 +46,14 @@ export const MAJOR_PROVIDERS: readonly MajorProvider[] = [
   { slug: 'bt', name: 'BT', kind: 'isp', aka: ['bt', 'bt business', 'british telecom'] },
   { slug: 'virgin-media', name: 'Virgin Media', kind: 'isp', aka: ['virgin', 'virgin media', 'virgin media business', 'vmo2'] },
   { slug: 'g-network', name: 'G.Network', kind: 'altnet', aka: ['g.network', 'g network', 'gnetwork'] },
+  // Daisy Broadband is Giacom's former name; both are still used on the desk.
+  {
+    slug: 'giacom',
+    name: 'Giacom',
+    kind: 'wholesale',
+    aka: ['giacom', 'cloud market', 'daisy', 'daisy broadband'],
+  },
+  { slug: 'zen', name: 'Zen Internet', kind: 'isp', aka: ['zen', 'zen internet'] },
   { slug: 'ee', name: 'EE', kind: 'mobile', aka: ['ee', 'everything everywhere', 'bt mobile'] },
   { slug: 'three', name: 'Three', kind: 'mobile', aka: ['three', 'three uk', '3', 'h3g'] },
   { slug: 'o2', name: 'O2', kind: 'mobile', aka: ['o2', 'o2 uk', 'telefonica', 'giffgaff'] },
