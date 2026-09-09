@@ -14,7 +14,9 @@ import type {
   ClientSite,
   NetEvent,
   ProviderStatus,
+  QueueOption,
   SiteWatchState,
+  TicketOption,
   CallRecord,
   CompanyContext,
   EstateUsageReport,
@@ -631,6 +633,29 @@ export const api = {
       `/api/events/${encodeURIComponent(id)}/note`,
       body,
     ),
+  /* ---- Sending a document to a ticket ------------------------------ */
+
+  queues: () => request<{ queues: QueueOption[]; error?: string }>('/api/queues'),
+  searchTickets: (q: string, queue?: string) =>
+    request<{ tickets: TicketOption[]; error?: string }>(
+      `/api/tickets/search?q=${encodeURIComponent(q)}${queue ? `&queue=${encodeURIComponent(queue)}` : ''}`,
+    ),
+  sendDocument: (
+    ticketId: string,
+    body: {
+      visibility: 'private' | 'public';
+      filename: string;
+      kind: string;
+      about?: string;
+      engineerNotes?: string;
+      message?: string;
+    },
+  ) =>
+    post<{ posted: boolean; ticketId: string; visibility: 'private' | 'public' }>(
+      `/api/tickets/${encodeURIComponent(ticketId)}/document`,
+      body,
+    ),
+
   /* ---- Clients ---------------------------------------------------- */
 
   clients: (q = '', limit = 25) =>

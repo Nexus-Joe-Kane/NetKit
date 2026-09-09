@@ -8,6 +8,10 @@ import {
   deviceKind,
   displayName,
   eventSubject,
+  handoffProblem,
+  internalHandoffNote,
+  publicHandoffNote,
+  sortTickets,
   lookupableSites,
   glance,
   needsExtraCare,
@@ -30,7 +34,7 @@ import { buildClientProfile } from '../services/clientProfile';
 import { clear, getEvent, listEvents, listWatchStates, watchState } from '../services/events';
 import { sweepOutages } from '../services/outageSweep';
 import { listVisits } from '../services/visits';
-import { comment, zendeskConfigured } from '../providers/tickets/zendesk';
+import { agents, comment, findTickets, zendeskConfigured } from '../providers/tickets/zendesk';
 import { devicesForHost, unifiConfigured, wanHealth } from '../providers/network/unifi';
 import { clientsForSite } from '../providers/network/unifiClients';
 import { majorProviderStatus } from '../providers/status/downdetector';
@@ -525,6 +529,124 @@ export function eventsRouter(): Router {
         });
       }
       return { uprn, removed };
+    }),
+  );
+
+  /* ---- Sending a document to a ticket ------------------------------ */
+
+  /** Agents whose queues can be searched. Live, never a cached list. */
+  router.get(
+    '/queues',
+    handler(async (req) => {
+      if (!zendeskConfigured()) return { queues: [], error: 'Zendesk is not connected.' };
+      const list = await agents();
+      const mine = req.user?.email?.toLowerCase();
+      const queues = list.map((agent) => ({
+        ...agent,
+        // Pre-selecting the signed-in engineer's own queue is the common
+        // case; the other queues are there for the uncommon one.
+        ...(mine && agent.email?.toLowerCase() === mine ? { me: true } : {}),
+      }));
+      return { queues };
+    }),
+  );
+
+  /**
+   * Tickets, searched live.
+   *
+   * Always a search: a queue is hundreds of tickets, and the one somebody
+   * wants is identified by a customer name or a number read off something
+   * else.
+   */
+  router.get(
+    '/tickets/search',
+    handler(async (req) => {
+      if (!zendeskConfigured()) return { tickets: [], error: 'Zendesk is not connected.' };
+      const term = String(req.query.q ?? '').trim();
+      const queue = String(req.query.queue ?? '').trim();
+      const tickets = await findTickets({
+        ...(term ? { term } : {}),
+        ...(queue ? { assigneeId: queue } : {}),
+        limit: 15,
+      });
+      return { tickets: sortTickets(tickets) };
+    }),
+  );
+
+  /**
+   * Puts a document on a ticket.
+   *
+   * The internal and public paths differ in what they say, not just in a
+   * flag. An internal note is a filing action — the file, who asked, when.
+   * A public reply is a message, and gets the network team sign-off added
+   * rather than typed, so it cannot drift from every other customer-facing
+   * message this portal sends.
+   *
+   * The engineer's own notes go on the internal note and never on the public
+   * one. Notes written on an internal document are written for the desk, and
+   * putting them in front of a customer is how "the customer is being
+   * difficult about the wiring" ends up in an inbox.
+   */
+  router.post(
+    '/tickets/:id/document',
+    handler(async (req) => {
+      const body = z
+        .object({
+          visibility: z.enum(['private', 'public']),
+          filename: z.string().trim().min(1).max(200),
+          kind: z.string().trim().min(1).max(80),
+          about: z.string().trim().max(300).optional(),
+          engineerNotes: z.string().trim().max(4000).optional(),
+          /** What the engineer wrote, for a public reply. */
+          message: z.string().trim().max(8000).optional(),
+        })
+        .parse(req.body ?? {});
+
+      const ticketId = String(req.params.id ?? '').trim();
+      if (!zendeskConfigured()) {
+        throw badRequest('Zendesk is not connected, so nothing can be sent. Admin portal → Service status.');
+      }
+
+      const problem = handoffProblem({
+        visibility: body.visibility,
+        ticketId,
+        ...(body.message ? { body: body.message } : {}),
+      });
+      if (problem) throw badRequest(problem);
+
+      const document = {
+        filename: body.filename,
+        kind: body.kind,
+        ...(body.about ? { about: body.about } : {}),
+        ...(body.engineerNotes ? { engineerNotes: body.engineerNotes } : {}),
+      };
+
+      const text =
+        body.visibility === 'public'
+          ? publicHandoffNote({ document, body: body.message ?? '' })
+          : internalHandoffNote({
+              document,
+              ...(req.user?.name ? { by: req.user.name } : {}),
+              at: new Date().toISOString(),
+            });
+
+      await comment({ ticketId, visibility: body.visibility, body: text });
+
+      audit({
+        actorId: req.user?.id,
+        actorEmail: req.user?.email,
+        action: 'document.sent_to_ticket',
+        detail: {
+          ticketId,
+          visibility: body.visibility,
+          filename: body.filename,
+          kind: body.kind,
+          hadEngineerNotes: Boolean(body.engineerNotes),
+        },
+        ip: req.ip,
+      });
+
+      return { posted: true, ticketId, visibility: body.visibility };
     }),
   );
 

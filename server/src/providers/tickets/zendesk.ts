@@ -1,5 +1,5 @@
 import type { AccountStanding, SiteContact } from '@sw/shared';
-import { readStanding } from '@sw/shared';
+import { readStanding, type TicketOption } from '@sw/shared';
 import { config } from '../../config';
 import { fetchJson } from '../../lib/http';
 import { TtlCache } from '../../lib/cache';
@@ -429,5 +429,194 @@ export async function createInternalTicket(input: {
   return {
     ticketId: String(response.ticket.id),
     ...(response.ticket.url ? { url: response.ticket.url } : {}),
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * Choosing a ticket to send something to
+ * ------------------------------------------------------------------ */
+
+interface ZendeskUser {
+  id?: number;
+  name?: string;
+  email?: string;
+  phone?: string;
+  organization_id?: number;
+  role?: string;
+  active?: boolean;
+  suspended?: boolean;
+}
+
+/**
+ * The agents whose queues can be searched.
+ *
+ * Live, not a stored list. An agent list cached at boot is a list that has
+ * last week's leavers in it and this morning's starter missing, and the one
+ * time that matters is when somebody is looking for the queue of the person
+ * who just joined.
+ *
+ * Suspended and inactive accounts are dropped: their queues are not somewhere
+ * to send a document.
+ */
+export async function agents(): Promise<Array<{ id: string; name: string; email?: string }>> {
+  const response = await zdGet<{ users?: ZendeskUser[] }>('/users.json?role[]=agent&role[]=admin&per_page=100');
+  return (response?.users ?? [])
+    .filter((u) => u.id && u.name && u.active !== false && u.suspended !== true)
+    .map((u) => ({
+      id: String(u.id),
+      name: u.name!,
+      ...(u.email ? { email: u.email } : {}),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Tickets, searched live.
+ *
+ * Always a search rather than a preloaded list — asked for explicitly, and
+ * right anyway: a queue is hundreds of tickets and the one somebody wants is
+ * identified by a customer name or a number they are reading off something
+ * else.
+ *
+ * Solved and closed tickets are excluded unless a number was typed. Sending
+ * a document to a closed ticket reopens it and emails the customer about
+ * something they considered finished; typing the number outright is a
+ * different intent and is honoured.
+ */
+export async function findTickets(input: {
+  /** Free text, or a bare ticket number. */
+  term?: string;
+  /** Restrict to one agent's queue. `me` for the API user. */
+  assigneeId?: string;
+  limit?: number;
+}): Promise<TicketOption[]> {
+  const term = (input.term ?? '').trim();
+  const limit = Math.min(30, Math.max(1, input.limit ?? 15));
+
+  // A bare number is a ticket id, and is fetched directly. Search does find
+  // ids, but it also finds every ticket that mentions the number in its
+  // body, which buries the one that *is* it.
+  const asId = normaliseTicketId(term);
+  if (asId && /^\d+$/.test(term.replace(/^#/, ''))) {
+    const one = await ticketById(asId);
+    return one ? [one] : [];
+  }
+
+  const clauses = ['type:ticket'];
+  if (input.assigneeId) clauses.push(`assignee:${input.assigneeId}`);
+  if (!asId) clauses.push('status<solved');
+  if (term) clauses.push(term);
+
+  const query = encodeURIComponent(clauses.join(' '));
+  const response = await zdGet<{ results?: Array<ZendeskTicket & { via?: unknown }> }>(
+    `/search.json?query=${query}&sort_by=updated_at&sort_order=desc&per_page=${limit}`,
+  );
+
+  const results = (response?.results ?? []).filter((t) => t.id);
+  return hydrate(results.slice(0, limit));
+}
+
+/** One ticket, by id, with its requester. */
+export async function ticketById(id: string): Promise<TicketOption | null> {
+  const response = await zdGet<{ ticket?: ZendeskTicket }>(`/tickets/${encodeURIComponent(id)}.json`);
+  if (!response?.ticket) return null;
+  const [one] = await hydrate([response.ticket]);
+  return one ?? null;
+}
+
+/**
+ * Fills in the requester and assignee names.
+ *
+ * Zendesk return ids, and a picker showing `Requester 4429183` is a picker
+ * nobody can use. Fetched in one call for the whole page of results rather
+ * than one per ticket — fifteen tickets is fifteen requests otherwise, and
+ * the picker is typed into.
+ */
+async function hydrate(tickets: ZendeskTicket[]): Promise<TicketOption[]> {
+  const userIds = new Set<string>();
+  for (const ticket of tickets) {
+    const requester = (ticket as { requester_id?: number }).requester_id;
+    const assignee = (ticket as { assignee_id?: number }).assignee_id;
+    if (requester) userIds.add(String(requester));
+    if (assignee) userIds.add(String(assignee));
+  }
+
+  const people = new Map<string, ZendeskUser>();
+  if (userIds.size) {
+    try {
+      const response = await zdGet<{ users?: ZendeskUser[] }>(`/users/show_many.json?ids=${[...userIds].join(',')}`);
+      for (const user of response?.users ?? []) {
+        if (user.id) people.set(String(user.id), user);
+      }
+    } catch {
+      // A picker with ids in it is worse than one with blanks, but both beat
+      // a picker that failed to load.
+    }
+  }
+
+  return tickets.map((ticket) => {
+    const requester = people.get(String((ticket as { requester_id?: number }).requester_id ?? ''));
+    const assignee = people.get(String((ticket as { assignee_id?: number }).assignee_id ?? ''));
+    return {
+      id: String(ticket.id),
+      subject: ticket.subject ?? '(no subject)',
+      status: ticket.status ?? 'unknown',
+      ...(requester?.name ? { requesterName: requester.name } : {}),
+      ...(requester?.email ? { requesterEmail: requester.email } : {}),
+      ...(requester?.phone ? { requesterPhone: requester.phone } : {}),
+      ...(assignee?.name ? { assigneeName: assignee.name } : {}),
+      ...((ticket as { updated_at?: string }).updated_at
+        ? { updatedAt: (ticket as { updated_at?: string }).updated_at! }
+        : {}),
+    };
+  });
+}
+
+/**
+ * Creates a ticket on a customer's behalf.
+ *
+ * Distinct from `createInternalTicket`, which raises one from us. This one
+ * needs a requester, because a customer-facing ticket with the API user as
+ * its requester emails nobody and appears on no customer's history.
+ */
+export async function createCustomerTicket(input: {
+  subject: string;
+  body: string;
+  visibility: 'private' | 'public';
+  requesterEmail: string;
+  requesterName?: string;
+  assigneeEmail?: string;
+  tags?: string[];
+  priority?: 'low' | 'normal' | 'high' | 'urgent';
+}): Promise<InternalTicketResult> {
+  const response = await fetchJson<{ ticket?: ZendeskTicket }>(`${base()}/tickets.json`, {
+    label: 'Zendesk',
+    method: 'POST',
+    headers: { Authorization: `Basic ${auth()}` },
+    body: {
+      ticket: {
+        subject: input.subject,
+        comment: { body: input.body, public: input.visibility === 'public' },
+        requester: {
+          email: input.requesterEmail,
+          ...(input.requesterName ? { name: input.requesterName } : {}),
+        },
+        ...(input.assigneeEmail ? { assignee_email: input.assigneeEmail } : {}),
+        ...(input.tags?.length ? { tags: input.tags } : {}),
+        ...(input.priority ? { priority: input.priority } : {}),
+      },
+    },
+    timeoutMs: config().requestTimeoutMs,
+    // Never retried: a retry that succeeds after a first attempt that also
+    // succeeded is two tickets for one request, and the customer gets two
+    // emails.
+    retries: 0,
+  });
+
+  const ticket = response?.ticket;
+  if (!ticket?.id) throw new Error('Zendesk did not return a ticket.');
+  return {
+    ticketId: String(ticket.id),
+    ...(ticket.url ? { url: ticket.url } : {}),
   };
 }

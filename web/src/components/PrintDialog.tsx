@@ -25,15 +25,20 @@ export function PrintDialog({
   open,
   onClose,
   onApply,
+  onNotes,
 }: {
   report: SiteReport;
   open: boolean;
   onClose: () => void;
   /** Called with the chosen sections just before the print dialog opens. */
   onApply: (sections: Set<PrintSection>) => void;
+  /** Called with what the engineer typed, or an empty string for none. */
+  onNotes?: (notes: string) => void;
 }): ReactElement {
   const available = availableSections(report);
   const [chosen, setChosen] = useState<Set<PrintSection>>(() => loadSections());
+  const [wantNotes, setWantNotes] = useState(false);
+  const [notes, setNotes] = useState('');
 
   // Re-read on open so a change made in another tab is picked up, and so a
   // stale selection from a previous premises does not linger.
@@ -56,6 +61,7 @@ export function PrintDialog({
   const print = (): void => {
     saveSections(chosen);
     onApply(new Set(effective));
+    onNotes?.(wantNotes ? notes.trim() : '');
     onClose();
     // The browser dialog is modal and synchronous, so it has to wait for
     // React to commit the new selection first.
@@ -65,6 +71,17 @@ export function PrintDialog({
   const setAll = (value: boolean): void => {
     setChosen(value ? new Set(available) : new Set());
   };
+
+  /*
+   * Notes on the document.
+   *
+   * Opt-in rather than always shown: most prints are a straight copy, and an
+   * empty box on every one of them is a box people learn to scroll past —
+   * which is exactly when the one that needed filling in gets missed.
+   *
+   * Deliberately absent from CSV exports. A CSV is rows for a spreadsheet,
+   * and a paragraph in a cell breaks whatever it is opened in.
+   */
 
   return (
     <Modal
@@ -137,6 +154,37 @@ export function PrintDialog({
             </div>
           );
         })}
+
+        {/*
+          Notes on the document.
+
+          Opt-in rather than always shown: most prints are a straight copy,
+          and an empty box on every one of them is a box people learn to
+          scroll past — which is exactly when the one that needed filling in
+          gets missed. Not offered on CSV exports, where a paragraph in a
+          cell breaks whatever opens it.
+        */}
+        <div className="printnotes">
+          <label className="printnotes__toggle">
+            <input type="checkbox" checked={wantNotes} onChange={(e) => setWantNotes(e.target.checked)} />
+            <span>Add notes to this document</span>
+          </label>
+          {wantNotes && (
+            <>
+              <textarea
+                className="field__input"
+                rows={4}
+                value={notes}
+                placeholder="What somebody reading this needs to know that the data does not say."
+                onChange={(e) => setNotes(e.target.value)}
+              />
+              <p className="muted" style={{ fontSize: 12, margin: '4px 0 0' }}>
+                These print on the document itself. They go on an internal note if you send it to a ticket, and
+                never on a customer reply.
+              </p>
+            </>
+          )}
+        </div>
       </div>
     </Modal>
   );
