@@ -5,13 +5,17 @@ import {
   activityNote,
   clearanceProblem,
   dispositionDef,
+  deviceKind,
   eventSubject,
   glance,
-  troubleHeadline,
+  needsExtraCare,
+  restartImpact,
+  wanLinesFrom,
   type ApiResult,
   type Clearance,
   type Disposition,
   type NetEvent,
+  type NetworkDevice,
 } from '@sw/shared';
 import { badRequest, notFound } from '../lib/errors';
 import { audit } from '../auth/store';
@@ -20,6 +24,15 @@ import { clear, getEvent, listEvents, listWatchStates, watchState } from '../ser
 import { sweepOutages } from '../services/outageSweep';
 import { listVisits } from '../services/visits';
 import { comment, zendeskConfigured } from '../providers/tickets/zendesk';
+import { devicesForHost, unifiConfigured, wanHealth } from '../providers/network/unifi';
+import { clientsForSite } from '../providers/network/unifiClients';
+import {
+  consoleLinks,
+  powerCyclePort,
+  restartDevice,
+  unifiActionsConfigured,
+  unifiActionsUnavailableReason,
+} from '../providers/network/unifiActions';
 import { config } from '../config';
 import * as ops from '../services/operations';
 
@@ -260,6 +273,146 @@ export function eventsRouter(): Router {
       });
 
       return { posted: true, visibility: body.visibility };
+    }),
+  );
+
+  /* ---- One site's kit, and what can be done to it ------------------ */
+
+  /**
+   * Devices and clients for a UniFi site.
+   *
+   * Both halves degrade on their own: the device list is worth having with
+   * no client list, and the client list is worth having when the metrics
+   * feed is down. Neither failure takes the page with it.
+   */
+  router.get(
+    '/unifi/sites/:hostId/:siteId',
+    handler(async (req) => {
+      const hostId = String(req.params.hostId ?? '');
+      const siteId = String(req.params.siteId ?? '');
+      if (!unifiConfigured()) {
+        return {
+          devices: [],
+          clients: [],
+          error: 'UniFi Site Manager is not connected. Admin portal → Credentials.',
+          actions: { available: false, reason: unifiActionsUnavailableReason() },
+        };
+      }
+
+      let devices: NetworkDevice[] = [];
+      let deviceError: string | undefined;
+      try {
+        devices = await devicesForHost(hostId);
+      } catch (err) {
+        deviceError = err instanceof Error ? err.message : String(err);
+      }
+
+      // Names for the `via` field, keyed by both id and MAC because which
+      // one the client payload carries varies by firmware.
+      const named = new Map<string, string>();
+      for (const device of devices) {
+        if (device.id) named.set(device.id.toLowerCase(), device.name);
+        if (device.mac) named.set(device.mac.toLowerCase(), device.name);
+      }
+
+      const { clients, error: clientError } = await clientsForSite({ consoleId: hostId, siteId, devices: named });
+
+      let wan: Awaited<ReturnType<typeof wanHealth>> = null;
+      try {
+        wan = await wanHealth(hostId, siteId);
+      } catch {
+        // Metrics are decoration next to the device list.
+      }
+
+      return {
+        devices,
+        clients,
+        wan,
+        wans: wanLinesFrom({ health: wan, ...(wan?.uplinks ? { uplinks: wan.uplinks } : {}) }),
+        ...(deviceError ? { deviceError } : {}),
+        ...(clientError ? { clientError } : {}),
+        actions: {
+          available: unifiActionsConfigured(),
+          ...(unifiActionsUnavailableReason() ? { reason: unifiActionsUnavailableReason() } : {}),
+        },
+        consoleLinks: consoleLinks({ consoleId: hostId, siteId }),
+      };
+    }),
+  );
+
+  /**
+   * Restarts one device.
+   *
+   * The impact is worked out server-side and audited with the action, so the
+   * log says "restarted the gateway, which takes the site off" rather than
+   * "restarted a device". A gateway or an unclassifiable device needs
+   * `confirmImpact` in the body — a second, explicit statement of what is
+   * about to happen, so a mis-click on a list cannot take an office off.
+   */
+  router.post(
+    '/unifi/sites/:hostId/:siteId/devices/:deviceId/restart',
+    handler(async (req) => {
+      const body = z.object({ confirmImpact: z.string().trim().max(40).optional() }).parse(req.body ?? {});
+      const hostId = String(req.params.hostId ?? '');
+      const siteId = String(req.params.siteId ?? '');
+      const deviceId = String(req.params.deviceId ?? '');
+
+      const devices = await devicesForHost(hostId).catch(() => [] as NetworkDevice[]);
+      const device = devices.find((d) => d.id === deviceId);
+      const kind = device ? deviceKind(device) : 'other';
+      const { impact, warning } = restartImpact(kind);
+
+      if (needsExtraCare(kind) && body.confirmImpact !== impact) {
+        throw badRequest(
+          `${warning} Send confirmImpact: "${impact}" to go ahead.`,
+        );
+      }
+
+      const outcome = await restartDevice({ consoleId: hostId, siteId, deviceId });
+
+      audit({
+        actorId: req.user?.id,
+        actorEmail: req.user?.email,
+        action: 'unifi.device_restarted',
+        detail: {
+          siteId,
+          deviceId,
+          ...(device?.name ? { device: device.name } : {}),
+          kind,
+          impact,
+          ok: outcome.ok,
+          ...(outcome.ok ? {} : { error: outcome.detail }),
+        },
+        ip: req.ip,
+      });
+
+      if (!outcome.ok) throw badRequest(outcome.detail);
+      return { ...outcome, kind, impact };
+    }),
+  );
+
+  /** Power-cycles one switch port, which is how a hung camera comes back. */
+  router.post(
+    '/unifi/sites/:hostId/:siteId/devices/:deviceId/ports/:port/cycle',
+    handler(async (req) => {
+      const hostId = String(req.params.hostId ?? '');
+      const siteId = String(req.params.siteId ?? '');
+      const deviceId = String(req.params.deviceId ?? '');
+      const port = Number.parseInt(String(req.params.port ?? ''), 10);
+      if (!Number.isInteger(port) || port < 1 || port > 64) throw badRequest('That is not a port number.');
+
+      const outcome = await powerCyclePort({ consoleId: hostId, siteId, deviceId, portIndex: port });
+
+      audit({
+        actorId: req.user?.id,
+        actorEmail: req.user?.email,
+        action: 'unifi.port_cycled',
+        detail: { siteId, deviceId, port, ok: outcome.ok, ...(outcome.ok ? {} : { error: outcome.detail }) },
+        ip: req.ip,
+      });
+
+      if (!outcome.ok) throw badRequest(outcome.detail);
+      return outcome;
     }),
   );
 
