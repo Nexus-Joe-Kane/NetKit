@@ -32,8 +32,8 @@ drift. Nothing here is a secret — these are the names of the boxes.
     BT_IMEI_LOOKUP_KEY
     BT_LOCATION_INSIGHTS_KEY
     COMPANIES_HOUSE_API_KEY
-(-) DOWNDETECTOR_CLIENT_ID
-(-) DOWNDETECTOR_CLIENT_SECRET
+    DOWNDETECTOR_CLIENT_ID
+    DOWNDETECTOR_CLIENT_SECRET
     GIACOM_CLIENT_ID
     GIACOM_CLIENT_SECRET
     ITGLUE_API_KEY
@@ -77,6 +77,9 @@ drift. Nothing here is a secret — these are the names of the boxes.
 
     BT_TOKEN_URL
     COMPANIES_HOUSE_BASE_URL
+    DOWNDETECTOR_BASE_URL
+    DOWNDETECTOR_STATUS_PATH
+    DOWNDETECTOR_TOKEN_URL
     GIACOM_BASE_URL
     GIACOM_ENVIRONMENT
     GIACOM_QUALIFICATION_PATH
@@ -102,7 +105,7 @@ drift. Nothing here is a secret — these are the names of the boxes.
     ZEN_SELF_SERVICE_BASE_URL
     ZEN_TOKEN_URL
 
-74 variables.
+79 variables.
 
 OPENCELLID, OPENCELLID_API_KEY and OPENCELLID_TOKEN are three names for
 the same key. Set one. If more than one is set, the first of those three

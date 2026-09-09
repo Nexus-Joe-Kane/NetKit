@@ -5,6 +5,7 @@ import {
   dispositionDef,
   eventKindLabel,
   ispIdentity,
+  providerStateLabel,
   sortEvents,
   type Disposition,
   type DispositionDef,
@@ -169,6 +170,7 @@ export function Dashboard(): ReactElement {
         )}
       </Card>
 
+      {data && <NationalStrip data={data} />}
       {data && <ProviderStrip data={data} />}
       {data && <ToolsBox />}
 
@@ -243,7 +245,7 @@ function ProviderStrip({ data }: { data: DashboardPayload }): ReactElement {
   }, [data.providers]);
 
   return (
-    <Card title="Providers" eyebrow="ours first, then whatever the consoles reported" index="02" accent={2}>
+    <Card title="Our providers" eyebrow="ours first, then whatever the consoles reported" index="03" accent={3}>
       <div className="provider-strip">
         {rows.map((row) => {
           const identity = ispIdentity(row.provider);
@@ -271,10 +273,70 @@ function ProviderStrip({ data }: { data: DashboardPayload }): ReactElement {
         })}
       </div>
       <p className="muted" style={{ fontSize: 12.5, margin: '12px 0 0' }}>
-        {MAJOR_PROVIDERS.length} major networks are watched for national trouble. Their own status feeds appear
-        here once a Downdetector key is set — until then this shows what our own checks found, which is about our
-        sites rather than about the country.
+        This is our own sites, from our own checks. For whether a supplier is down nationally, set a Downdetector
+        key and {MAJOR_PROVIDERS.length} major networks appear in their own card above.
       </p>
+    </Card>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Is the country having a bad morning?
+ * ------------------------------------------------------------------ */
+
+/**
+ * The majors, from a national status source.
+ *
+ * Separate from the providers card on purpose, and the distinction matters:
+ * that one is about our sites, this one is about the country. Three of our
+ * customers off and BT reporting a national outage is one story; three off
+ * and BT green is a different one, and merging the two into a single row
+ * would lose exactly that.
+ */
+function NationalStrip({ data }: { data: DashboardPayload }): ReactElement | null {
+  const rows = data.national ?? [];
+
+  // Not rendered at all when nothing is configured. An empty card headed
+  // "National status" is a card that teaches people the feature is broken.
+  if (!rows.length && !data.nationalError) return null;
+
+  return (
+    <Card
+      title="National supplier status"
+      eyebrow={data.nationalHeadline ? 'something is up' : 'the country, not our sites'}
+      index="02"
+      accent={2}
+    >
+      {data.nationalError ? (
+        <Alert tone="info">{data.nationalError}</Alert>
+      ) : (
+        <>
+          {data.nationalHeadline && <Alert tone="warn">{data.nationalHeadline}</Alert>}
+          <div className="provider-strip" style={{ marginTop: data.nationalHeadline ? 10 : 0 }}>
+            {rows.map((row) => {
+              const identity = ispIdentity(row.provider);
+              const tone = row.state === 'outage' ? 'crit' : row.state === 'degraded' ? 'warn' : row.state === 'ok' ? 'ok' : 'idle';
+              return (
+                <div key={row.provider} className={`provider${row.state === 'outage' ? ' provider--trouble' : ''}`}>
+                  <span className="provider__mark" style={{ background: identity.colour }} aria-hidden="true">
+                    {identity.monogram}
+                  </span>
+                  <span className="provider__name">{identity.name}</span>
+                  <span className="provider__state">
+                    <Chip tone={tone}>{providerStateLabel(row.state)}</Chip>
+                  </span>
+                  {(row.reports !== undefined || row.detail) && (
+                    <span className="provider__sites">
+                      {row.reports !== undefined ? `${row.reports.toLocaleString('en-GB')} reports` : ''}
+                      {row.detail ? ` ${row.detail}` : ''}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
     </Card>
   );
 }
@@ -296,7 +358,7 @@ const TOOL_LINKS: Array<{ label: string; hash: string; hint: string }> = [
 
 function ToolsBox(): ReactElement {
   return (
-    <Card title="Everything else" eyebrow="the rest of the portal" index="03" accent={3}>
+    <Card title="Everything else" eyebrow="the rest of the portal" index="04" accent={4}>
       <div className="tool-grid">
         {TOOL_LINKS.map((tool) => (
           <button key={tool.hash} type="button" className="tool" onClick={() => go(tool.hash)}>

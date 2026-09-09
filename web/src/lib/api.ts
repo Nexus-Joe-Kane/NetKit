@@ -10,6 +10,7 @@ import type {
   Disposition,
   DispositionDef,
   NetEvent,
+  ProviderStatus,
   SiteWatchState,
   CallRecord,
   CompanyContext,
@@ -787,6 +788,10 @@ export interface DashboardPayload {
   events: NetEvent[];
   visits: VisitRecord[];
   providers: Array<{ provider: string; openEvents: number; sites: string[] }>;
+  /** National supplier status, where a status source is configured. */
+  national?: ProviderStatus[];
+  nationalHeadline?: string;
+  nationalError?: string;
   watched: { total: number; onException: number; suppressed: number };
   /** Present where the assurance API refused, so the number is not a zero. */
   faultsError?: string;

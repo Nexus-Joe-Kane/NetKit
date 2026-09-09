@@ -10,6 +10,7 @@ import {
   glance,
   needsExtraCare,
   restartImpact,
+  troubleHeadline,
   wanLinesFrom,
   type ApiResult,
   type Clearance,
@@ -26,6 +27,7 @@ import { listVisits } from '../services/visits';
 import { comment, zendeskConfigured } from '../providers/tickets/zendesk';
 import { devicesForHost, unifiConfigured, wanHealth } from '../providers/network/unifi';
 import { clientsForSite } from '../providers/network/unifiClients';
+import { majorProviderStatus } from '../providers/status/downdetector';
 import {
   consoleLinks,
   powerCyclePort,
@@ -122,8 +124,15 @@ export function eventsRouter(): Router {
 
       const watches = listWatchStates();
 
+      // National supplier status. Best-effort by design: it is context
+      // rather than evidence, and it must never blank the board.
+      const national = await majorProviderStatus();
+
       return {
         glance: counts,
+        national: national.rows,
+        ...(national.error ? { nationalError: national.error } : {}),
+        ...(troubleHeadline(national.rows) ? { nationalHeadline: troubleHeadline(national.rows)! } : {}),
         events,
         visits: visits.open,
         providers: [...byProvider.entries()].map(([provider, row]) => ({
