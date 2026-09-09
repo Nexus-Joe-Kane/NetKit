@@ -1355,6 +1355,63 @@ table.data td.num {
 }
 
 /* ------------------------------------------------------------------ *
+ * Credential rows
+ *
+ * Three columns: what it is, where it goes, and where the live value comes
+ * from. The value column is an input and nothing else — a stored credential
+ * is never rendered, so there is no "reveal" control to build.
+ * ------------------------------------------------------------------ */
+
+.cred {
+  display: grid;
+  grid-template-columns: minmax(190px, 1fr) minmax(220px, 1.4fr) auto;
+  align-items: start;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--sw-hairline);
+}
+
+.cred:last-of-type {
+  border-bottom: 0;
+}
+
+.cred__meta {
+  display: grid;
+  gap: 2px;
+  line-height: 1.4;
+  min-width: 0;
+}
+
+.cred__meta strong {
+  color: var(--sw-ink);
+  font-size: var(--sw-size-body);
+  font-weight: var(--sw-weight-medium);
+}
+
+.cred__meta .muted {
+  font-size: var(--sw-size-small);
+}
+
+.cred__field {
+  min-width: 0;
+}
+
+.cred__state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* On a phone the three columns become three rows, in the same order. */
+@media (max-width: 720px) {
+  .cred {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+}
+
+/* ------------------------------------------------------------------ *
  * A booked visit on the chase board
  *
  * The left edge carries the urgency, because the thing that matters about a

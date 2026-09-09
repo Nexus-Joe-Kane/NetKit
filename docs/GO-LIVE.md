@@ -405,6 +405,30 @@ With no Resend key at all, NetKit still runs: 2FA is unavailable, new
 accounts get their temporary password shown on screen to the admin who
 created them, and notices become Zendesk tickets.
 
+### Credentials, without touching Plesk again
+
+Everything below can be set in **Admin portal → Credentials** instead of in
+the environment, and takes effect immediately — no restart. Each integration
+has a **Test without saving** button next to it, so a pasted key is proved
+before it changes anything that is running.
+
+Two things to know:
+
+- The vault is encrypted at rest with a key derived from `SESSION_SECRET`.
+  That one has to stay in Plesk, because it is the key the rest are locked
+  with. Rotating it makes the stored credentials unreadable, and the portal
+  and the boot log both say so plainly rather than leaving the integrations
+  looking merely unconfigured.
+- Anything already set in Plesk keeps working and is labelled "from Plesk".
+  Saving the same key in the portal takes over from it; removing it in the
+  portal hands it back at the next restart. So moving over is gradual, not a
+  cutover.
+
+Stored values are never shown again — not even the first four characters,
+because four characters of an API key is four characters an attacker does not
+have to guess. The list says where the live value comes from, how long it is,
+and who set it when.
+
 ### The portal's own address
 
 ```

@@ -15,6 +15,7 @@ import { clearOfcomBroadbandCache } from '../providers/coverage/ofcomBroadband';
 import { clearOpenCellIdCache } from '../providers/signal/openCellId';
 import { clearThinkbroadbandCache } from '../providers/altnet/thinkbroadband';
 import { resetGiacomTokens } from '../providers/giacom/client';
+import { clearZendeskCache } from '../providers/tickets/zendesk';
 import { clearGiacomCaches } from '../providers/giacom/adapters';
 import { sweepWatches } from '../services/watchSweep';
 
@@ -465,6 +466,31 @@ async function attemptRecovery(health: IntegrationHealth): Promise<boolean> {
 
   health.state = health.circuit.open ? 'circuit_open' : 'failing';
   return false;
+}
+
+/**
+ * Forgets everything every provider had cached.
+ *
+ * Called when a credential changes. A cached token, a cached address or a
+ * cached "not configured" answer taken under the old key is worse than no
+ * cache at all: the integration would go on failing, or go on working, for
+ * as long as the entry lived, and the operator would reasonably conclude the
+ * new key was wrong.
+ */
+export function clearAllProviderCaches(): void {
+  resetZenTokens();
+  clearZenCaches();
+  resetBtTokens();
+  resetGiacomTokens();
+  clearGiacomCaches();
+  clearPostcodeCache();
+  clearOsPlacesCache();
+  clearCompaniesCache();
+  clearOfcomBroadbandCache();
+  clearOpenCellIdCache();
+  clearThinkbroadbandCache();
+  clearZendeskCache();
+  clearReportCache();
 }
 
 /* ------------------------------------------------------------------ *

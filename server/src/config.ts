@@ -487,7 +487,14 @@ export function config(): AppConfig {
   return cached;
 }
 
-/** Test hook — drops the memoised config so env changes take effect. */
+/**
+ * Drops the memoised config so environment changes take effect.
+ *
+ * Started as a test hook and is now load-bearing: credentials can be changed
+ * from the admin portal, the vault writes the new value into the environment,
+ * and this is what makes the next read see it. That is the whole reason a key
+ * can be added without a restart.
+ */
 export function resetConfig(): void {
   cached = null;
 }

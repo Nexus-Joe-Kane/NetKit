@@ -26,6 +26,7 @@ import {
 } from './ui';
 import type { CsvColumn } from '../lib/csv';
 import { Tabs, TabPanel, type TabDef } from './Tabs';
+import { CredentialVault } from './CredentialVault';
 import { Modal, useConfirm } from './overlay';
 import { RecoveryPage } from '../pages/Recovery';
 
@@ -54,9 +55,9 @@ const STATE_LABEL: Record<ServiceState, string> = {
   disabled: 'Switched off',
 };
 
-type Tab = 'status' | 'ordering' | 'recovery' | 'users' | 'audit';
+type Tab = 'status' | 'credentials' | 'ordering' | 'recovery' | 'users' | 'audit';
 
-const TABS = ['status', 'ordering', 'recovery', 'users', 'audit'] as const;
+const TABS = ['status', 'credentials', 'ordering', 'recovery', 'users', 'audit'] as const;
 
 export function AdminPortal({ me }: { me: PublicUser }): ReactElement {
   // The open tab lives in the URL, so a refresh or a pasted link comes back
@@ -65,6 +66,7 @@ export function AdminPortal({ me }: { me: PublicUser }): ReactElement {
 
   const tabs: Array<TabDef<Tab>> = [
     { id: 'status', label: 'Service status' },
+    { id: 'credentials', label: 'Credentials' },
     { id: 'ordering', label: 'Ordering & limits' },
     { id: 'recovery', label: 'Recovery & self-test' },
     { id: 'users', label: 'Users' },
@@ -76,6 +78,7 @@ export function AdminPortal({ me }: { me: PublicUser }): ReactElement {
       <Tabs tabs={tabs} active={tab} onChange={setTab} variant="primary" label="Admin sections" />
       <TabPanel>
         {tab === 'status' && <StatusBoard />}
+        {tab === 'credentials' && <CredentialVault />}
         {tab === 'ordering' && <OrderingBoard />}
         {tab === 'recovery' && <RecoveryPage />}
         {tab === 'users' && <UsersBoard me={me} />}
