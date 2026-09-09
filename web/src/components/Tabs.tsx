@@ -1,4 +1,5 @@
 import { useId, useRef, type ReactElement, type ReactNode } from 'react';
+import { useEdgeFade } from '../lib/edgeFade';
 
 /**
  * Tab strip.
@@ -39,6 +40,8 @@ export function Tabs<T extends string>({
 }): ReactElement {
   const groupId = useId();
   const refs = useRef(new Map<T, HTMLButtonElement>());
+  /* Fades whichever end of the strip has more behind it. See useEdgeFade. */
+  const strip = useEdgeFade<HTMLDivElement>([tabs.length]);
 
   const move = (from: T, delta: number) => {
     const enabled = tabs.filter((t) => !t.disabled);
@@ -59,7 +62,14 @@ export function Tabs<T extends string>({
   };
 
   return (
-    <div className={`tabs tabs--${variant}`} role="tablist" aria-label={label}>
+    <div
+      className={`tabs tabs--${variant}`}
+      role="tablist"
+      aria-label={label}
+      ref={strip.ref}
+      onScroll={strip.onScroll}
+      data-edges={strip.edges}
+    >
       {tabs.map((tab) => {
         const selected = tab.id === active;
         return (

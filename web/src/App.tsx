@@ -18,6 +18,7 @@ import { InboxPage } from './pages/Inbox';
 import { ForcePasswordChange, Login } from './components/Login';
 import { Alert, Card, Chip, Empty, Label, Spinner } from './components/ui';
 import { Tabs, TabPanel, type TabDef } from './components/Tabs';
+import { useEdgeFade } from './lib/edgeFade';
 import { Modal } from './components/overlay';
 import { siteReportToText } from './lib/reportText';
 import { PrintableReport } from './components/PrintableReport';
@@ -117,6 +118,11 @@ function Portal({
     return known.find((v) => v === route.view) ?? 'lookup';
   })();
   const setView = (next: View): void => go(toHash(next));
+
+  /* Fades whichever end of the section nav has more behind it on a narrow
+     screen, so the strip reads as swipeable rather than cut off, and keeps
+     the current section scrolled into view. */
+  const navStrip = useEdgeFade<HTMLElement>([view]);
 
   const [result, setResult] = useState<SearchResponse | null>(null);
   const [report, setReport] = useState<SiteReport | null>(null);
@@ -238,7 +244,13 @@ function Portal({
             <span className="sw-label masthead__service">NetKit</span>
           </button>
 
-          <nav className="nav" aria-label="Main sections">
+          <nav
+            className="nav"
+            aria-label="Main sections"
+            ref={navStrip.ref}
+            onScroll={navStrip.onScroll}
+            data-edges={navStrip.edges}
+          >
             {NAV.map((item) => (
               <button
                 key={item.id}
@@ -321,7 +333,7 @@ function Portal({
                     <thead>
                       <tr>
                         <th>Address</th>
-                        <th>Post town</th>
+                        <th className="col-optional">Post town</th>
                         <th>UPRN</th>
                         <th />
                       </tr>
@@ -330,7 +342,7 @@ function Portal({
                       {result.suggestions.map((s) => (
                         <tr key={s.id}>
                           <td><strong style={{ color: 'var(--sw-ink)' }}>{s.label}</strong></td>
-                          <td>{s.postTown}</td>
+                          <td className="col-optional">{s.postTown}</td>
                           <td className="sw-mono">{s.uprn ?? '—'}</td>
                           <td style={{ textAlign: 'right' }}>
                             <button className="btn btn--primary btn--small" onClick={() => pickAddress(s)} disabled={busy}>
@@ -794,7 +806,7 @@ function AddressPickerDialog({
           <thead>
             <tr>
               <th>Address</th>
-              <th>Post town</th>
+              <th className="col-optional">Post town</th>
               <th>UPRN</th>
               <th />
             </tr>
@@ -805,7 +817,7 @@ function AddressPickerDialog({
                 <td>
                   <strong style={{ color: 'var(--sw-ink)' }}>{s.label}</strong>
                 </td>
-                <td>{s.postTown}</td>
+                <td className="col-optional">{s.postTown}</td>
                 <td className="sw-mono">{s.uprn ?? '—'}</td>
                 <td style={{ textAlign: 'right' }}>
                   <button

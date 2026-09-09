@@ -1342,6 +1342,36 @@ table.data td.num {
  * Responsive
  * ------------------------------------------------------------------ */
 
+/*
+ * A tab strip wider than its card fades at whichever end has more behind it,
+ * rather than ending on a label chopped in half against the edge. The
+ * `data-edges` value is set by the component, which is the only thing that
+ * can know whether the strip actually overflows and where it is scrolled to.
+ */
+.tabs[data-edges='end'],
+.nav[data-edges='end'] {
+  -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 28px), transparent 100%);
+  mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 28px), transparent 100%);
+}
+
+.tabs[data-edges='start'],
+.nav[data-edges='start'] {
+  -webkit-mask-image: linear-gradient(to left, #000 0, #000 calc(100% - 28px), transparent 100%);
+  mask-image: linear-gradient(to left, #000 0, #000 calc(100% - 28px), transparent 100%);
+}
+
+.tabs[data-edges='both'],
+.nav[data-edges='both'] {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 28px, #000 calc(100% - 28px), transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 28px, #000 calc(100% - 28px), transparent 100%);
+}
+
+/* Printing has no scroll, so a mask would just clip a heading. */
+@media print {
+  .tabs[data-edges],
+  .nav[data-edges] { -webkit-mask-image: none; mask-image: none; }
+}
+
 @media (max-width: 860px) {
   .identity__grid { grid-template-columns: 1fr; }
   .identity__field { border-right: 0; border-bottom: 1px solid var(--sw-hairline); }
@@ -1350,10 +1380,241 @@ table.data td.num {
   .search__input { font-size: 16px; }
 }
 
+/* ------------------------------------------------------------------ *
+ * Phone
+ *
+ * The app is used standing up, one-handed, in a comms room or on a
+ * customer's doorstep, so this is not a courtesy breakpoint. Nothing is
+ * hidden that a desktop shows -- an engineer on site needs *more* than one
+ * at a desk, not less. What changes is the shape: the page gives its width
+ * to content, anything wide scrolls inside its own card instead of dragging
+ * the page sideways, dialogs come up from the bottom where a thumb is, and
+ * every target is big enough to hit while walking.
+ * ------------------------------------------------------------------ */
+
 @media (max-width: 620px) {
-  .shell__body { padding: 16px 12px 40px; }
+  /*
+   * The fix for the page sliding sideways.
+   *
+   * Three strips on a phone are wider than the screen and scroll inside
+   * themselves: the section nav, the tab strips and any data table. On iOS
+   * Safari, scrolling one of those to its end hands the rest of the gesture
+   * to the page, which then slides and takes the masthead and the card
+   * edges off screen -- exactly what it looked like. `overscroll-behavior-x:
+   * contain` stops the chain at the strip that owns the gesture.
+   */
+  .nav,
+  .tabs,
+  .table-wrap,
+  .modal__body {
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* And a backstop, in case something new is wider than its parent.
+     `clip` rather than `hidden` so the sticky masthead still sticks. */
+  body {
+    overflow-x: clip;
+  }
+
+  .shell__body {
+    padding: 14px 12px calc(32px + env(safe-area-inset-bottom));
+  }
+
+  /* ---- Masthead ---------------------------------------------------- */
+
+  .masthead__inner {
+    padding: 10px 12px;
+    gap: 10px;
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+  }
+
+  .masthead__logo img { height: 22px; }
   .masthead__user { display: none; }
-  .search__submit { padding: 10px 14px; }
+
+  .masthead__actions {
+    gap: 6px;
+  }
+
+  /* The nav strip: every view still reachable, snapping so a pill never
+     ends up half off the edge. */
+  .nav {
+    gap: 4px;
+    padding: 2px 12px 2px 0;
+    scroll-snap-type: x proximity;
+  }
+
+  .nav__item {
+    scroll-snap-align: start;
+    padding: 9px 12px;
+    font-size: 13px;
+  }
+
+  /* ---- Cards and tabs ---------------------------------------------- */
+
+  /*
+   * Head strips stack. On a phone the eyebrow, the title and four action
+   * buttons cannot share a row, and `margin-left: auto` on the actions turns
+   * the leftovers into a ragged block wrapped around the label. Stacked, the
+   * label reads as a label and the buttons read as a row of buttons.
+   */
+  .card__head,
+  .identity__strip {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    row-gap: 10px;
+  }
+
+  .card__head-meta,
+  .identity__strip > :last-child {
+    margin-left: 0;
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .identity__strip {
+    padding: 10px 14px;
+  }
+
+  .card__head {
+    padding: 12px 14px;
+  }
+
+  .card__body {
+    padding: 14px;
+  }
+
+  .tabs--primary {
+    gap: 3px;
+    padding: 4px;
+    scroll-snap-type: x proximity;
+  }
+
+  .tabs--primary .tab,
+  .tabs--sub .tab {
+    scroll-snap-align: start;
+    min-height: 40px;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  /* ---- Tables ------------------------------------------------------ */
+
+  /*
+   * A wide table keeps its shape and scrolls, rather than being folded into
+   * stacked rows. Folding reads well for two columns and falls apart for a
+   * line record, where the columns are the comparison -- and comparing is
+   * the reason somebody opened the table.
+   *
+   * Two things make sideways scrolling usable instead of merely possible.
+   * The first column stays put, so a row never loses its identity while the
+   * rest slides under it. And the shadows below only appear when there is
+   * more to see in that direction: the pair pinned with `local` are painted
+   * against the scrolled content and slide out of view at the ends, which
+   * uncovers or covers the fixed pair.
+   */
+  .table-wrap {
+    background:
+      linear-gradient(to right, var(--sw-white) 30%, rgba(255, 255, 255, 0)) left center / 28px 100% no-repeat,
+      linear-gradient(to left, var(--sw-white) 30%, rgba(255, 255, 255, 0)) right center / 28px 100% no-repeat,
+      radial-gradient(farthest-side at 0 50%, rgba(13, 27, 62, 0.16), rgba(13, 27, 62, 0)) left center / 12px 100% no-repeat,
+      radial-gradient(farthest-side at 100% 50%, rgba(13, 27, 62, 0.16), rgba(13, 27, 62, 0)) right center / 12px 100% no-repeat;
+    background-attachment: local, local, scroll, scroll;
+  }
+
+  table.data th:first-child,
+  table.data td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--sw-white);
+    box-shadow: 1px 0 0 var(--sw-cell-rule);
+  }
+
+  table.data thead th:first-child {
+    background: var(--sw-panel);
+  }
+
+  /*
+   * Columns that repeat something already on the row.
+   *
+   * The premises picker showed the post town twice -- once at the end of the
+   * address and again in its own column -- and the cost was the Open button
+   * pushed off the right edge of the phone, on the first decision an
+   * engineer makes. The column is dropped rather than the table scrolled,
+   * because nothing is lost with it.
+   */
+  .col-optional {
+    display: none;
+  }
+
+  /* ---- Dialogs come up from the bottom ----------------------------- */
+
+  .modal-backdrop {
+    padding: 0;
+    place-items: end stretch;
+  }
+
+  .modal,
+  .modal--wide,
+  .modal--narrow {
+    max-width: none;
+    /* dvh, so the sheet is not cut off by Safari's collapsing toolbar. */
+    max-height: 88dvh;
+    border-radius: 16px 16px 0 0;
+    animation: sw-sheet-in 0.2s cubic-bezier(0.2, 0.8, 0.3, 1);
+  }
+
+  .modal__foot {
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+    /* The confirm button first, where a thumb already is. */
+    flex-wrap: wrap;
+  }
+
+  .modal__foot button {
+    min-height: 42px;
+  }
+
+  .modal__head { padding: 14px 16px 12px; }
+  .modal__body { padding: 16px; }
+
+  .modal__close {
+    width: 36px;
+    height: 36px;
+  }
+
+  /* ---- Targets and typing ------------------------------------------ */
+
+  /*
+   * 16px is not a taste decision: iOS Safari zooms the whole page when a
+   * field smaller than that takes focus, and then leaves it zoomed, which is
+   * how a search box ends up hiding half the app.
+   */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  .search__submit { padding: 12px 16px; }
+
+  button,
+  [role='button'] {
+    -webkit-tap-highlight-color: rgba(13, 27, 62, 0.08);
+  }
+}
+
+@keyframes sw-sheet-in {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* One-handed on a small phone: two tiles across rather than a squeeze. */
+@media (max-width: 460px) {
+  .shell__body { padding-left: 10px; padding-right: 10px; }
+  .card__head h2,
+  .card__head h3 { font-size: 15px; }
 }
 
 /* ------------------------------------------------------------------ *

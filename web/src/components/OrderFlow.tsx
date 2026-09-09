@@ -320,7 +320,8 @@ export function OrderFlow({ availability, offer, onClose, onPlaced }: OrderFlowP
                   </div>
                 </div>
                 {quote.lines.length > 0 && (
-                  <table className="data" style={{ marginTop: 14 }}>
+                  <div className="table-wrap" style={{ marginTop: 14 }}>
+                  <table className="data">
                     <thead>
                       <tr>
                         <th>Charge</th>
@@ -338,6 +339,7 @@ export function OrderFlow({ availability, offer, onClose, onPlaced }: OrderFlowP
                       ))}
                     </tbody>
                   </table>
+                  </div>
                 )}
                 <p className="muted" style={{ fontSize: 11.5, margin: '10px 0 0' }}>
                   Prices as quoted by {quote.source}. Excess construction charges and non-standard installs are not
