@@ -137,9 +137,9 @@ test('the block opens with what and where and who', () => {
     text.split('\n')[0] ?? '',
     /^Details for Zen; SOGEA line at 45 Brockley Rise, LONDON, SE23 1JG provided by Openreach \(ZEN-44821\)$/,
   );
-  assert.match(text, /\*\*ACCESS LINE ID:\*\* ALK123456789/);
-  assert.match(text, /\*\*CLI:\*\* 02071234567/);
-  assert.match(text, /\*\*UPRN:\*\* 100023253338/);
+  assert.match(text, /\*\*ACCESS LINE ID:\*\* \*ALK123456789\*/);
+  assert.match(text, /\*\*CLI:\*\* \*02071234567\*/);
+  assert.match(text, /\*\*UPRN:\*\* \*100023253338\*/);
 });
 
 test('the password never reaches the copy-all block', () => {
@@ -155,7 +155,7 @@ test('an offline line states the exact moment and the rounded age', () => {
     line: line({ downSince: '2026-09-08T14:32:07', radius: { online: false } }),
     now: new Date('2026-09-08T18:14:59'),
   });
-  assert.match(text, /\*\*CURRENT STATUS:\*\* Offline since 08\/09\/2026 at 14:32:07 \(3 hours 40 minutes ago\)/);
+  assert.match(text, /\*\*CURRENT STATUS:\*\* \*Offline since 08\/09\/2026 at 14:32:07 \(3 hours 40 minutes ago\)\*/);
 });
 
 test('a line with no session recorded is told it may never have been provisioned', () => {
@@ -196,7 +196,7 @@ test('the site contact goes on the block when there is one', () => {
     line: line(),
     siteContact: { id: '1', name: 'Jane Okafor', email: 'jane@willow.example', phone: '07700 900123' },
   });
-  assert.match(text, /\*\*ON SITE CONTACT:\*\* Jane Okafor · jane@willow\.example · 07700 900123/);
+  assert.match(text, /\*\*ON SITE CONTACT:\*\* \*Jane Okafor · jane@willow\.example · 07700 900123\*/);
 });
 
 test('the access provider is derived, and left vague rather than wrong', () => {
@@ -271,10 +271,29 @@ test('an unknown reason still reads as something rather than blank', () => {
 
 test('the speed is not said twice when the product name already has it', () => {
   const text = handoverText({ line: line({ productName: '80/20 SOGEA', bearerSpeed: '80/20' }) });
-  assert.match(text, /\*\*PRODUCT:\*\* 80\/20 SOGEA$/m);
+  assert.match(text, /\*\*PRODUCT:\*\* \*80\/20 SOGEA\*$/m);
   assert.equal(productLabel(line({ productName: 'SOGEA', bearerSpeed: '80/20' })), 'SOGEA 80/20');
   assert.equal(productLabel(line({ bearerSpeed: '80/20' })), 'SOGEA 80/20');
   assert.equal(productLabel(line()), 'SOGEA');
+});
+
+test('every labelled line is bold caps then an italic value', () => {
+  // Two weights doing a job: the label scans as a field name, the value reads
+  // as machine output rather than prose.
+  const text = handoverText({
+    line: line({ lineAccessId: 'ALK1', cli: '02071234567', productName: 'SOGEA' }),
+  });
+  const labelled = text.split('\n').filter((l) => l.startsWith('**'));
+  assert.ok(labelled.length >= 4, 'there should be several labelled lines');
+  for (const l of labelled) {
+    assert.match(l, /^\*\*[A-Z0-9 ]+:\*\* \*.+\*$/, `not bold-caps-then-italic: ${l}`);
+  }
+});
+
+test('the opening sentence stays plain, because it is prose', () => {
+  const text = handoverText({ line: line() });
+  assert.match(text.split('\n')[0] ?? '', /^Details for Zen;/);
+  assert.doesNotMatch(text.split('\n')[0] ?? '', /\*/);
 });
 
 test('the no-show charge lives in exactly one place', () => {
