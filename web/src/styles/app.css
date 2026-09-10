@@ -3294,16 +3294,101 @@ table.data td.num {
   to { opacity: 1; transform: none; }
 }
 
-.stack > .card {
+/*
+ * On every card, not only the ones that happen to be a direct child of a
+ * stack.
+ *
+ * This is why the animation "wasn't in": most pages put their cards inside
+ * a tab panel, a two-column grid or a fragment, and `.stack > .card` missed
+ * all of them. The stagger still keys off position within the parent, which
+ * is what the eye reads anyway.
+ */
+.card {
   animation: card-in 300ms cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
 }
 
-.stack > .card:nth-child(1) { animation-delay: 0ms; }
-.stack > .card:nth-child(2) { animation-delay: 45ms; }
-.stack > .card:nth-child(3) { animation-delay: 90ms; }
-.stack > .card:nth-child(4) { animation-delay: 135ms; }
-.stack > .card:nth-child(5) { animation-delay: 180ms; }
-.stack > .card:nth-child(n + 6) { animation-delay: 210ms; }
+.card:nth-child(1) { animation-delay: 0ms; }
+.card:nth-child(2) { animation-delay: 45ms; }
+.card:nth-child(3) { animation-delay: 90ms; }
+.card:nth-child(4) { animation-delay: 135ms; }
+.card:nth-child(5) { animation-delay: 180ms; }
+.card:nth-child(n + 6) { animation-delay: 210ms; }
+
+/*
+ * The small movements, which are the ones that make an interface feel
+ * built rather than rendered.
+ *
+ * All of them are short and none of them move far: a button that lifts 1px
+ * under the cursor and presses back down on click is the difference between
+ * software and a page of forms. Everything here is inside the
+ * reduced-motion switch below.
+ */
+.btn {
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    box-shadow 140ms ease,
+    transform 100ms ease;
+}
+
+.btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.chip,
+.tab,
+.switch__track,
+.field__input {
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+/* A clickable table row should say so before it is clicked. */
+tr.clickable {
+  transition: background-color 120ms ease;
+  cursor: pointer;
+}
+
+.data tbody tr:hover {
+  background: var(--sw-panel);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card,
+  .btn,
+  .chip,
+  .tab,
+  tr.clickable {
+    animation: none;
+    transition: none;
+  }
+
+  .btn:hover:not(:disabled) {
+    transform: none;
+  }
+}
+
+/*
+ * A chip is as wide as its word.
+ *
+ * Without this a chip dropped into a grid cell stretches to the column and
+ * turns into a full-width bar, which is what happened to "Safe to delete"
+ * in the settings panel — it read as a giant button rather than a label.
+ */
+.chip {
+  justify-self: start;
+  align-self: start;
+  width: max-content;
+  max-width: 100%;
+}
 
 /*
  * The card's accent strip, on hover.
@@ -3321,7 +3406,7 @@ table.data td.num {
 .card:hover { box-shadow: var(--sw-shadow-raised); }
 
 @media (prefers-reduced-motion: reduce) {
-  .stack > .card { animation: none; }
+  .card { animation: none; }
   .card { transition: none; }
 }
 

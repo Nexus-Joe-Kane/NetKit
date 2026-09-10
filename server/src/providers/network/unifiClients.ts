@@ -1,14 +1,14 @@
 import { sortClients, vendorForMac, type NetworkClient } from '@sw/shared';
 import { config } from '../../config';
-import { fetchJson } from '../../lib/http';
 import { TtlCache } from '../../lib/cache';
+import { integrationCall } from './unifiTransport';
 
 /**
  * What is connected to a customer's network.
  *
- * Read through Ubiquiti's Connector Proxy, which is the only way to reach a
- * console's own API from a server that is not on the customer's LAN. The
- * Site Manager API knows sites and devices; it does not know clients.
+ * Read from the console's own API — directly where this server can reach it,
+ * and through Ubiquiti's Connector Proxy where it cannot. The Site Manager
+ * API knows sites and devices; it does not know clients at all.
  *
  * The field worth the whole file is `via`: which access point, or which
  * switch port. It is three clicks deep in the console and it is the answer
@@ -23,13 +23,12 @@ import { TtlCache } from '../../lib/cache';
 
 const clientCache = new TtlCache<NetworkClient[]>(60 * 1000, 200);
 
-export const unifiClientsConfigured = (): boolean => Boolean(config().unifi.integrationKey);
+export const unifiClientsConfigured = (): boolean =>
+  Boolean(config().unifi.integrationKey || config().unifi.controllerConfigured);
 
 export function clearUnifiClientCache(): void {
   clientCache.clear();
 }
-
-const PROXY = 'https://api.ui.com/v1/connector/consoles';
 
 const text = (value: unknown): string | undefined => {
   if (typeof value === 'string' && value.trim()) return value.trim();
@@ -126,25 +125,22 @@ export async function clientsForSite(input: {
   devices?: Map<string, string>;
 }): Promise<{ clients: NetworkClient[]; error?: string }> {
   const cfg = config();
-  if (!cfg.unifi.integrationKey) {
+  if (!unifiClientsConfigured()) {
     return {
       clients: [],
       error:
-        'No UniFi Network Integration key is set, so the client list cannot be read. It is a different key ' +
-        'from the Site Manager one: UniFi Network → Settings → Control Plane → Integrations.',
+        'The client list needs the console’s own API. Set either the console’s address and a Network ' +
+        'Integration key created on it, or that key plus the console id for the cloud route. The Site Manager ' +
+        'key does not carry clients.',
     };
   }
 
   const key = `${input.consoleId}:${input.siteId}`;
   try {
     const clients = await clientCache.wrap(key, async () => {
-      const url =
-        `${PROXY}/${encodeURIComponent(input.consoleId)}/proxy/network/integration/v1` +
-        `/sites/${encodeURIComponent(input.siteId)}/clients?limit=200`;
-
-      const body = await fetchJson<{ data?: unknown[] } | unknown[]>(url, {
-        label: 'UniFi Network',
-        headers: { 'X-API-KEY': cfg.unifi.integrationKey, Accept: 'application/json' },
+      const body = await integrationCall<{ data?: unknown[] } | unknown[]>({
+        path: `/sites/${encodeURIComponent(input.siteId)}/clients?limit=200`,
+        ...(input.consoleId ? { consoleId: input.consoleId } : {}),
         timeoutMs: Math.min(cfg.requestTimeoutMs, 15_000),
         retries: 1,
         notFoundAsNull: true,

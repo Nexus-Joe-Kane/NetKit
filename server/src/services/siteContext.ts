@@ -179,7 +179,7 @@ async function gatherNetwork(
     // feed are both a request each, and neither is worth making until there
     // is a site to make it about.
     const [devices, wan] = await Promise.all([
-      devicesForHost(site.hostId).catch(() => []),
+      devicesForHost(site.hostId, site.siteId).catch(() => []),
       wanHealth(site.hostId, site.siteId).catch(() => null),
     ]);
 

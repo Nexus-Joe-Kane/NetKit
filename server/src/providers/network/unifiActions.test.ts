@@ -79,3 +79,38 @@ test('ids are escaped into the URL rather than concatenated', () => {
   assert.doesNotMatch(first!.url, / /);
   assert.match(first!.url, /a%2Fb%20c/);
 });
+
+/* ---- Two roads to the same action ---------------------------------- */
+
+test('a console address and its own key are enough on their own', () => {
+  // The point of the local road: an estate with a reachable console does not
+  // need Ubiquiti's cloud, its firmware requirement, or a console id.
+  const before = { ...process.env };
+  delete process.env.UNIFI_INTEGRATION_KEY;
+  process.env.UNIFI_CONTROLLER_URL = 'https://192.168.1.1';
+  process.env.UNIFI_CONTROLLER_API_KEY = 'console-key';
+  resetConfig();
+  try {
+    assert.equal(unifiActionsConfigured(), true);
+    assert.equal(unifiActionsUnavailableReason(), undefined);
+  } finally {
+    process.env = before;
+    resetConfig();
+  }
+});
+
+test('the Site Manager address pasted as the console address is refused, not silently used', () => {
+  // Otherwise every "local" call goes to Ubiquiti while the status panel
+  // says the connection is direct.
+  const before = { ...process.env };
+  delete process.env.UNIFI_INTEGRATION_KEY;
+  process.env.UNIFI_CONTROLLER_URL = 'https://unifi.ui.com/consoles/fc86acb6-6dfa-4e61-8f5a-e8fba0456986';
+  process.env.UNIFI_CONTROLLER_API_KEY = 'console-key';
+  resetConfig();
+  try {
+    assert.equal(unifiActionsConfigured(), false, 'a cloud address is not a console address');
+  } finally {
+    process.env = before;
+    resetConfig();
+  }
+});

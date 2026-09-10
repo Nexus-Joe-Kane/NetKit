@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
 import {
-  ENVIRONMENT_ONCE_ONLY,
-  ENVIRONMENT_REQUIREMENTS,
   VAULT_KEYS,
   credentialServices,
   type SecretStatus,
@@ -88,8 +86,6 @@ export function CredentialVault(): ReactElement {
         </p>
       </Card>
 
-      <EnvironmentCard keys={keys} />
-
       <ClientIndexCard />
 
       {services.map((service, index) => {
@@ -115,71 +111,6 @@ export function CredentialVault(): ReactElement {
 /* ------------------------------------------------------------------ *
  * Can the .env file go?
  * ------------------------------------------------------------------ */
-
-/**
- * What still has to be in the environment once everything else is in here.
- *
- * A question worth answering in the app rather than in a message, because
- * getting it wrong is expensive in a specific way: deleting SESSION_SECRET
- * does not break the app in an obvious manner, it silently makes every
- * stored credential undecryptable, and the credentials look present right up
- * until an integration says it is not connected.
- *
- * Driven off the same data the vault is, so it cannot drift from what the
- * code actually reads.
- */
-function EnvironmentCard({ keys }: { keys: SecretStatus[] }): ReactElement {
-  const stillInEnvironment = keys.filter((k) => k.source === 'environment');
-  const inVault = keys.filter((k) => k.source === 'vault');
-
-  return (
-    <Card title="What still has to stay in the environment" eyebrow="before deleting .env" index="02" accent={2}>
-      <div className="stack stack--tight">
-        <p className="muted" style={{ fontSize: 13, margin: 0, maxWidth: 720 }}>
-          {inVault.length} credential{inVault.length === 1 ? ' is' : 's are'} stored here and{' '}
-          {stillInEnvironment.length === 0 ? 'none are' : `${stillInEnvironment.length} ${stillInEnvironment.length === 1 ? 'is' : 'are'}`}{' '}
-          still coming from the environment. Once the list below each integration reads{' '}
-          <em>stored here</em>, the rest of the file can go — apart from these.
-        </p>
-
-        {ENVIRONMENT_REQUIREMENTS.map((req) => (
-          <div key={req.name} className="cred" style={{ alignItems: 'flex-start' }}>
-            <div>
-              <strong>{req.label}</strong>
-              <div className="sw-mono muted" style={{ fontSize: 11.5 }}>{req.name}</div>
-              <p className="muted" style={{ fontSize: 12.5, margin: '4px 0 0', maxWidth: 620 }}>{req.why}</p>
-            </div>
-            <Chip tone={req.severity === 'critical' ? 'crit' : 'idle'}>
-              {req.severity === 'critical' ? 'Never delete' : 'Keep'}
-            </Chip>
-          </div>
-        ))}
-
-        <p className="muted" style={{ fontSize: 13, margin: '10px 0 0', maxWidth: 720 }}>
-          These three are only read when the very first administrator is created, so they can be deleted now —
-          and the password one especially should be, since what is stored is a hash and the plain password is
-          doing nothing on the server but sitting there.
-        </p>
-
-        {ENVIRONMENT_ONCE_ONLY.map((req) => (
-          <div key={req.name} className="cred" style={{ alignItems: 'flex-start' }}>
-            <div>
-              <strong>{req.label}</strong>
-              <div className="sw-mono muted" style={{ fontSize: 11.5 }}>{req.name}</div>
-              <p className="muted" style={{ fontSize: 12.5, margin: '4px 0 0', maxWidth: 620 }}>{req.why}</p>
-            </div>
-            <Chip tone="ok">Safe to delete</Chip>
-          </div>
-        ))}
-
-        <Alert tone="info">
-          Everything else in the file is a base URL or a tuning value with a sensible default, so removing it
-          changes nothing. Keep a copy of the file somewhere safe before you delete it either way.
-        </Alert>
-      </div>
-    </Card>
-  );
-}
 
 /* ------------------------------------------------------------------ *
  * One integration's keys
@@ -426,8 +357,8 @@ function ClientIndexCard(): ReactElement {
     <Card
       title="Client list"
       eyebrow={status ? `${status.entries} clients · ${status.sites} sites` : 'reading…'}
-      index="03"
-      accent={3}
+      index="02"
+      accent={2}
       meta={
         <button type="button" className="btn btn--ghost btn--small" disabled={busy} onClick={() => void rebuild()}>
           {busy ? 'Rebuilding…' : 'Rebuild now'}

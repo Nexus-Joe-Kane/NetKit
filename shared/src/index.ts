@@ -5,6 +5,7 @@ export * from './grade';
 export * from './confirm';
 export * from './credentials';
 export * from './brandLogo';
+export * from './unifiRoute';
 export * from './entra';
 export * from './upstreamLog';
 export * from './csv';

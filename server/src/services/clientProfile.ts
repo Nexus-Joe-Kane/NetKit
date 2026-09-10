@@ -129,7 +129,7 @@ export async function buildClientProfile(input: { key?: string; name: string }):
 
       const devices: NonNullable<ClientProfile['devices']> = [];
       for (const site of theirs.slice(0, 8)) {
-        const kit = await devicesForHost(site.hostId).catch(() => [] as NetworkDevice[]);
+        const kit = await devicesForHost(site.hostId, site.siteId).catch(() => [] as NetworkDevice[]);
         for (const device of kit) {
           devices.push({
             id: device.id,

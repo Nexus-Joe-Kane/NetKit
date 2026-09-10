@@ -98,6 +98,52 @@ export const VAULT_KEYS: readonly VaultKeyDef[] = [
       'A different key from the one above, and the only one that can restart anything — the Site Manager key ' +
       'is read-only. UniFi Network → Settings → Control Plane → Integrations. Needs console firmware 5.0.3+.',
   },
+  /*
+   * The console itself, which is the road NetKit prefers.
+   *
+   * Site Manager stays as the fallback and as the only way to enumerate a
+   * whole account. These four make the local road work — and the
+   * certificate one is not optional in practice: a console on a private
+   * address has its own certificate, so without it the local road fails
+   * quietly and the cloud covers for it while the status panel claims to be
+   * talking directly to the console.
+   */
+  {
+    name: 'UNIFI_CONTROLLER_URL',
+    service: 'unifi',
+    label: 'Console address',
+    secret: false,
+    hint:
+      'The address the console answers on from this server, e.g. https://192.168.1.1. Leave empty to use ' +
+      'Ubiquiti’s cloud for everything. Not the unifi.ui.com address — that is the cloud.',
+  },
+  {
+    name: 'UNIFI_CONTROLLER_API_KEY',
+    service: 'unifi',
+    label: 'Console API key',
+    secret: true,
+    hint:
+      'A Network Integration key created on the console: UniFi Network → Settings → Control Plane → ' +
+      'Integrations. Falls back to the cloud Integration key if left empty.',
+  },
+  {
+    name: 'UNIFI_CONSOLE_ID',
+    service: 'unifi',
+    label: 'Console id',
+    secret: false,
+    hint:
+      'From the address bar at unifi.ui.com/consoles/… — paste the whole URL if easier. Needed for the cloud ' +
+      'route, and used as the default console for local calls.',
+  },
+  {
+    name: 'UNIFI_CONTROLLER_FINGERPRINT',
+    service: 'unifi',
+    label: 'Console certificate fingerprint',
+    secret: false,
+    hint:
+      'The console’s SHA-256 certificate fingerprint, 32 hex pairs. This is how a self-signed console is ' +
+      'trusted without switching checking off. Get it from a browser’s certificate viewer on the console page.',
+  },
   { name: 'OPENCELLID', service: 'opencellid', label: 'OpenCelliD token', secret: true },
   { name: 'THINKBROADBAND_API_KEY', service: 'thinkbroadband', label: 'thinkbroadband key', secret: true },
   { name: 'OFCOM_BROADBAND_API_KEY', service: 'ofcom-broadband', label: 'Ofcom broadband key', secret: true },

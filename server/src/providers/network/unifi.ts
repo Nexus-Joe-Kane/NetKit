@@ -2,15 +2,29 @@ import type { NetworkDevice, NetworkSite, WanHealth } from '@sw/shared';
 import { config } from '../../config';
 import { fetchJson } from '../../lib/http';
 import { TtlCache } from '../../lib/cache';
+import { tlsMode } from '@sw/shared';
+import { integrationCall, unifiRouteState } from './unifiTransport';
 
 /**
  * UniFi Site Manager — what the network says, as opposed to what the
  * documentation says.
  *
- * Site Manager rather than a local controller. One key reaches every site on
- * the account, where a controller is one site and a hole in somebody's
- * firewall. The key is read-only, which suits a tool that has no business
- * changing a customer's network.
+ * Site Manager is one of two roads to UniFi, and the division of labour
+ * between them is not the same in both directions.
+ *
+ * For anything about one site — the clients on it, the devices in it,
+ * restarting one of them — the console's own API is primary and the cloud is
+ * the fallback, because the console is faster, has no third party in it and
+ * does not depend on Ubiquiti's cloud being up. That lives in
+ * unifiTransport.ts.
+ *
+ * For the *inventory* it is the other way round, and deliberately. Site
+ * Manager reaches every site on the account through one key, where a console
+ * only knows itself — and its site records carry statistics the console's
+ * integration API does not expose at all: the ISP name, WAN uptime, the
+ * device and client counts the dashboard is built from. So Site Manager
+ * leads here and the console covers for it, which means the whole UniFi
+ * feature also works on a deployment with a console and no cloud key.
  *
  * Three things about this API shape the code below, and all three are from
  * Ubiquiti's own spec rather than inference.
@@ -252,20 +266,158 @@ function toDevice(raw: RawDevice): NetworkDevice | null {
 
 /** Every site on the account. Cached: the list changes rarely. */
 export async function networkSites(): Promise<NetworkSite[]> {
-  if (!unifiConfigured()) return [];
-  return siteCache.wrap('sites', async () => {
-    const raw = await pages<RawSite>('/v1/sites');
-    return raw.map(toSite).filter((s): s is NetworkSite => s !== null);
-  });
+  const unifi = config().unifi;
+
+  if (unifiConfigured()) {
+    try {
+      const fromCloud = await siteCache.wrap('sites', async () => {
+        const raw = await pages<RawSite>('/v1/sites');
+        const mapped = raw.map(toSite).filter((s): s is NetworkSite => s !== null);
+        if (!mapped.length) throw new Error('Site Manager returned no sites');
+        return mapped;
+      });
+      if (fromCloud.length) return fromCloud;
+    } catch {
+      /* Fall through to the console. */
+    }
+  }
+
+  /*
+   * The console's own site list.
+   *
+   * Thinner than Site Manager's on purpose: the console's integration API
+   * carries a site's id and name and nothing else, so the counts, the ISP
+   * name and the WAN uptime are absent rather than guessed. Everything
+   * downstream already treats those as optional, because a Site Manager
+   * response can omit them too.
+   */
+  if (!unifi.controllerConfigured && !(unifi.integrationKey && unifi.consoleId)) return [];
+  try {
+    return await siteCache.wrap('sites:controller', async () => {
+      const body = await integrationCall<{ data?: Array<{ id?: string; name?: string; internalReference?: string }> }>({
+        path: '/sites?limit=200',
+        retries: 1,
+        notFoundAsNull: true,
+      });
+      const rows = Array.isArray(body) ? body : (body?.data ?? []);
+      const hostId = unifi.consoleId || 'console';
+      return rows
+        .map((row): NetworkSite | null => {
+          const siteId = text(row.id);
+          if (!siteId) return null;
+          return {
+            siteId,
+            hostId,
+            name: text(row.name) ?? siteId,
+            ...(text(row.internalReference) ? { description: text(row.internalReference)! } : {}),
+            counts: {},
+          };
+        })
+        .filter((s): s is NetworkSite => s !== null);
+    });
+  } catch {
+    return [];
+  }
 }
 
 /**
- * The devices on one console.
+ * A device as the console's own integration API describes it.
  *
- * Filtered server-side with `hostIds[]`, so a customer with one console does
- * not pay for the whole estate.
+ * A different shape from Site Manager's, which is why this is mapped
+ * separately rather than pretending one reader covers both. Read tolerantly:
+ * the field names differ between UniFi OS versions, and a device with no
+ * firmware version reported is a device, not an error.
  */
-export async function devicesForHost(hostId: string): Promise<NetworkDevice[]> {
+interface RawControllerDevice {
+  id?: string;
+  name?: string;
+  model?: string;
+  shortname?: string;
+  macAddress?: string;
+  mac?: string;
+  ipAddress?: string;
+  ip?: string;
+  state?: string;
+  status?: string;
+  firmwareVersion?: string;
+  version?: string;
+  firmwareUpdatable?: boolean;
+  adoptedAt?: string;
+  provisionedAt?: string;
+  startupTime?: string;
+  note?: string;
+  features?: unknown;
+}
+
+function toControllerDevice(raw: RawControllerDevice): NetworkDevice | null {
+  const id = text(raw.id) ?? text(raw.macAddress) ?? text(raw.mac);
+  if (!id) return null;
+  const mac = text(raw.macAddress) ?? text(raw.mac);
+  return {
+    id,
+    name: text(raw.name) ?? text(raw.model) ?? id,
+    ...(text(raw.model) ? { model: text(raw.model)! } : {}),
+    ...(text(raw.shortname) ? { shortModel: text(raw.shortname)! } : {}),
+    ...(mac ? { mac } : {}),
+    ...(text(raw.ipAddress) ?? text(raw.ip) ? { ip: (text(raw.ipAddress) ?? text(raw.ip))! } : {}),
+    // The console says ONLINE/OFFLINE where Site Manager says online/offline.
+    ...(text(raw.state) ?? text(raw.status) ? { status: (text(raw.state) ?? text(raw.status))!.toLowerCase() } : {}),
+    ...(text(raw.firmwareVersion) ?? text(raw.version)
+      ? { firmware: (text(raw.firmwareVersion) ?? text(raw.version))! }
+      : {}),
+    ...(raw.firmwareUpdatable === true ? { firmwareStatus: 'updateAvailable' } : {}),
+    ...(text(raw.startupTime) ? { startedAt: text(raw.startupTime)! } : {}),
+    ...(text(raw.adoptedAt) ?? text(raw.provisionedAt)
+      ? { adoptedAt: (text(raw.adoptedAt) ?? text(raw.provisionedAt))! }
+      : {}),
+    ...(text(raw.note) ? { note: text(raw.note)! } : {}),
+  };
+}
+
+/**
+ * The devices at one site.
+ *
+ * The console first where a site id is known, because the console answers
+ * per site and its list is live rather than a cloud summary refreshed on
+ * Ubiquiti's schedule. Site Manager covers for it — filtered server-side
+ * with `hostIds[]`, so a customer with one console does not pay for the
+ * whole estate.
+ *
+ * Site Manager keys devices to a host and not a site, which is why the
+ * fallback can over-count on a console serving several sites. The console
+ * road does not have that problem, and is another reason to prefer it.
+ */
+export async function devicesForHost(hostId: string, siteId?: string): Promise<NetworkDevice[]> {
+  const unifi = config().unifi;
+  if (!hostId && !siteId) return [];
+
+  if (siteId && (unifi.controllerConfigured || (unifi.integrationKey && unifi.consoleId))) {
+    try {
+      return await deviceCache.wrap(`site:${siteId}`, async () => {
+        const body = await integrationCall<{ data?: RawControllerDevice[] } | RawControllerDevice[]>({
+          path: `/sites/${encodeURIComponent(siteId)}/devices?limit=200`,
+          ...(hostId ? { consoleId: hostId } : {}),
+          retries: 1,
+          notFoundAsNull: true,
+        });
+        const rows = Array.isArray(body) ? body : (body?.data ?? []);
+        const out: NetworkDevice[] = [];
+        for (const raw of rows) {
+          const device = toControllerDevice(raw);
+          if (device) out.push(device);
+        }
+        // An empty list from the console is suspect rather than wrong: a
+        // site with no devices exists, but so does a console that answered
+        // 200 with nothing useful. Falling through to Site Manager costs one
+        // request and cannot make the answer worse.
+        if (out.length) return out;
+        throw new Error('the console reported no devices');
+      });
+    } catch {
+      /* Fall through to Site Manager. */
+    }
+  }
+
   if (!unifiConfigured() || !hostId) return [];
   return deviceCache.wrap(`host:${hostId}`, async () => {
     const groups = await pages<RawDeviceGroup>(`/v1/devices?hostIds[]=${encodeURIComponent(hostId)}`);
@@ -365,6 +517,55 @@ export async function wanHealth(hostId: string, siteId: string): Promise<WanHeal
 }
 
 export async function unifiPing(): Promise<{ ok: boolean; detail: string }> {
+  const unifi = config().unifi;
+
+  /*
+   * The console is tested first, because it is the road that carries the
+   * work — and because a green tick against Site Manager while the console
+   * is unreachable is the exact thing this ping exists to stop. Both are
+   * reported, so "cloud only" reads as a fact rather than as success.
+   */
+  if (unifi.controllerConfigured) {
+    const mode = tlsMode({
+      caCert: unifi.controllerCaCert,
+      fingerprint: unifi.controllerFingerprint,
+      insecure: unifi.controllerInsecureTls,
+    });
+    try {
+      const body = await integrationCall<{ data?: Array<{ id?: string; name?: string }> }>({
+        path: '/sites?limit=1',
+        timeoutMs: 8000,
+        retries: 0,
+        notFoundAsNull: true,
+      });
+      const rows = Array.isArray(body) ? body : (body?.data ?? []);
+      const where = unifiRouteState().lastRoute === 'controller' ? 'the console directly' : 'Ubiquiti’s cloud';
+      const first = text(rows[0]?.name) ?? text(rows[0]?.id);
+      return {
+        ok: true,
+        detail:
+          `Answered by ${where}${first ? `, first site "${first}"` : ''}. ` +
+          `Certificate handling: ${mode}.` +
+          (unifiRouteState().lastRoute === 'cloud' && unifiRouteState().lastError
+            ? ` The console did not answer: ${unifiRouteState().lastError}.`
+            : ''),
+      };
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      // Not a failure if the cloud can still do the reading — but it is not
+      // the arrangement that was configured, and it says so.
+      if (unifiConfigured()) {
+        return {
+          ok: true,
+          detail:
+            `The console at ${unifi.controllerUrl} could not be reached (${detail}), so everything is going ` +
+            `through Ubiquiti’s cloud. Certificate handling: ${mode}.`,
+        };
+      }
+      return { ok: false, detail: `The console at ${unifi.controllerUrl} could not be reached: ${detail}` };
+    }
+  }
+
   if (!unifiConfigured()) return { ok: false, detail: 'UNIFI_API_KEY is not set.' };
   try {
     const body = await call<RawSite[]>('/v1/sites?pageSize=1');
@@ -384,4 +585,4 @@ export async function unifiPing(): Promise<{ ok: boolean; detail: string }> {
 }
 
 /** Test hook: the tolerant mappers, without the network. */
-export const __unifiTesting = { toSite, toDevice };
+export const __unifiTesting = { toSite, toDevice, toControllerDevice };
