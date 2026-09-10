@@ -1,3 +1,4 @@
+import { ispFor, ispIdentity, logoUrl } from '@sw/shared';
 import { useCallback, useState, type ReactNode } from 'react';
 import type { ReactElement } from 'react';
 import { csvFilename, downloadCsv, toCsv, type CsvColumn } from '../lib/csv';
@@ -83,6 +84,54 @@ export function Cell({
         {present && copy && <CopyButton value={text} />}
       </div>
     </div>
+  );
+}
+
+/**
+ * A supplier's mark: their real logo where we can get it, their monogram
+ * where we cannot.
+ *
+ * The fallback is not a nicety. A logo comes from the supplier's own site
+ * through the portal's cache, and a small alt-net with no usable icon is
+ * an ordinary case, not a failure — so the monogram square stays, the image
+ * sits on top of it, and `onError` takes the image away again. Nothing ever
+ * renders as a broken-image glyph.
+ *
+ * The coloured square underneath is also what makes the logo legible: most
+ * supplier icons are a dark mark on transparency, and a dark mark on a dark
+ * table row is invisible.
+ */
+export function ProviderMark({
+  provider,
+  small = false,
+}: {
+  /** The provider name as reported, not a key. */
+  provider: string | undefined;
+  small?: boolean;
+}): ReactElement {
+  const identity = ispIdentity(provider);
+  const entry = ispFor(provider);
+  const [failed, setFailed] = useState(false);
+  const showLogo = Boolean(entry?.domain) && !failed;
+
+  return (
+    <span
+      className={`provider__mark${small ? ' provider__mark--small' : ''}${showLogo ? ' provider__mark--logo' : ''}`}
+      /*
+       * The brand colour goes on `color` as well as the background so the
+       * logo variant can borrow it for its ring with `currentColor` while
+       * painting the plate white underneath the mark.
+       */
+      style={{ background: identity.colour, ...(showLogo ? { color: identity.colour } : {}) }}
+      title={identity.name}
+      aria-hidden="true"
+    >
+      {showLogo ? (
+        <img src={logoUrl(entry!.key)} alt="" loading="lazy" onError={() => setFailed(true)} />
+      ) : (
+        identity.monogram
+      )}
+    </span>
   );
 }
 

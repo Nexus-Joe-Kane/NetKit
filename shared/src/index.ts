@@ -4,6 +4,7 @@ export * from './address';
 export * from './grade';
 export * from './confirm';
 export * from './credentials';
+export * from './brandLogo';
 export * from './entra';
 export * from './upstreamLog';
 export * from './csv';

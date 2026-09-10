@@ -1,7 +1,7 @@
 import type { ReactElement } from 'react';
 import type { PrintSection, SiteReport } from '@sw/shared';
 import { formatDistance, printDensity } from '@sw/shared';
-import { formatMbps } from './ui';
+import { formatMbps, ProviderMark } from './ui';
 
 /**
  * The whole report on paper.
@@ -232,7 +232,18 @@ export function PrintableReport({
             <tbody>
               {report.lines.map((line) => (
                 <tr key={line.serviceId ?? line.lineAccessId ?? line.cli ?? line.id}>
-                  <td>{line.provider}</td>
+                  <td>
+                    {/*
+                      The logo prints. It comes from our own origin with the
+                      engineer's session, so a print or a PDF carries it the
+                      same as the screen does — and a supplier with no icon
+                      prints the monogram rather than a gap.
+                    */}
+                    <span className="print-provider">
+                      <ProviderMark provider={line.provider} small />
+                      {line.provider}
+                    </span>
+                  </td>
                   <td>{line.serviceId ?? line.lineAccessId ?? '—'}</td>
                   <td>{line.cli ?? '—'}</td>
                   <td>{line.productName ?? line.technology ?? '—'}</td>
