@@ -42,7 +42,11 @@ export function ClientsPage(): ReactElement {
       const result = await api.clients(q, 40);
       setRows(result.clients);
       setTotal(result.total);
-      setError(null);
+      // "We could not ask the helpdesk" and "the helpdesk does not know
+      // them" are different answers, and only one of them means keep
+      // looking. So a live-search failure is shown even though the local
+      // results rendered fine.
+      setError(result.liveError ? `The local list is shown. The helpdesk could not be searched: ${result.liveError}` : null);
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : 'Could not load the client list.');
     } finally {
@@ -67,7 +71,7 @@ export function ClientsPage(): ReactElement {
 
       <Card
         title="Clients"
-        eyebrow={total ? `${total} on file` : 'the local list'}
+        eyebrow={total ? `${total} on file · the helpdesk is searched live` : 'searched live on the helpdesk'}
         index="01"
         accent={1}
         meta={
@@ -86,8 +90,8 @@ export function ClientsPage(): ReactElement {
         ) : rows.length === 0 ? (
           <Empty title={term ? `Nothing matched “${term}”` : 'The client list is empty'}>
             {term
-              ? 'Try the name as the customer is filed under in IT Glue, or their trading name.'
-              : 'The list is built from IT Glue, Jola and Zendesk once a day. Admin portal → Credentials → Client list → Rebuild now.'}
+              ? 'The helpdesk was searched live as well, so this is not a stale list — try their trading name, or the name as they are filed under in IT Glue.'
+              : 'The list is built from IT Glue, Jola and Zendesk once a day, and the helpdesk is searched live on top of whatever you type. Admin portal → Credentials → Client list → Rebuild now.'}
           </Empty>
         ) : (
           <div className="table-wrap">

@@ -673,7 +673,7 @@ export const api = {
   /* ---- Clients ---------------------------------------------------- */
 
   clients: (q = '', limit = 25) =>
-    request<{ clients: ClientListRow[]; total: number }>(
+    request<{ clients: ClientListRow[]; total: number; liveError?: string }>(
       `/api/clients?limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ''}`,
     ),
   /** Named apart from `client`, which is the Zendesk standing lookup. */
