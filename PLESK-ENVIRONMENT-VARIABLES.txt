@@ -86,6 +86,10 @@ drift. Nothing here is a secret — these are the names of the boxes.
     GIACOM_SCOPES
     GIACOM_TOKEN_URL
     JOLA_BASE_URL
+    MICROSOFT_ALLOWED_DOMAINS
+    MICROSOFT_CLIENT_ID
+    MICROSOFT_CLIENT_SECRET
+    MICROSOFT_TENANT_ID
     OFCOM_BROADBAND_BASE_URL
     OFCOM_BROADBAND_DATASET_PATH
     OFCOM_DATASET_PATH
@@ -105,7 +109,7 @@ drift. Nothing here is a secret — these are the names of the boxes.
     ZEN_SELF_SERVICE_BASE_URL
     ZEN_TOKEN_URL
 
-79 variables.
+83 variables.
 
 OPENCELLID, OPENCELLID_API_KEY and OPENCELLID_TOKEN are three names for
 the same key. Set one. If more than one is set, the first of those three

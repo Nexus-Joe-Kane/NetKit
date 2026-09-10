@@ -237,6 +237,20 @@ export interface AppConfig {
    * failure.
    */
   publicUrl: string;
+  /**
+   * Microsoft Entra ID sign-in.
+   *
+   * `configured` gates whether the sign-in screen offers the button at all.
+   * Half-configured is treated as not configured, and the reason is shown in
+   * the admin portal rather than left as a missing button.
+   */
+  microsoft: {
+    tenantId: string;
+    clientId: string;
+    clientSecret: string;
+    allowedDomains: string[];
+    configured: boolean;
+  };
   corsOrigins: string[];
   /**
    * `auto`  — use live providers where credentials exist, mock the rest.
@@ -428,6 +442,30 @@ function resolveDataDir(): string {
   return resolvePath(process.cwd(), '.data-dev');
 }
 
+/**
+ * Entra settings, read through the same allow-listed names as everything
+ * else so the vault and the environment agree.
+ *
+ * The domain list is split here rather than at the point of use: one place
+ * to decide that " SupportWizard.net " and "supportwizard.net" are the same
+ * thing beats three places quietly disagreeing.
+ */
+function loadMicrosoft(): AppConfig['microsoft'] {
+  const tenantId = str('MICROSOFT_TENANT_ID');
+  const clientId = str('MICROSOFT_CLIENT_ID');
+  const clientSecret = str('MICROSOFT_CLIENT_SECRET');
+  return {
+    tenantId,
+    clientId,
+    clientSecret,
+    allowedDomains: str('MICROSOFT_ALLOWED_DOMAINS')
+      .split(',')
+      .map((d) => d.trim().toLowerCase().replace(/^@/, ''))
+      .filter(Boolean),
+    configured: Boolean(tenantId && clientId && clientSecret),
+  };
+}
+
 export function config(): AppConfig {
   if (cached) return cached;
   const osKey = str('OS_PLACES_API_KEY');
@@ -444,6 +482,7 @@ export function config(): AppConfig {
       configured: Boolean(str('RESEND_API_KEY')),
     },
     publicUrl: str('PUBLIC_URL').replace(/\/+$/, ''),
+    microsoft: loadMicrosoft(),
     corsOrigins: str('CORS_ORIGINS')
       .split(',')
       .map((s) => s.trim())

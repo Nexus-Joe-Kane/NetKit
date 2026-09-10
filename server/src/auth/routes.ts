@@ -1,20 +1,45 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { ApiResult } from '@sw/shared';
+import {
+  CALLBACK_PATH,
+  callbackRedirect,
+  emailFromClaims,
+  entraConfigured,
+  entraProblem,
+  mfaSatisfied,
+  nameFromClaims,
+  provisioningProblem,
+  redirectUri as entraRedirectUri,
+} from '@sw/shared';
+import { config } from '../config';
+import { beginSignIn, exchangeCode, verifyIdToken } from './microsoft';
 import { badRequest, HttpError } from '../lib/errors';
 import { checkPasswordPolicy, hashPassword, numericCode, verifyPassword } from './passwords';
 import { sendEmail, twoFactorAvailable, twoFactorEmail } from './email';
 import {
   audit,
+  createUser,
   findUserByEmail,
+  listUsers,
   toPublicUser,
   updateUser,
   type PublicUser,
   type User,
 } from './store';
-import { clearSession, currentUser, issuePendingSession, issueSession, pendingUser, refreshSession } from './sessions';
+import {
+  clearSession,
+  cookieOptions,
+  currentUser,
+  issuePendingSession,
+  issueSession,
+  pendingUser,
+  readBlob,
+  refreshSession,
+  signBlob,
+} from './sessions';
 
 /**
  * Authentication routes.
@@ -153,6 +178,43 @@ export interface SessionResponse {
   twoFactorAvailable: boolean;
 }
 
+/* ------------------------------------------------------------------ *
+ * Microsoft sign-in
+ * ------------------------------------------------------------------ */
+
+/**
+ * Where the state, nonce and PKCE verifier live between the redirect out to
+ * Microsoft and the redirect back.
+ *
+ * A signed cookie rather than server memory, because Passenger runs several
+ * worker processes: state held in one worker's memory is not there when the
+ * callback lands on another, which shows up as an intermittent "that sign-in
+ * did not match" that only happens under load.
+ */
+const OIDC_COOKIE = 'sw_netkit_oidc';
+const OIDC_TTL_MS = 10 * 60 * 1000;
+
+interface OidcState {
+  state: string;
+  nonce: string;
+  verifier: string;
+}
+
+/**
+ * The redirect URI, which must match the app registration byte for byte.
+ *
+ * Derived from PUBLIC_URL when it is set, and from the request otherwise so
+ * a development machine works without configuration. Taken from the proxy
+ * headers Plesk sets, since the app itself is reached over plain HTTP behind
+ * it and would otherwise advertise an http:// redirect that Entra refuses.
+ */
+function callbackUri(req: Request): string {
+  const configured = config().publicUrl;
+  if (configured) return entraRedirectUri(configured);
+  const proto = (req.headers['x-forwarded-proto'] as string | undefined)?.split(',')[0]?.trim() || req.protocol;
+  return `${proto}://${req.get('host') ?? 'localhost'}${CALLBACK_PATH}`;
+}
+
 const sessionBody = (user: User): SessionResponse => ({
   user: toPublicUser(user),
   mustChangePassword: user.mustChangePassword,
@@ -176,6 +238,7 @@ export function authRouter(): Router {
         awaitingTwoFactor: Boolean(pending),
         ...(pending ? { email: pending.email } : {}),
         twoFactorAvailable: twoFactorAvailable(),
+        microsoftSignIn: entraConfigured(config().microsoft),
       });
       return;
     }
@@ -345,6 +408,179 @@ export function authRouter(): Router {
       send(res, { twoFactorEnabled: enabled });
     } catch (err) {
       next(err);
+    }
+  });
+
+  /* ---- Sign in with Microsoft ------------------------------------ */
+
+  /*
+   * Both of these are GET, and both answer with a redirect rather than JSON:
+   * they are top-level browser navigations, not fetches. Failures land the
+   * person back on the sign-in screen with a sentence explaining why, since
+   * a JSON error body in the address bar helps nobody.
+   */
+  router.get('/microsoft/start', loginLimiter, async (req, res) => {
+    const settings = config().microsoft;
+    const problem = entraProblem(settings);
+    if (problem) {
+      res.redirect(callbackRedirect(problem));
+      return;
+    }
+    try {
+      const hint = typeof req.query.email === 'string' ? req.query.email.trim().slice(0, 320) : undefined;
+      const begun = await beginSignIn({
+        redirectUri: callbackUri(req),
+        ...(hint ? { loginHint: hint } : {}),
+      });
+      res.cookie(
+        OIDC_COOKIE,
+        signBlob({ state: begun.state, nonce: begun.nonce, verifier: begun.verifier }, OIDC_TTL_MS),
+        cookieOptions(OIDC_TTL_MS),
+      );
+      res.redirect(begun.url);
+    } catch (err) {
+      audit({ action: 'auth.sso_start_failed', detail: { error: String(err) }, ip: req.ip });
+      res.redirect(callbackRedirect('Microsoft sign-in could not be started. An administrator can check the settings.'));
+    }
+  });
+
+  router.get('/microsoft/callback', loginLimiter, async (req, res) => {
+    const fail = (message: string) => {
+      res.clearCookie(OIDC_COOKIE, { path: '/' });
+      res.redirect(callbackRedirect(message));
+    };
+
+    const settings = config().microsoft;
+    if (!entraConfigured(settings)) {
+      fail('Microsoft sign-in is not set up.');
+      return;
+    }
+
+    // Microsoft's own refusal — consent declined, blocked by Conditional
+    // Access — arrives as query parameters, not as a failed exchange.
+    if (typeof req.query.error === 'string') {
+      const description = typeof req.query.error_description === 'string' ? req.query.error_description : '';
+      audit({ action: 'auth.sso_denied', detail: { error: req.query.error }, ip: req.ip });
+      fail(description.split(/[\r\n]/)[0]?.slice(0, 300) || 'Microsoft declined that sign-in.');
+      return;
+    }
+
+    const remembered = readBlob<OidcState>(req.cookies?.[OIDC_COOKIE]);
+    const code = typeof req.query.code === 'string' ? req.query.code : '';
+    const state = typeof req.query.state === 'string' ? req.query.state : '';
+    if (!remembered || !code || !state || state !== remembered.state) {
+      fail('That sign-in did not match the one this browser started. Try again.');
+      return;
+    }
+
+    try {
+      const idToken = await exchangeCode({ code, verifier: remembered.verifier, redirectUri: callbackUri(req) });
+      const claims = await verifyIdToken(idToken, { nonce: remembered.nonce });
+      const email = emailFromClaims(claims);
+      const subject = claims.oid ?? claims.sub;
+
+      /*
+       * Matched on the Entra object id first and the email second. The
+       * second half of that is what makes the first sign-in work at all;
+       * the first half is what keeps working after somebody's address
+       * changes.
+       */
+      let user =
+        (subject ? listUsers().find((u) => u.ssoSubject === subject) : undefined) ??
+        (email ? findUserByEmail(email) : undefined);
+
+      if (!user) {
+        const refusal = provisioningProblem(email, settings);
+        if (refusal) {
+          audit({ action: 'auth.sso_rejected', actorEmail: email, detail: { reason: refusal }, ip: req.ip });
+          fail(refusal);
+          return;
+        }
+        /*
+         * A password is set to a value nobody knows and nobody can use: the
+         * account exists to be signed into with Microsoft, and leaving the
+         * hash empty would make `verifyPassword` the only thing standing
+         * between an empty password box and an account.
+         */
+        user = await createUser({
+          email: email!,
+          name: nameFromClaims(claims, email),
+          role: 'user',
+          passwordHash: await hashPassword(randomBytes(32).toString('base64url')),
+          ssoProvider: 'microsoft',
+          ...(subject ? { ssoSubject: subject } : {}),
+        });
+        audit({ actorId: user.id, actorEmail: user.email, action: 'auth.sso_account_created', ip: req.ip });
+      }
+
+      if (user.disabled) {
+        audit({ actorId: user.id, actorEmail: user.email, action: 'auth.sso_disabled', ip: req.ip });
+        fail('That account is disabled in NetKit. An administrator can re-enable it.');
+        return;
+      }
+
+      const now = new Date().toISOString();
+      user = await updateUser(user.id, {
+        lastLoginAt: now,
+        lastSsoAt: now,
+        failedLoginCount: 0,
+        lockedUntil: undefined,
+        ssoProvider: 'microsoft',
+        // Recorded on the first Microsoft sign-in of an account that was
+        // created by hand, so later sign-ins no longer depend on the email.
+        ...(subject && user.ssoSubject !== subject ? { ssoSubject: subject } : {}),
+        // The name follows the directory: it is the one place somebody
+        // actually maintains it.
+        ...(claims.name ? { name: nameFromClaims(claims, user.email) } : {}),
+      });
+
+      /*
+       * The second factor.
+       *
+       * Where Entra says a second factor was satisfied — which is what
+       * Conditional Access enforcing MFA looks like in the token — emailing
+       * a six-digit code as well would be theatre: a second factor on the
+       * same channel, after a stronger one has already been met.
+       *
+       * Where it does not, and the account has NetKit's own email 2FA
+       * switched on, the code is sent and the browser lands on the code
+       * screen. Nothing is skipped silently.
+       */
+      const mfa = mfaSatisfied(claims);
+      if (!mfa && user.twoFactorEnabled && twoFactorAvailable()) {
+        const verificationCode = numericCode(6);
+        const mail = twoFactorEmail(verificationCode);
+        const sent = await sendEmail(user.email, mail.subject, mail.html, mail.text);
+        if (sent.ok) {
+          storeCode(user.id, verificationCode, user.email);
+          issuePendingSession(res, user);
+          res.clearCookie(OIDC_COOKIE, { path: '/' });
+          audit({ actorId: user.id, actorEmail: user.email, action: 'auth.2fa_sent', ip: req.ip });
+          res.redirect('/');
+          return;
+        }
+        audit({
+          actorId: user.id,
+          actorEmail: user.email,
+          action: 'auth.2fa_send_failed',
+          detail: { error: sent.error },
+          ip: req.ip,
+        });
+      }
+
+      issueSession(res, user);
+      res.clearCookie(OIDC_COOKIE, { path: '/' });
+      audit({
+        actorId: user.id,
+        actorEmail: user.email,
+        action: 'auth.login_sso',
+        detail: { mfa: mfa ? 'satisfied by Microsoft' : 'not asserted by Microsoft' },
+        ip: req.ip,
+      });
+      res.redirect('/');
+    } catch (err) {
+      audit({ action: 'auth.sso_failed', detail: { error: String(err) }, ip: req.ip });
+      fail(err instanceof Error ? err.message : 'That Microsoft sign-in could not be completed.');
     }
   });
 

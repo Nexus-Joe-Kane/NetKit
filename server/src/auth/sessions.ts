@@ -91,7 +91,7 @@ function verify(token: string | undefined): TokenPayload | null {
   }
 }
 
-function cookieOptions(maxAgeMs: number) {
+export function cookieOptions(maxAgeMs: number) {
   return {
     httpOnly: true,
     sameSite: 'lax' as const,
@@ -137,6 +137,30 @@ export function refreshSession(req: Request, res: Response, user: User): void {
 export function issuePendingSession(res: Response, user: User): void {
   const token = sign({ sub: user.id, epoch: user.sessionEpoch, exp: Date.now() + PENDING_TTL_MS, kind: 'pending' });
   res.cookie(PENDING_COOKIE, token, cookieOptions(PENDING_TTL_MS));
+}
+
+/**
+ * Signs a short-lived scrap of state into a cookie.
+ *
+ * Used by the Microsoft sign-in flow to carry the OAuth `state`, the nonce
+ * and the PKCE verifier across the redirect to Microsoft and back. It is the
+ * same secret and the same shape as a session token, deliberately: a second
+ * hand-rolled signing scheme is a second thing to get wrong.
+ *
+ * Nothing secret to the user goes in here — the verifier is single-use and
+ * meaningless without the authorization code — but it must not be forgeable,
+ * because an attacker who can choose the state and nonce can replay a
+ * sign-in.
+ */
+export function signBlob(value: Record<string, unknown>, ttlMs: number): string {
+  return sign({ ...value, sub: '', epoch: 0, exp: Date.now() + ttlMs, kind: 'pending' } as TokenPayload);
+}
+
+/** Reads back a `signBlob` cookie, or null if it is missing, altered or stale. */
+export function readBlob<T>(token: string | undefined): T | null {
+  const payload = verify(token);
+  if (!payload) return null;
+  return payload as unknown as T;
 }
 
 export function clearSession(res: Response): void {

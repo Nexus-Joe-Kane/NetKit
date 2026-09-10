@@ -199,6 +199,7 @@ const SERVICE_LABEL: Record<string, string> = {
   'bt-home-network': 'BT Home Network',
   'bt-imei': 'BT IMEI lookup',
   'bt-location': 'BT Location Insights',
+  microsoft: 'Microsoft sign-in',
   portal: 'This portal',
 };
 
