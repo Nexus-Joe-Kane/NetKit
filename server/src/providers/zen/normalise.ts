@@ -615,6 +615,17 @@ export function openreachFromAvailability(res: ZenAvailabilityResponse): Openrea
   const ref = res.addressReference ?? {};
   const ont = res.ontDetails?.[0];
 
+  /*
+   * The exchange is spelled four different ways depending on which
+   * technology block Zen filled in, and a fifth on the address reference.
+   *
+   * That last one is the bug this chain used to have: `addressReference`
+   * carries an `exchangeCode` of its own, and it is often the only place the
+   * exchange appears — an FTTP-only premises has no FTTC or SOGEA block for
+   * the old chain to read, so the exchange panel came back empty against a
+   * response that plainly contained it. Reported as "missing fields when
+   * pulling exchange information", and it was ours, not Zen's.
+   */
   const exchangeName =
     text(ld.fttp?.fttpExchangeName) ??
     text(ld.sogea?.exchangeName) ??
@@ -624,7 +635,8 @@ export function openreachFromAvailability(res: ZenAvailabilityResponse): Openrea
     text(ld.fttp?.fttpExchangeCode) ??
     text(ld.sogea?.exchangeCode) ??
     text(ld.fttc?.fttcExchangeCode) ??
-    text(ld.gFast?.gfastExchangeCode);
+    text(ld.gFast?.gfastExchangeCode) ??
+    text(ref.exchangeCode);
   const mdfSiteId = text(ld.sogea?.mdfSiteId) ?? text(ld.fttc?.mdfSiteId) ?? text(ld.adsl2Plus?.mdfSiteId);
   const mdfSiteName = text(ld.sogea?.mdfSiteName) ?? text(ld.fttc?.mdfSiteName) ?? text(ld.adsl2Plus?.mdfSiteName);
 
@@ -674,7 +686,17 @@ export function openreachFromAvailability(res: ZenAvailabilityResponse): Openrea
       ? {
           exchange: {
             name: exchangeName ?? mdfSiteName ?? 'Unknown',
-            ...(exchangeCode ? { code: exchangeCode, tlc: exchangeCode } : {}),
+            /*
+             * The TLC is only set when the value actually is one.
+             *
+             * An Openreach exchange has both a longer code and a
+             * three-letter code, and they are different things. Copying the
+             * code into both fields put a five-character string under a
+             * heading that says TLC, which is worse than an empty field: an
+             * engineer quotes it to Openreach and it is wrong.
+             */
+            ...(exchangeCode ? { code: exchangeCode } : {}),
+            ...(exchangeCode && /^[A-Za-z]{3}$/.test(exchangeCode) ? { tlc: exchangeCode.toUpperCase() } : {}),
             ...(mdfSiteId ? { mdfSiteId } : {}),
             status: fttpAvailable ? 'fibre-enabled' : 'standard',
           },

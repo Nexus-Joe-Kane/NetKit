@@ -29,7 +29,18 @@ export type ZenScope =
   | 'indirect-cdr'
   | 'indirect-diagnostics'
   | 'indirect-faults'
-  | 'indirect-quote';
+  | 'indirect-quote'
+  /*
+   * Outages sit behind their own scope, not under `indirect-faults`.
+   *
+   * This is the fix for a 401 that looked like an entitlement problem and
+   * was not: the token minted fine under `indirect-faults` — Zen's identity
+   * server issues it happily — and the major-service-outages endpoints then
+   * refused the call. Zen confirmed the client already had `read-outages`,
+   * which is what those endpoints actually check. We were asking for the
+   * wrong scope, and our own error message blamed their account for it.
+   */
+  | 'read-outages';
 
 /**
  * Zen Indirect API configuration, per the official OAuth overview.
@@ -62,6 +73,7 @@ function loadZen(): ZenConfig {
       'indirect-broadbandconnection',
       'indirect-diagnostics',
       'indirect-faults',
+      'read-outages',
       'indirect-cdr',
       'indirect-quote',
       'indirect-customerengagement',

@@ -10,6 +10,7 @@ import {
   type PublicUser,
   type ServiceState,
   type ServiceStatus,
+  type UpstreamFailure,
 } from '../lib/api';
 import {
   Alert,
@@ -55,9 +56,9 @@ const STATE_LABEL: Record<ServiceState, string> = {
   disabled: 'Switched off',
 };
 
-type Tab = 'status' | 'credentials' | 'ordering' | 'recovery' | 'users' | 'audit';
+type Tab = 'status' | 'credentials' | 'ordering' | 'recovery' | 'failures' | 'users' | 'audit';
 
-const TABS = ['status', 'credentials', 'ordering', 'recovery', 'users', 'audit'] as const;
+const TABS = ['status', 'credentials', 'ordering', 'recovery', 'failures', 'users', 'audit'] as const;
 
 export function AdminPortal({ me }: { me: PublicUser }): ReactElement {
   // The open tab lives in the URL, so a refresh or a pasted link comes back
@@ -69,6 +70,7 @@ export function AdminPortal({ me }: { me: PublicUser }): ReactElement {
     { id: 'credentials', label: 'Credentials' },
     { id: 'ordering', label: 'Ordering & limits' },
     { id: 'recovery', label: 'Recovery & self-test' },
+    { id: 'failures', label: 'API failures' },
     { id: 'users', label: 'Users' },
     { id: 'audit', label: 'Audit log' },
   ];
@@ -81,6 +83,7 @@ export function AdminPortal({ me }: { me: PublicUser }): ReactElement {
         {tab === 'credentials' && <CredentialVault />}
         {tab === 'ordering' && <OrderingBoard />}
         {tab === 'recovery' && <RecoveryPage />}
+        {tab === 'failures' && <FailureBoard />}
         {tab === 'users' && <UsersBoard me={me} />}
         {tab === 'audit' && <AuditBoard />}
       </TabPanel>
@@ -1051,6 +1054,219 @@ function UsersBoard({ me }: { me: PublicUser }): ReactElement {
 
       {dialog}
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Failed upstream calls
+ * ------------------------------------------------------------------ */
+
+const FAILURE_COLUMNS: Array<CsvColumn<UpstreamFailure>> = [
+  { header: 'When', value: (e) => e.at },
+  { header: 'Provider', value: (e) => e.label },
+  { header: 'Method', value: (e) => e.method },
+  { header: 'URL', value: (e) => e.url },
+  { header: 'Status', value: (e) => (e.status === undefined ? '' : String(e.status)) },
+  { header: 'Status text', value: (e) => e.statusText },
+  { header: 'Scope', value: (e) => e.scope },
+  { header: 'Their ref', value: (e) => e.requestId },
+  { header: 'Body', value: (e) => e.body },
+];
+
+/**
+ * Every upstream refusal, with the report a supplier asked for.
+ *
+ * The reason this page exists: Zen's systems team asked for the base URL,
+ * the token endpoint, the client id, the exact 401 body and the time it
+ * happened. Answering that from memory took a week of email. Answering it
+ * from here is a copy and a paste.
+ */
+function FailureBoard(): ReactElement {
+  const [provider, setProvider] = useState('zen');
+  const [data, setData] = useState<{
+    entries: UpstreamFailure[];
+    groups: Array<{ label: string; count: number; latest: string }>;
+    report: string;
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [open, setOpen] = useState<UpstreamFailure | null>(null);
+
+  const load = useCallback(async (label: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      setData(await api.upstreamFailures(label || undefined));
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'Could not load the failure log.');
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load(provider);
+  }, [load, provider]);
+
+  const copy = async () => {
+    if (!data) return;
+    try {
+      await navigator.clipboard.writeText(data.report);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2500);
+    } catch {
+      // Clipboard access can be refused. The text is on screen and
+      // selectable, so this is a nicety, not the only route.
+      setError('Could not reach the clipboard — select the text below and copy it by hand.');
+    }
+  };
+
+  const clear = async () => {
+    setBusy(true);
+    try {
+      await api.clearUpstreamFailures();
+      await load(provider);
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'Could not clear the log.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <Card
+        title="Failed API calls"
+        eyebrow="What to send the supplier"
+        index="01"
+        accent={1}
+        meta={
+          <div className="row" style={{ gap: 8 }}>
+            <button type="button" className="btn btn--ghost btn--small" onClick={() => void load(provider)} disabled={busy}>
+              Refresh
+            </button>
+            <ExportButtons rows={data?.entries ?? []} columns={FAILURE_COLUMNS} filenamePrefix="api-failures" label="the failure log" />
+          </div>
+        }
+      >
+        {error && <Alert tone="error">{error}</Alert>}
+
+        <p className="muted" style={{ marginTop: 0, fontSize: 12.5, lineHeight: 1.6 }}>
+          When a provider refuses a call, the exact response is written down here — the endpoint, the scope it was
+          made under, their own request id and the response body, with every credential stripped out. It is what a
+          systems team asks for and what nobody can reconstruct an hour later.
+        </p>
+
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+          {['zen', 'daisy', 'jola', 'unifi', 'zendesk', ''].map((label) => (
+            <button
+              key={label || 'all'}
+              type="button"
+              className={`btn btn--small ${provider === label ? 'btn--primary' : 'btn--ghost'}`}
+              onClick={() => setProvider(label)}
+            >
+              {label ? label[0]!.toUpperCase() + label.slice(1) : 'Everything'}
+            </button>
+          ))}
+        </div>
+
+        {data && data.groups.length > 0 && (
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+            {data.groups.map((group) => (
+              <span key={group.label} className="chip" title={`Last failed ${formatDateTime(group.latest)}`}>
+                {group.label} · {group.count}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {!data || data.entries.length === 0 ? (
+          <div className="empty">
+            <h3>Nothing has been refused</h3>
+            <p>
+              {provider
+                ? `No failed calls to ${provider} have been recorded. That is the answer you want.`
+                : 'No provider has refused a call since this log was last cleared.'}
+            </p>
+          </div>
+        ) : (
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>When</th>
+                  <th>Provider</th>
+                  <th>Endpoint</th>
+                  <th>Scope</th>
+                  <th>Response</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.entries.map((entry, i) => (
+                  <tr key={i} className="clickable" onClick={() => setOpen(entry)}>
+                    <td style={{ whiteSpace: 'nowrap', fontSize: 12.5 }}>{formatDateTime(entry.at)}</td>
+                    <td style={{ fontSize: 12.5 }}>{entry.label}</td>
+                    <td className="sw-mono" style={{ fontSize: 11.5, maxWidth: 320, wordBreak: 'break-all' }}>
+                      {entry.method} {entry.url.replace(/^https?:\/\/[^/]+/, '')}
+                    </td>
+                    <td className="sw-mono" style={{ fontSize: 11.5 }}>{entry.scope ?? '—'}</td>
+                    <td style={{ fontSize: 12.5, whiteSpace: 'nowrap' }}>
+                      {entry.status ? `${entry.status} ${entry.statusText ?? ''}`.trim() : 'no response'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      {data && data.entries.length > 0 && (
+        <Card title="Ready to send" eyebrow="Copy this into the email" index="02" accent={2}>
+          <div className="row row--end" style={{ gap: 8, marginBottom: 10 }}>
+            <button type="button" className="btn btn--primary btn--small" onClick={() => void copy()}>
+              {copied ? 'Copied' : 'Copy report'}
+            </button>
+            <button type="button" className="btn btn--ghost btn--small" onClick={() => void clear()} disabled={busy}>
+              Clear the log
+            </button>
+          </div>
+          <textarea className="field__input sw-mono" readOnly rows={16} value={data.report} style={{ fontSize: 11.5, lineHeight: 1.55 }} />
+          <p className="muted" style={{ fontSize: 11.5, marginBottom: 0 }}>
+            The client id, token endpoint and base URLs are read from the live configuration, so this says what NetKit
+            is actually authenticating with rather than what it is believed to be. No credential is included.
+          </p>
+        </Card>
+      )}
+
+      <Modal
+        open={open !== null}
+        onClose={() => setOpen(null)}
+        eyebrow={open?.label ?? ''}
+        title={open ? `${open.status ?? 'No response'} ${open.statusText ?? ''}`.trim() : ''}
+        subtitle={open ? formatDateTime(open.at) : undefined}
+        footer={
+          <button type="button" className="btn btn--primary" onClick={() => setOpen(null)}>
+            Close
+          </button>
+        }
+      >
+        {open && (
+          <div className="stack">
+            <Cell label="Endpoint" value={`${open.method} ${open.url}`} mono copy />
+            {open.scope && <Cell label="Scope" value={open.scope} mono />}
+            {open.requestId && <Cell label="Their request id" value={open.requestId} mono copy />}
+            {open.body && (
+              <div>
+                <Label>Response body</Label>
+                <pre className="raw" style={{ marginTop: 6 }}>{open.body}</pre>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
+    </>
   );
 }
 
