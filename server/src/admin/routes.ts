@@ -7,6 +7,8 @@ import { checkPasswordPolicy, hashPassword, randomToken } from '../auth/password
 import { EMAIL_FONT, emailLayout, sendEmail, verifyResend } from '../auth/email';
 import { notifyChannel, notifyChannelDetail } from '../services/notify';
 import { clearSecret, secretStatus, setSecret, vaultUsable, withCandidate } from '../services/vault';
+import { clearUpstreamLog, recentFailures } from '../services/upstreamLog';
+import { failuresByLabel, supplierReport } from '@sw/shared';
 import { clearAllProviderCaches } from './supervisor';
 import { clientIndexStatus, rebuildClientIndex } from '../services/clientIndex';
 import { requireAdmin } from '../auth/routes';
@@ -619,6 +621,45 @@ export function adminRouter(): Router {
   });
 
   /* ---- Audit log ---------------------------------------------------- */
+
+  /* ---- Failed upstream calls ------------------------------------- */
+
+  /*
+   * What a supplier's systems team asks for, ready to paste.
+   *
+   * This exists because of a Zen 401 that took a week of email: which base
+   * URL, which token endpoint, which client id, the exact response body, and
+   * what time. All of it is knowable when the call fails and none of it is
+   * knowable afterwards.
+   *
+   * `report` is generated server-side rather than in the browser so the
+   * account details come from the live configuration — a report that says
+   * which client id we are actually authenticating with is worth more than
+   * one that says which one somebody believes we are.
+   */
+  router.get('/upstream-failures', (req, res) => {
+    const label = typeof req.query.label === 'string' ? req.query.label : undefined;
+    const limit = Number(req.query.limit) || undefined;
+    const entries = recentFailures({ ...(label ? { label } : {}), ...(limit ? { limit } : {}) });
+    const cfg = config();
+    const zen = /zen/i.test(label ?? '');
+    send(res, {
+      entries,
+      groups: failuresByLabel(recentFailures({ limit: 200 })),
+      report: supplierReport(entries, {
+        provider: label ?? 'Upstream providers',
+        ...(zen && cfg.zen.clientId ? { clientId: cfg.zen.clientId } : {}),
+        ...(zen ? { tokenUrl: cfg.zen.tokenUrl } : {}),
+        ...(zen ? { baseUrls: [cfg.zen.selfServiceBaseUrl, cfg.zen.assuranceBaseUrl] } : {}),
+      }),
+    });
+  });
+
+  router.delete('/upstream-failures', async (req, res) => {
+    clearUpstreamLog();
+    audit({ actorId: req.user!.id, actorEmail: req.user!.email, action: 'admin.upstream_log_cleared', ip: req.ip });
+    send(res, { cleared: true });
+  });
 
   router.get('/audit', (req, res) => {
     const limit = Math.min(1000, Math.max(1, Number.parseInt(String(req.query.limit ?? '200'), 10) || 200));

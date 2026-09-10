@@ -58,7 +58,10 @@ import type {
   SiteContact,
   AccountStanding,
   InboxItem,
+  UpstreamFailure,
 } from '@sw/shared';
+
+export type { UpstreamFailure };
 
 /**
  * What a fault raise accepts from the browser.
@@ -695,6 +698,16 @@ export const api = {
   checkSitesNow: () => post<SweepOutcome>('/api/events/sweep', {}),
 
   audit: (limit = 200) => request<{ entries: AuditEntry[] }>(`/api/admin/audit?limit=${limit}`),
+
+  /*
+   * Failed upstream calls, with the report a supplier's systems team asks
+   * for already written. `label` narrows it — "zen" catches both gateways.
+   */
+  upstreamFailures: (label?: string, limit = 40) =>
+    request<{ entries: UpstreamFailure[]; groups: Array<{ label: string; count: number; latest: string }>; report: string }>(
+      `/api/admin/upstream-failures?limit=${limit}${label ? `&label=${encodeURIComponent(label)}` : ''}`,
+    ),
+  clearUpstreamFailures: () => del<{ cleared: boolean }>('/api/admin/upstream-failures'),
   supervisor: () => request<SupervisorState>('/api/admin/supervisor'),
   sweepNow: () => post<{ sweep: SweepResult; state: SupervisorState }>('/api/admin/supervisor/sweep'),
   selfTest: () => post<SelfTestReport>('/api/admin/selftest'),

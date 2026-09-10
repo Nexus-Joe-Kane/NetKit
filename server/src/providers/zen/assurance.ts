@@ -29,6 +29,17 @@ import { pickArray, pickBool, pickDate, pickNumber, pickString } from './map';
 
 const ASSURANCE = { gateway: 'assurance' as const };
 
+/**
+ * The scopes an outage or planned-work endpoint might be gated on.
+ *
+ * `read-outages` first, because that is the one Zen's systems team named
+ * when they confirmed the client already had access and we were still
+ * getting a 401. `indirect-faults` stays behind it: it is what the rest of
+ * the assurance gateway uses, and an account without `read-outages` would
+ * otherwise lose outage data entirely rather than fall back.
+ */
+const OUTAGE_SCOPES = ['read-outages', 'indirect-faults'] as const;
+
 const text = (v?: string): string | undefined => {
   const s = (v ?? '').trim();
   return s === '' || s === 'string' ? undefined : s;
@@ -120,14 +131,14 @@ function mapIncident(raw: unknown, kind: 'outage' | 'planned', index: number): I
 
 export async function fetchOutages(options: { past?: boolean } = {}): Promise<Incident[]> {
   const path = options.past ? '/api/major-service-outages/past' : '/api/major-service-outages';
-  const json = await zenCall<unknown>(path, { ...ASSURANCE, scope: 'indirect-faults', emptyAsNull: true });
+  const json = await zenCall<unknown>(path, { ...ASSURANCE, scope: OUTAGE_SCOPES, emptyAsNull: true });
   const rows = pickArray(json, 'outages', 'majorServiceOutages', 'results', 'data', 'items');
   return rows.map((r, i) => mapIncident(r, 'outage', i));
 }
 
 export async function fetchPlannedWork(options: { past?: boolean } = {}): Promise<Incident[]> {
   const path = options.past ? '/api/planned-engineering-work/past' : '/api/planned-engineering-work';
-  const json = await zenCall<unknown>(path, { ...ASSURANCE, scope: 'indirect-faults', emptyAsNull: true });
+  const json = await zenCall<unknown>(path, { ...ASSURANCE, scope: OUTAGE_SCOPES, emptyAsNull: true });
   const rows = pickArray(json, 'plannedEngineeringWork', 'plannedWork', 'results', 'data', 'items');
   return rows.map((r, i) => mapIncident(r, 'planned', i));
 }
@@ -136,7 +147,7 @@ export async function fetchPlannedWork(options: { past?: boolean } = {}): Promis
 export async function fetchOutagesForService(zenReference: string): Promise<Incident[]> {
   const json = await zenCall<unknown>(
     `/api/major-service-outages/zenreference/${encodeURIComponent(zenReference)}`,
-    { ...ASSURANCE, scope: 'indirect-faults', emptyAsNull: true },
+    { ...ASSURANCE, scope: OUTAGE_SCOPES, emptyAsNull: true },
   );
   if (!json) return [];
   const rows = pickArray(json, 'outages', 'majorServiceOutages', 'results', 'data', 'items');

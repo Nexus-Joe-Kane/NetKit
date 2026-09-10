@@ -84,7 +84,19 @@ async function tokenFor(scope: ZenScope): Promise<string> {
 
 export interface ZenCallOptions {
   gateway?: Gateway;
-  scope: ZenScope;
+  /**
+   * The scope to call under, or several to try in order.
+   *
+   * Several, because Zen gate some endpoints on a scope whose name does not
+   * follow from the endpoint's. The outage endpoints check `read-outages`
+   * while everything else about faults checks `indirect-faults`, and there
+   * is no document that says so — it took a 401 and a conversation with
+   * their systems team to find out. Where the mapping is uncertain the
+   * caller lists the candidates, the first one that is granted and accepted
+   * is remembered, and every refusal on the way is written to the upstream
+   * log so it can be quoted rather than guessed at.
+   */
+  scope: ZenScope | readonly ZenScope[];
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH';
   /** Query parameters. Zen uses dotted names such as `request.postCode`. */
   query?: Record<string, string | number | boolean | undefined>;
@@ -92,6 +104,24 @@ export interface ZenCallOptions {
   /** Treat 404/204 as "no result" instead of throwing. */
   emptyAsNull?: boolean;
 }
+
+/**
+ * Which scope an endpoint actually accepted, once one has.
+ *
+ * Keyed on gateway and path so a lucky guess is not re-tried on every call.
+ * Deliberately not persisted: it is a cache of an observation, and a wrong
+ * one should cost one request after a restart rather than living forever in
+ * a file.
+ */
+const acceptedScope = new Map<string, ZenScope>();
+
+/** Test/diagnostic hook — forgets which scopes were accepted. */
+export function resetZenScopeMemo(): void {
+  acceptedScope.clear();
+}
+
+const refused = (err: unknown): boolean =>
+  /responded 40[13]\b/.test(err instanceof Error ? err.message : String(err));
 
 /** Issues an authenticated call against one of the two Zen gateways. */
 export async function zenCall<T>(path: string, opts: ZenCallOptions): Promise<T | null> {
@@ -103,34 +133,61 @@ export async function zenCall<T>(path: string, opts: ZenCallOptions): Promise<T 
     if (value !== undefined && value !== '') url.searchParams.set(key, String(value));
   }
 
-  const token = await tokenFor(opts.scope);
+  const requested = Array.isArray(opts.scope) ? [...opts.scope] : [opts.scope as ZenScope];
+  const memoKey = `${opts.gateway ?? 'self-service'} ${path}`;
+  const remembered = acceptedScope.get(memoKey);
+  // A scope known to work goes first; the rest stay as fallbacks in case an
+  // entitlement changes underneath us.
+  const order = remembered ? [remembered, ...requested.filter((s) => s !== remembered)] : requested;
 
-  try {
-    return await fetchJson<T>(url.toString(), {
-      method: opts.method ?? 'GET',
-      headers: { Authorization: `Bearer ${token}`, 'Cache-Control': 'no-cache' },
-      ...(opts.body !== undefined ? { body: opts.body } : {}),
-      label: `Zen ${opts.gateway ?? 'self-service'}`,
-      timeoutMs: cfg.requestTimeoutMs,
-      ...(opts.emptyAsNull ? { notFoundAsNull: true } : {}),
-    });
-  } catch (err) {
-    // A bare "Zen assurance responded 401 Unauthorized" is not actionable.
-    // The token minted fine -- Zen granted the scope at the identity server
-    // -- so a 401 or 403 on the call itself means the account is not
-    // entitled to this endpoint, which is a conversation with an account
-    // manager and not something to debug in the code. Say which scope and
-    // which path, because that is what they will ask for.
-    const message = err instanceof Error ? err.message : String(err);
-    if (/responded 40[13]\b/.test(message)) {
-      throw upstream(
-        `${message}. The token for scope "${opts.scope}" was issued, so the credentials ` +
-          `are valid but the account is not entitled to ${path}. Ask your Zen account ` +
-          `manager to enable this endpoint for scope "${opts.scope}".`,
-      );
+  /*
+   * Scopes the credentials do not have are skipped rather than attempted:
+   * asking Zen's identity server for a scope it will not issue is a
+   * guaranteed failure that teaches nobody anything. If that leaves nothing,
+   * `tokenFor` is called anyway so the person gets the real explanation of
+   * which scope is missing.
+   */
+  const available = order.filter((scope) => cfg.zen.scopes.includes(scope));
+  const attempts = available.length ? available : order.slice(0, 1);
+
+  let lastError: unknown;
+  for (const scope of attempts) {
+    const token = await tokenFor(scope);
+    try {
+      const result = await fetchJson<T>(url.toString(), {
+        method: opts.method ?? 'GET',
+        headers: { Authorization: `Bearer ${token}`, 'Cache-Control': 'no-cache' },
+        ...(opts.body !== undefined ? { body: opts.body } : {}),
+        label: `Zen ${opts.gateway ?? 'self-service'}`,
+        timeoutMs: cfg.requestTimeoutMs,
+        scope,
+        ...(opts.emptyAsNull ? { notFoundAsNull: true } : {}),
+      });
+      acceptedScope.set(memoKey, scope);
+      return result;
+    } catch (err) {
+      lastError = err;
+      // Only a refusal is worth trying another scope for. A timeout or a
+      // 500 means the endpoint is right and Zen is having a bad day.
+      if (!refused(err)) throw err;
     }
-    throw err;
   }
+
+  /*
+   * Every candidate scope was refused. The token minted in each case, so
+   * the credentials are valid — but after the outages business it is no
+   * longer safe to conclude "not entitled": the more likely cause is still
+   * that NetKit is asking under the wrong scope. Say both, name what was
+   * tried, and point at the log entry that has the exact body in it.
+   */
+  const message = lastError instanceof Error ? lastError.message : String(lastError);
+  const tried = attempts.join('", "');
+  throw upstream(
+    `${message}. A token was issued for scope "${tried}", so the credentials are valid, ` +
+      `but ${path} refused the call. Either this endpoint is gated on a scope NetKit is not ` +
+      `asking for, or the account is not entitled to it. The exact response is in the ` +
+      `upstream log in the admin portal — send that to Zen rather than describing it.`,
+  );
 }
 
 /** Verifies credentials by minting a token. Used by the admin health check. */

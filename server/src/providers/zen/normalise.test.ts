@@ -107,7 +107,11 @@ test('the Openreach panel picks up cabinet, loop length and the existing provide
   });
 
   assert.equal(or.exchange?.name, 'Manchester Central');
-  assert.equal(or.exchange?.tlc, 'MRCEN');
+  assert.equal(or.exchange?.code, 'MRCEN');
+  // MRCEN is a five-character exchange code, not a three-letter code. This
+  // assertion used to expect it under `tlc`, which is how a wrong TLC came
+  // to be quoted to Openreach off the back of a green panel.
+  assert.equal(or.exchange?.tlc, undefined);
   assert.equal(or.cabinet?.id, 'PCP 42');
   assert.equal(or.copper?.lineLengthMetres, 850);
   assert.equal(or.fttp?.available, true);
@@ -244,4 +248,24 @@ test('a genuine gigabit FTTP figure in Mbit/s is left alone', () => {
   } as never);
   const fttp = offers.find((o) => o.technology === 'FTTP');
   assert.equal(fttp?.speeds.downMbpsHigh, 1000, '1000 Mb must stay 1000 Mb');
+});
+
+test('the exchange is read off the address reference when no technology block carries it', () => {
+  // An FTTP-only premises: there is no FTTC or SOGEA block to read, and the
+  // exchange code arrives on the address reference instead. The panel used
+  // to come back empty against a response that plainly contained it.
+  const or = openreachFromAvailability({
+    lineDetails: { fttp: { rag: 'Green' } },
+    addressReference: { addressReferenceNumber: 'A123', exchangeCode: 'LNCEN' },
+  });
+  assert.equal(or.exchange?.code, 'LNCEN');
+  assert.equal(or.exchange?.status, 'fibre-enabled');
+});
+
+test('a genuine three-letter code is reported as the TLC as well', () => {
+  const or = openreachFromAvailability({
+    lineDetails: { sogea: { rag: 'Green', exchangeName: 'Faraday', exchangeCode: 'fad' } },
+  });
+  assert.equal(or.exchange?.code, 'fad');
+  assert.equal(or.exchange?.tlc, 'FAD');
 });

@@ -1,4 +1,5 @@
 import { upstream } from './errors';
+import { recordUpstreamFailure } from '../services/upstreamLog';
 
 export interface FetchJsonOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -11,6 +12,28 @@ export interface FetchJsonOptions {
   label?: string;
   /** Treat 404 as an empty result rather than an error. */
   notFoundAsNull?: boolean;
+  /**
+   * The scope or account this call was made under, recorded with a failure.
+   *
+   * It is the first thing a supplier asks about a 401, and the caller is the
+   * only place that knows it.
+   */
+  scope?: string;
+}
+
+/**
+ * The upstream's own correlation id, where it sends one.
+ *
+ * Quoting it back is the difference between a supplier searching their logs
+ * by timestamp and looking the request up directly. The header names are the
+ * ones actually seen in the wild.
+ */
+function requestIdFrom(res: Response): string | undefined {
+  for (const header of ['request-id', 'x-request-id', 'x-ms-request-id', 'x-correlation-id', 'x-amzn-requestid']) {
+    const value = res.headers.get(header);
+    if (value) return value;
+  }
+  return undefined;
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -31,6 +54,7 @@ export async function fetchJson<T>(url: string, opts: FetchJsonOptions = {}): Pr
     retries = 2,
     label = 'upstream',
     notFoundAsNull = false,
+    scope,
   } = opts;
 
   let lastError: unknown;
@@ -59,6 +83,24 @@ export async function fetchJson<T>(url: string, opts: FetchJsonOptions = {}): Pr
           await sleep(2 ** attempt * 250);
           continue;
         }
+        /*
+         * Written down before it is thrown.
+         *
+         * The exact body of a refusal is the one thing a supplier's systems
+         * team asks for and the one thing nobody has an hour later. Every
+         * credential is stripped on the way in — see `redactUrl` and
+         * `redactBody` in shared/src/upstreamLog.ts.
+         */
+        recordUpstreamFailure({
+          label,
+          method,
+          url,
+          status: res.status,
+          statusText: res.statusText,
+          body: text,
+          ...(scope ? { scope } : {}),
+          ...(requestIdFrom(res) ? { requestId: requestIdFrom(res)! } : {}),
+        });
         throw upstream(`${label} responded ${res.status} ${res.statusText}`.trim(), text.slice(0, 500));
       }
 
@@ -73,6 +115,13 @@ export async function fetchJson<T>(url: string, opts: FetchJsonOptions = {}): Pr
         await sleep(2 ** attempt * 250);
         continue;
       }
+      recordUpstreamFailure({
+        label,
+        method,
+        url,
+        body: isAbort ? `Timed out after ${timeoutMs}ms with no response.` : String(err),
+        ...(scope ? { scope } : {}),
+      });
       throw upstream(isAbort ? `${label} timed out after ${timeoutMs}ms` : `${label} request failed`, String(err));
     } finally {
       clearTimeout(timer);
