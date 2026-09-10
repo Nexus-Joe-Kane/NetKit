@@ -2821,6 +2821,35 @@ table.data td.num {
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.25);
 }
 
+/*
+ * With a real logo in it, the square becomes a plate.
+ *
+ * White rather than the brand colour: a supplier's icon is usually a dark
+ * mark on transparency and is invisible on its own brand colour, which is
+ * the one combination nobody thinks to check. The brand colour stays as the
+ * border, so the row still sorts by colour at a glance.
+ */
+.provider__mark--logo {
+  background: #fff !important;
+  box-shadow: inset 0 0 0 1.5px currentColor;
+  padding: 3px;
+  text-shadow: none;
+}
+
+.provider__mark--logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+/* The provider cell in a printed table: mark and name on one line. */
+.print-provider {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
 .provider__mark--small {
   width: 22px;
   height: 22px;

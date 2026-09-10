@@ -10,6 +10,7 @@ import { join, resolve } from 'node:path';
 import { config, resetConfig } from './config';
 import { apiRouter, errorHandler } from './routes/api';
 import { operationsRouter } from './routes/operations';
+import { brandRouter } from './routes/brand';
 import { eventsRouter } from './routes/events';
 import { authRouter, requireAuth } from './auth/routes';
 import { adminRouter } from './admin/routes';
@@ -112,6 +113,13 @@ export function createApp(): Express {
   });
 
   app.use('/api/admin', adminRouter());
+  /*
+   * Logos are behind the sign-in like everything else, but not behind the
+   * API rate limiter: a dashboard with fifteen supplier marks on it would
+   * spend its whole budget on images, and each one is a cache hit after the
+   * first request anyway.
+   */
+  app.use('/api/brand', requireAuth, brandRouter());
   app.use('/api', requireAuth, apiLimiter, eventsRouter());
   app.use('/api', requireAuth, apiLimiter, operationsRouter());
   app.use('/api', requireAuth, apiLimiter, apiRouter());

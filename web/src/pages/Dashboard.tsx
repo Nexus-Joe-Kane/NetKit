@@ -13,7 +13,7 @@ import {
   type NetEvent,
 } from '@sw/shared';
 import { ApiClientError, api, type DashboardPayload } from '../lib/api';
-import { Alert, Card, Cell, Chip, Empty, Label, Spinner, formatDateTime, relativeTime } from '../components/ui';
+import { Alert, Card, Cell, Chip, Empty, Label, Spinner, formatDateTime, relativeTime, ProviderMark} from '../components/ui';
 import { Modal } from '../components/overlay';
 import { go } from '../lib/route';
 
@@ -251,9 +251,7 @@ function ProviderStrip({ data }: { data: DashboardPayload }): ReactElement {
           const identity = ispIdentity(row.provider);
           return (
             <div key={row.provider} className={`provider${row.openEvents ? ' provider--trouble' : ''}`}>
-              <span className="provider__mark" style={{ background: identity.colour }} aria-hidden="true">
-                {identity.monogram}
-              </span>
+              <ProviderMark provider={row.provider} />
               <span className="provider__name">
                 {identity.name}
                 {row.managed && <span className="provider__tag">managed by us</span>}
@@ -318,9 +316,7 @@ function NationalStrip({ data }: { data: DashboardPayload }): ReactElement | nul
               const tone = row.state === 'outage' ? 'crit' : row.state === 'degraded' ? 'warn' : row.state === 'ok' ? 'ok' : 'idle';
               return (
                 <div key={row.provider} className={`provider${row.state === 'outage' ? ' provider--trouble' : ''}`}>
-                  <span className="provider__mark" style={{ background: identity.colour }} aria-hidden="true">
-                    {identity.monogram}
-                  </span>
+                  <ProviderMark provider={row.provider} />
                   <span className="provider__name">{identity.name}</span>
                   <span className="provider__state">
                     <Chip tone={tone}>{providerStateLabel(row.state)}</Chip>
@@ -512,9 +508,7 @@ function EventModal({
                       <td className="sw-mono" style={{ whiteSpace: 'nowrap' }}>{wan.label}</td>
                       <td>
                         <span className="row" style={{ gap: 8, alignItems: 'center' }}>
-                          <span className="provider__mark provider__mark--small" style={{ background: identity.colour }} aria-hidden="true">
-                            {identity.monogram}
-                          </span>
+                          <ProviderMark provider={wan.providerName} small />
                           <span>
                             {identity.name}
                             {!wan.managed && <span className="muted" style={{ fontSize: 11.5, display: 'block' }}>Not managed by us</span>}
