@@ -4,6 +4,7 @@ export * from './address';
 export * from './grade';
 export * from './confirm';
 export * from './credentials';
+export * from './entra';
 export * from './csv';
 export * from './operations';
 export * from "./addressMatch";

@@ -225,10 +225,21 @@ export interface SessionState {
   awaitingTwoFactor?: boolean;
   email?: string;
   warning?: string;
+  /** True when an administrator has configured Microsoft sign-in. */
+  microsoftSignIn?: boolean;
 }
 
 export const api = {
   session: () => request<SessionState>('/api/auth/session'),
+  /*
+   * A full-page navigation, not a fetch. The whole point of the OAuth
+   * redirect is that the browser goes to Microsoft, shows their sign-in
+   * page, and comes back — none of which an XHR can do.
+   */
+  microsoftSignIn: (email?: string) => {
+    const query = email ? `?email=${encodeURIComponent(email)}` : '';
+    window.location.assign(`/api/auth/microsoft/start${query}`);
+  },
   login: (email: string, password: string) => post<SessionState>('/api/auth/login', { email, password }),
   verifyCode: (code: string) => post<SessionState>('/api/auth/verify', { code }),
   resendCode: () => post<{ sent: boolean; email: string }>('/api/auth/resend'),

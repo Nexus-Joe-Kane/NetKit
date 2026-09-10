@@ -1354,6 +1354,50 @@ table.data td.num {
   padding: 26px 28px;
 }
 
+/*
+ * Sign in with Microsoft.
+ *
+ * A neutral surface with a hairline rather than a coloured button: the
+ * coloured mark does the identifying, and Microsoft's own guidance is for
+ * the button to be white or black, never tinted.
+ */
+.login__sso {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: var(--sw-white);
+  border: 1px solid var(--sw-cell-rule);
+  color: var(--sw-ink);
+  font-weight: 600;
+}
+
+.login__sso:hover:not(:disabled) {
+  background: var(--sw-panel);
+  border-color: var(--sw-body);
+}
+
+/* The "or" rule. Two lines and a label, so the two routes read as
+   alternatives rather than as steps. */
+.login__or {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0 14px;
+  color: var(--sw-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.login__or::before,
+.login__or::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--sw-hairline);
+}
+
 .login__foot {
   padding: 14px 28px;
   border-top: 1px solid var(--sw-hairline);

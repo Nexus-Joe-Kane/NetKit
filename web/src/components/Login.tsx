@@ -1,7 +1,27 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ReactElement } from 'react';
+import { SSO_ERROR_PARAM } from '@sw/shared';
 import { ApiClientError, api, type SessionState } from '../lib/api';
 import { Alert, Label } from './ui';
+
+/**
+ * The Microsoft logo.
+ *
+ * Drawn rather than fetched: it is four squares, so an SVG is both the real
+ * mark and one fewer request that can fail. The colours are Microsoft's own
+ * (F25022 / 7FBA00 / 00A4EF / FFB900) and the mark is used unmodified, as
+ * their brand guidance for "Sign in with Microsoft" requires.
+ */
+function MicrosoftMark(): ReactElement {
+  return (
+    <svg width="17" height="17" viewBox="0 0 23 23" aria-hidden="true" focusable="false">
+      <rect x="1" y="1" width="10" height="10" fill="#f25022" />
+      <rect x="12" y="1" width="10" height="10" fill="#7fba00" />
+      <rect x="1" y="12" width="10" height="10" fill="#00a4ef" />
+      <rect x="12" y="12" width="10" height="10" fill="#ffb900" />
+    </svg>
+  );
+}
 
 /**
  * Sign-in.
@@ -10,14 +30,50 @@ import { Alert, Label } from './ui';
  * forced password change. Keeping them together means the transitions carry
  * no page reload and no lost context.
  */
-export function Login({ onSignedIn }: { onSignedIn: (session: SessionState) => void }): ReactElement {
-  const [stage, setStage] = useState<'password' | 'code'>('password');
+export function Login({
+  onSignedIn,
+  initial,
+}: {
+  onSignedIn: (session: SessionState) => void;
+  /**
+   * The session as the app last read it.
+   *
+   * Needed because Microsoft sign-in can land back here mid-flow: an
+   * account with NetKit's own email 2FA on, signing in through Microsoft
+   * without Conditional Access having asserted MFA, arrives with a code
+   * already sent. Starting on the password box would throw that away.
+   */
+  initial?: SessionState;
+}): ReactElement {
+  const [stage, setStage] = useState<'password' | 'code'>(initial?.awaitingTwoFactor ? 'code' : 'password');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(
+    initial?.awaitingTwoFactor ? `We've emailed a 6-digit code to ${initial.email ?? 'your address'}.` : null,
+  );
+
+  /*
+   * A failed Microsoft sign-in comes back as a query parameter, because the
+   * callback is a navigation and cannot answer with JSON. Read it once, show
+   * it, then take it out of the address bar so a refresh does not resurrect
+   * a stale message.
+   */
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const message = params.get(SSO_ERROR_PARAM);
+    if (!message) return;
+    setError(message);
+    params.delete(SSO_ERROR_PARAM);
+    const rest = params.toString();
+    window.history.replaceState(
+      null,
+      '',
+      `${window.location.pathname}${rest ? `?${rest}` : ''}${window.location.hash}`,
+    );
+  }, []);
 
   const submitPassword = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -78,6 +134,23 @@ export function Login({ onSignedIn }: { onSignedIn: (session: SessionState) => v
         <div className="login__body">
           {error && <Alert tone="error">{error}</Alert>}
           {notice && !error && <Alert tone="info">{notice}</Alert>}
+
+          {stage === 'password' && initial?.microsoftSignIn && (
+            <>
+              <button
+                type="button"
+                className="btn btn--block login__sso"
+                onClick={() => api.microsoftSignIn(email.trim() || undefined)}
+                disabled={busy}
+              >
+                <MicrosoftMark />
+                Sign in with Microsoft
+              </button>
+              <div className="login__or">
+                <span>or use your NetKit password</span>
+              </div>
+            </>
+          )}
 
           {stage === 'password' ? (
             <form onSubmit={submitPassword}>

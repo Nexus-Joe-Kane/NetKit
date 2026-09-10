@@ -108,7 +108,7 @@ export function App(): ReactElement {
   }
 
   if (!session?.authenticated || !session.user) {
-    return <Login onSignedIn={setSession} />;
+    return <Login onSignedIn={setSession} initial={session ?? undefined} />;
   }
 
   if (session.mustChangePassword) {

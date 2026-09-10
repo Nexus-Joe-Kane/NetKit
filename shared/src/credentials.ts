@@ -129,6 +129,50 @@ export const VAULT_KEYS: readonly VaultKeyDef[] = [
   { name: 'BT_HOME_NETWORK_KEY', service: 'bt-home-network', label: 'BT Home Network key', secret: true },
   { name: 'BT_IMEI_LOOKUP_KEY', service: 'bt-imei', label: 'BT IMEI lookup key', secret: true },
   { name: 'BT_LOCATION_INSIGHTS_KEY', service: 'bt-location', label: 'BT Location Insights key', secret: true },
+  /*
+   * Microsoft Entra ID, for "Sign in with Microsoft".
+   *
+   * In the vault rather than the environment for the same reason as every
+   * other credential: a client secret in Entra expires, somebody has to
+   * replace it at two in the afternoon, and that should not need a Plesk
+   * login and a restart. The tenant and client IDs are not secret — they
+   * appear in the browser's address bar during sign-in — but they belong
+   * next to the secret they go with.
+   */
+  {
+    name: 'MICROSOFT_TENANT_ID',
+    service: 'microsoft',
+    label: 'Directory (tenant) ID',
+    secret: false,
+    hint:
+      'Entra admin centre → Overview. Use the tenant GUID, not "common": a named directory is what allows an ' +
+      'account to be created on first sign-in.',
+  },
+  {
+    name: 'MICROSOFT_CLIENT_ID',
+    service: 'microsoft',
+    label: 'Application (client) ID',
+    secret: false,
+    hint:
+      'From the app registration you created for NetKit. Register the redirect URI as your portal address plus ' +
+      '/api/auth/microsoft/callback, as a Web platform — it must match byte for byte or Entra refuses the sign-in.',
+  },
+  {
+    name: 'MICROSOFT_CLIENT_SECRET',
+    service: 'microsoft',
+    label: 'Client secret',
+    secret: true,
+    hint: 'Certificates & secrets → New client secret. Shown once. Note the expiry date — sign-in stops when it lapses.',
+  },
+  {
+    name: 'MICROSOFT_ALLOWED_DOMAINS',
+    service: 'microsoft',
+    label: 'Domains allowed to sign in',
+    secret: false,
+    hint:
+      'Optional, comma separated, e.g. supportwizard.net, clubwizard.co.uk. Left empty, anyone in the directory ' +
+      'can get an account — which includes guests invited for one shared file.',
+  },
   {
     name: 'PUBLIC_URL',
     service: 'portal',

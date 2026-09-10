@@ -33,6 +33,19 @@ export interface User {
   sessionEpoch: number;
   failedLoginCount: number;
   lockedUntil?: string;
+  /**
+   * Set where the account signs in with Microsoft.
+   *
+   * `ssoSubject` is Entra's immutable object id for the person, and is what
+   * the account is really matched on once it has been seen once. Email is
+   * how the first match is made and is not stable — people marry, change
+   * name and get a new address, and their old one is often handed to
+   * somebody else. Matching on the address alone would eventually sign the
+   * wrong person into the right account.
+   */
+  ssoProvider?: 'microsoft';
+  ssoSubject?: string;
+  lastSsoAt?: string;
 }
 
 export interface ProviderToggle {
@@ -186,6 +199,8 @@ export interface CreateUserInput {
   passwordHash: string;
   mustChangePassword?: boolean;
   twoFactorEnabled?: boolean;
+  ssoProvider?: 'microsoft';
+  ssoSubject?: string;
 }
 
 export function createUser(input: CreateUserInput): Promise<User> {
@@ -208,6 +223,8 @@ export function createUser(input: CreateUserInput): Promise<User> {
       updatedAt: now,
       sessionEpoch: 1,
       failedLoginCount: 0,
+      ...(input.ssoProvider ? { ssoProvider: input.ssoProvider } : {}),
+      ...(input.ssoSubject ? { ssoSubject: input.ssoSubject } : {}),
     };
     db().users.push(user);
     persistUsers();
@@ -216,7 +233,21 @@ export function createUser(input: CreateUserInput): Promise<User> {
 }
 
 export type UserPatch = Partial<
-  Pick<User, 'name' | 'role' | 'disabled' | 'twoFactorEnabled' | 'mustChangePassword' | 'passwordHash' | 'lastLoginAt' | 'failedLoginCount' | 'lockedUntil'>
+  Pick<
+    User,
+    | 'name'
+    | 'role'
+    | 'disabled'
+    | 'twoFactorEnabled'
+    | 'mustChangePassword'
+    | 'passwordHash'
+    | 'lastLoginAt'
+    | 'failedLoginCount'
+    | 'lockedUntil'
+    | 'ssoProvider'
+    | 'ssoSubject'
+    | 'lastSsoAt'
+  >
 > & { bumpSessionEpoch?: boolean };
 
 export function updateUser(id: string, patch: UserPatch): Promise<User> {
