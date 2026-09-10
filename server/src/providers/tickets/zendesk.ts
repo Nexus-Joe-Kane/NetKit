@@ -313,6 +313,46 @@ const mapTicket = (raw: ZendeskTicket, users: Map<number, ZendeskUser>): ClientT
 };
 
 /**
+ * Organisations matching a name, live from the helpdesk.
+ *
+ * The client list is otherwise a local index rebuilt once a day, which is
+ * the right thing for a list of 700 — and wrong the first afternoon a new
+ * customer is set up. A customer exists on the helpdesk the moment somebody
+ * creates them there, and an engineer searching for them should find them,
+ * not be told to wait for a rebuild or go and press a button in the admin
+ * portal.
+ *
+ * Zendesk's autocomplete endpoint rather than a search: it is the one built
+ * for typing into a box, it matches on a prefix of any word in the name, and
+ * it does not cost a search-API call against the tenant's rate limit.
+ */
+export interface OrganisationMatch {
+  id: string;
+  name: string;
+  tags: string[];
+}
+
+export async function searchOrganisations(term: string, limit = 10): Promise<OrganisationMatch[]> {
+  const query = term.trim();
+  // Zendesk's autocomplete needs two characters and answers nothing useful
+  // below that, so a single letter is not worth a round trip.
+  if (query.length < 2) return [];
+
+  const found = await zdGet<{ organizations?: ZendeskOrganisation[] }>(
+    `/organizations/autocomplete.json?name=${encodeURIComponent(query)}`,
+  );
+
+  const out: OrganisationMatch[] = [];
+  for (const org of found?.organizations ?? []) {
+    const name = org.name?.trim();
+    if (!org.id || !name) continue;
+    out.push({ id: String(org.id), name, tags: org.tags ?? [] });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/**
  * Everything about a client that decides whether to start work.
  *
  * Looked up by name, because that is what every other system holds — IT Glue,

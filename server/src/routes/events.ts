@@ -1,6 +1,7 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 import {
+  clientKey,
   DISPOSITIONS,
   activityNote,
   clearanceProblem,
@@ -34,7 +35,7 @@ import { buildClientProfile } from '../services/clientProfile';
 import { clear, getEvent, listEvents, listWatchStates, watchState } from '../services/events';
 import { sweepOutages } from '../services/outageSweep';
 import { listVisits } from '../services/visits';
-import { agents, comment, findTickets, zendeskConfigured } from '../providers/tickets/zendesk';
+import { agents, comment, findTickets, searchOrganisations, zendeskConfigured } from '../providers/tickets/zendesk';
 import { devicesForHost, unifiConfigured, wanHealth } from '../providers/network/unifi';
 import { clientsForSite } from '../providers/network/unifiClients';
 import { majorProviderStatus } from '../providers/status/downdetector';
@@ -444,18 +445,62 @@ export function eventsRouter(): Router {
       const term = String(req.query.q ?? '').trim();
       const limit = Math.min(50, Math.max(1, Number.parseInt(String(req.query.limit ?? '25'), 10) || 25));
       const entries = term ? findClients(term, limit) : allClients().slice(0, limit);
+
+      const rows = entries.map((entry) => ({
+        key: entry.key,
+        name: entry.name,
+        display: displayName(entry),
+        ...(entry.tradingName ? { tradingName: entry.tradingName } : {}),
+        sites: entry.sites.length,
+        lookupable: lookupableSites(entry).length,
+        serviceRefs: entry.serviceRefs.length,
+        sources: entry.sources,
+      }));
+
+      /*
+       * Anything the helpdesk knows that the index does not.
+       *
+       * The index is rebuilt once a day, which is right for a list of
+       * hundreds and wrong the first afternoon a new customer is set up.
+       * A customer exists the moment somebody creates them in Zendesk, and
+       * an engineer searching for them should find them rather than be told
+       * to wait for a rebuild.
+       *
+       * Only on a search, never on the initial list: "every organisation in
+       * Zendesk" is not the client list, it is the address book.
+       */
+      let liveError: string | undefined;
+      if (term && zendeskConfigured()) {
+        try {
+          const known = new Set(rows.map((r) => r.name.trim().toLowerCase()));
+          const live = await searchOrganisations(term, limit);
+          for (const org of live) {
+            if (known.has(org.name.trim().toLowerCase())) continue;
+            rows.push({
+              key: clientKey(org.name),
+              name: org.name,
+              display: org.name,
+              sites: 0,
+              lookupable: 0,
+              serviceRefs: 0,
+              // Named as what it is. A row with no sites and no services
+              // against it needs to say why, or it reads as a customer we
+              // have lost the records for.
+              sources: ['zendesk (not yet indexed)'],
+            });
+          }
+        } catch (err) {
+          // The local list is still worth showing. The failure is reported
+          // rather than swallowed, because "we could not ask the helpdesk"
+          // and "the helpdesk does not know them" are different answers.
+          liveError = err instanceof Error ? err.message : String(err);
+        }
+      }
+
       return {
-        clients: entries.map((entry) => ({
-          key: entry.key,
-          name: entry.name,
-          display: displayName(entry),
-          ...(entry.tradingName ? { tradingName: entry.tradingName } : {}),
-          sites: entry.sites.length,
-          lookupable: lookupableSites(entry).length,
-          serviceRefs: entry.serviceRefs.length,
-          sources: entry.sources,
-        })),
+        clients: rows.slice(0, limit + 10),
         total: clientIndexStatus().entries,
+        ...(liveError ? { liveError } : {}),
       };
     }),
   );
