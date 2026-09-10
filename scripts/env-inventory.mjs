@@ -126,6 +126,23 @@ const GROUPS = [
       UNIFI_INTEGRATION_KEY:
         'A DIFFERENT key, and the only one that can restart anything. UniFi Network → Settings →\n' +
         'Control Plane → Integrations. Needs console firmware 5.0.3 or newer.',
+      UNIFI_CONTROLLER_URL:
+        'The console’s own address, e.g. https://192.168.1.1. Set it and the console is used directly,\n' +
+        'with Site Manager as the fallback. Not the unifi.ui.com address — that is the cloud.',
+      UNIFI_CONTROLLER_API_KEY:
+        'A Network Integration key made on the console itself. Falls back to UNIFI_INTEGRATION_KEY.',
+      UNIFI_CONSOLE_ID:
+        'The console id from unifi.ui.com/consoles/… — the whole URL is accepted. Needed for the cloud\n' +
+        'route.',
+      UNIFI_CONTROLLER_FINGERPRINT:
+        'The console’s SHA-256 certificate fingerprint. How a self-signed console is trusted without\n' +
+        'switching certificate checking off.',
+      UNIFI_CONTROLLER_CA_CERT:
+        'Alternative to the fingerprint: the console’s certificate itself, PEM. The chain is then\n' +
+        'verified against it.',
+      UNIFI_CONTROLLER_INSECURE_TLS:
+        'true switches certificate checking off for the console. A last resort — anything on the path\n' +
+        'could read the API key.',
       OFCOM_BROADBAND_API_KEY: 'Ofcom Connected Nations broadband. Sent as Ocp-Apim-Subscription-Key.',
       OFCOM_MOBILE_API_KEY: 'Ofcom Mobile Checker UPRN coverage. A separate subscription from the broadband one.',
       THINKBROADBAND_API_KEY: 'thinkbroadband availability.',

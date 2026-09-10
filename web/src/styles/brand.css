@@ -28,20 +28,23 @@
   /*
    * The page ground.
    *
-   * Pulled right down from the mid-blue it was. A saturated gradient behind
-   * white cards makes the cards read as tiles on a poster rather than as
-   * content, which is most of what "looks like a template" actually is —
-   * and it fights every status colour on the page for attention. This is
-   * still unmistakably blue and it lets white mean something.
+   * The blue gradient, put back. I had washed it out to a near-white on the
+   * theory that a saturated ground makes white cards read as tiles on a
+   * poster — which is a real effect and was the wrong trade here. The wash
+   * took the character out with it and left a page that was mostly white,
+   * and the whole point of a portal that is used all day is that it does
+   * not look like a blank document.
+   *
+   * So: the blue is back where it was, and the two things that made it
+   * fight with the content are fixed properly instead. Card rules are keyed
+   * to the ground again so a hairline reads as a hairline, and status
+   * colours keep their contrast because they sit on white cards, not on the
+   * ground.
    */
-  --sw-page-a: #eef4fc;
-  --sw-page-b: #e6edf8;
-  --sw-card-strip: #eaf1fb;
-  /*
-   * Card and cell rules. Lightened with the ground: a #c0ceea hairline read
-   * as a heavy border once the page behind it stopped being blue.
-   */
-  --sw-cell-rule: #dbe4f2;
+  --sw-page-a: #bde5fc;
+  --sw-page-b: #c9d7fa;
+  --sw-card-strip: #dce8f8;
+  --sw-cell-rule: #c0ceea;
   --sw-slate: #0f172a;
   --sw-navy: #0d1b3e;
 
@@ -150,21 +153,18 @@
 
   /* ---- Geometry ---------------------------------------------------- */
   /*
-   * Corners.
+   * Corners, back at 6/10/14.
    *
-   * Pulled in from 6/10/14. Large radii on every surface is the most
-   * recognisable tell of a generated interface -- it reads as decoration
-   * applied uniformly rather than as a decision about each element -- and
-   * software people trust for work is squarer than software people are
-   * sold. Still rounded, because hard corners on a data table look like
-   * 2009, just no longer pill-shaped.
+   * I had squared these off on the argument that uniform large radii read as
+   * decoration. On a white page that holds; on the blue ground it just made
+   * everything look harder and colder than it needed to. These are the
+   * values the portal had when it looked right.
    */
-  --sw-radius-sm: 4px;
-  --sw-radius: 7px;
-  --sw-radius-lg: 10px;
+  --sw-radius-sm: 6px;
+  --sw-radius: 10px;
+  --sw-radius-lg: 14px;
   --sw-gap: 16px;
 
-  /* Shadows stay soft — the guide's look is flat cards on a gradient. */
   /*
    * Shadows.
    *
@@ -174,8 +174,16 @@
    * tint is blue rather than neutral grey, so a shadow on a blue-white
    * ground reads as depth rather than as dirt.
    */
-  --sw-shadow-card: 0 1px 1px rgba(28, 52, 102, 0.04), 0 4px 12px -6px rgba(28, 52, 102, 0.1);
-  --sw-shadow-raised: 0 2px 3px rgba(28, 52, 102, 0.06), 0 12px 28px -12px rgba(28, 52, 102, 0.18);
+  /*
+   * Shadows.
+   *
+   * Wider and softer again. A tight shadow is right for a card sitting on
+   * white; on a blue ground it disappears, and a card with no lift on a
+   * coloured ground looks pasted on rather than raised. The blue tint stays
+   * — a neutral grey shadow on a blue ground reads as dirt.
+   */
+  --sw-shadow-card: 0 1px 2px rgba(28, 52, 102, 0.05), 0 8px 24px -12px rgba(28, 52, 102, 0.2);
+  --sw-shadow-raised: 0 2px 4px rgba(28, 52, 102, 0.07), 0 18px 40px -16px rgba(28, 52, 102, 0.28);
   --sw-shadow-focus: 0 0 0 3px rgba(59, 130, 246, 0.28);
 
   --sw-max-width: 1280px;

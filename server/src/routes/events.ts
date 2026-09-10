@@ -321,7 +321,7 @@ export function eventsRouter(): Router {
       let devices: NetworkDevice[] = [];
       let deviceError: string | undefined;
       try {
-        devices = await devicesForHost(hostId);
+        devices = await devicesForHost(hostId, siteId);
       } catch (err) {
         deviceError = err instanceof Error ? err.message : String(err);
       }
@@ -376,7 +376,7 @@ export function eventsRouter(): Router {
       const siteId = String(req.params.siteId ?? '');
       const deviceId = String(req.params.deviceId ?? '');
 
-      const devices = await devicesForHost(hostId).catch(() => [] as NetworkDevice[]);
+      const devices = await devicesForHost(hostId, siteId).catch(() => [] as NetworkDevice[]);
       const device = devices.find((d) => d.id === deviceId);
       const kind = device ? deviceKind(device) : 'other';
       const { impact, warning } = restartImpact(kind);

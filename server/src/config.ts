@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { isAbsolute, resolve as resolvePath } from 'node:path';
+import { consoleIdFromUrl, normaliseControllerUrl } from '@sw/shared';
 
 
 const str = (key: string, fallback = ''): string => (process.env[key] ?? '').trim() || fallback;
@@ -333,14 +334,19 @@ export interface AppConfig {
    */
   itGlue: { apiKey: string; baseUrl: string; configured: boolean };
   /**
-   * UniFi Site Manager — Ubiquiti's cloud API, rather than a controller.
+   * UniFi, by two roads to the same API.
    *
-   * Site Manager over a local controller on purpose: it reaches every site
-   * on the account through one key, where a controller is one site and a
-   * hole in somebody's firewall. Its key is read-only for now, which suits
-   * a tool that has no business changing a customer's network.
+   * The console's own Network Integration API is the primary: no third party
+   * in the middle, no dependency on Ubiquiti's cloud being up, and it
+   * answers in milliseconds rather than over the internet and back.
+   *
+   * Site Manager — Ubiquiti's cloud — is the fallback, and it earns its
+   * place twice over: it is the only road to a console that is not
+   * reachable from this server, and it is the only thing that can enumerate
+   * every site on the account, because a console only knows itself.
    */
   unifi: {
+    /** Site Manager key. Read-only, by Ubiquiti's own note. */
     apiKey: string;
     baseUrl: string;
     configured: boolean;
@@ -349,10 +355,36 @@ export interface AppConfig {
      * Manager one above and the only one that can be given instructions.
      * A deployment can read every site and still not be able to restart
      * anything, and the error says exactly that rather than "403".
+     *
+     * This one is for the cloud road, through the Connector Proxy.
      */
     integrationKey: string;
     /** True where restarts and port power-cycles are possible. */
     actionsConfigured: boolean;
+    /**
+     * The console's own address, e.g. https://192.168.1.1. Empty means
+     * there is no local road and everything goes through the cloud.
+     */
+    controllerUrl: string;
+    /** A Network Integration key created on the console itself. */
+    controllerKey: string;
+    /**
+     * How to trust the console's certificate. A console on a private
+     * address has its own, so plain verification fails — and would fail
+     * quietly, with the cloud fallback covering for it, which is the worst
+     * of both. One of these three is what makes the local road work.
+     */
+    controllerCaCert: string;
+    controllerFingerprint: string;
+    controllerInsecureTls: boolean;
+    /**
+     * The Site Manager host id of our own console, from the address bar at
+     * unifi.ui.com/consoles/<id>. Needed for the cloud road, and used as
+     * the default console for local calls that name one.
+     */
+    consoleId: string;
+    /** True where the console can be tried before the cloud. */
+    controllerConfigured: boolean;
   };
   openCellId: { apiKey: string; baseUrl: string; searchPath: string; radiusMetres: number; configured: boolean };
   /**
@@ -478,6 +510,36 @@ function loadMicrosoft(): AppConfig['microsoft'] {
   };
 }
 
+/**
+ * UniFi settings, both roads.
+ *
+ * The console URL is normalised here rather than at the point of use, and a
+ * Site Manager address pasted into the console field is rejected: it would
+ * send every "local" call to Ubiquiti while the status panel claimed the
+ * connection was direct.
+ */
+function loadUnifi(): AppConfig['unifi'] {
+  const controller = normaliseControllerUrl(str('UNIFI_CONTROLLER_URL'));
+  const controllerKey = str('UNIFI_CONTROLLER_API_KEY') || str('UNIFI_INTEGRATION_KEY');
+  const consoleRaw = str('UNIFI_CONSOLE_ID');
+  return {
+    apiKey: str('UNIFI_API_KEY'),
+    baseUrl: str('UNIFI_BASE_URL', 'https://api.ui.com').replace(/\/+$/, ''),
+    configured: Boolean(str('UNIFI_API_KEY')),
+    integrationKey: str('UNIFI_INTEGRATION_KEY'),
+    actionsConfigured: Boolean(str('UNIFI_INTEGRATION_KEY') || (controller.url && controllerKey)),
+    controllerUrl: controller.url ?? '',
+    controllerKey,
+    controllerCaCert: str('UNIFI_CONTROLLER_CA_CERT'),
+    controllerFingerprint: str('UNIFI_CONTROLLER_FINGERPRINT'),
+    controllerInsecureTls: bool('UNIFI_CONTROLLER_INSECURE_TLS', false),
+    // A console id pasted as the whole unifi.ui.com URL is the common case,
+    // because that is what is in the address bar.
+    consoleId: consoleIdFromUrl(consoleRaw) ?? consoleRaw,
+    controllerConfigured: Boolean(controller.url && controllerKey),
+  };
+}
+
 export function config(): AppConfig {
   if (cached) return cached;
   const osKey = str('OS_PLACES_API_KEY');
@@ -537,13 +599,7 @@ export function config(): AppConfig {
       baseUrl: str('ITGLUE_BASE_URL', 'https://api.itglue.com').replace(/\/+$/, ''),
       configured: Boolean(str('ITGLUE_API_KEY')),
     },
-    unifi: {
-      apiKey: str('UNIFI_API_KEY'),
-      baseUrl: str('UNIFI_BASE_URL', 'https://api.ui.com').replace(/\/+$/, ''),
-      configured: Boolean(str('UNIFI_API_KEY')),
-      integrationKey: str('UNIFI_INTEGRATION_KEY'),
-      actionsConfigured: Boolean(str('UNIFI_INTEGRATION_KEY')),
-    },
+    unifi: loadUnifi(),
     ofcomBroadband: {
       apiKey: str('OFCOM_BROADBAND_API_KEY'),
       /*

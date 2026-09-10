@@ -1,6 +1,6 @@
 import { config } from '../../config';
-import { fetchJson } from '../../lib/http';
 import { clearUnifiCache } from './unifi';
+import { integrationCall } from './unifiTransport';
 
 /**
  * The things we can actually tell UniFi to do.
@@ -23,42 +23,37 @@ import { clearUnifiCache } from './unifi';
  * through an endpoint that can change shape on a firmware update without
  * anybody being told.
  *
- * Reaching the middle tier from a server that is not on the customer's LAN
- * is what the Connector Proxy is for: the same paths, tunnelled through
- * Ubiquiti's cloud to the console. It needs console firmware 5.0.3 or newer,
- * and a Network Integration key, which is a different key from the Site
- * Manager one -- so a deployment can read every site and still not be able
- * to restart anything, and the error says exactly that rather than "403".
+ * The middle tier is reached two ways, and `integrationCall` decides which:
+ * the console's own address where it is reachable from this server, and
+ * Ubiquiti's Connector Proxy where it is not. Same paths either way. The
+ * cloud road needs console firmware 5.0.3 or newer and a Network
+ * Integration key, which is a different key from the Site Manager one -- so
+ * a deployment can read every site and still not be able to restart
+ * anything, and the error says exactly that rather than "403".
  */
 
-/** The proxy base. `{consoleId}` is the Site Manager host id. */
-const PROXY = 'https://api.ui.com/v1/connector/consoles';
-
-export const unifiActionsConfigured = (): boolean => Boolean(config().unifi.integrationKey);
+export const unifiActionsConfigured = (): boolean =>
+  Boolean(config().unifi.integrationKey || config().unifi.controllerConfigured);
 
 export function unifiActionsUnavailableReason(): string | undefined {
-  if (!config().unifi.integrationKey) {
-    return (
-      'No UniFi Network Integration key is set, so nothing can be restarted from here. It is a different key ' +
-      'from the Site Manager one: UniFi Network → Settings → Control Plane → Integrations. The console also ' +
-      'needs firmware 5.0.3 or newer for us to reach it.'
-    );
-  }
-  return undefined;
-}
-
-function actionPath(consoleId: string, path: string): string {
-  return `${PROXY}/${encodeURIComponent(consoleId)}/proxy/network/integration/v1${path}`;
+  const unifi = config().unifi;
+  if (unifi.controllerConfigured || unifi.integrationKey) return undefined;
+  return (
+    'Nothing can be restarted from here yet. It needs a UniFi Network Integration key, which is a different key ' +
+    'from the Site Manager one — that one is read-only by Ubiquiti’s own design, so a 403 from it is not a ' +
+    'broken portal. Make one at UniFi Network → Settings → Control Plane → Integrations, then either give the ' +
+    'console’s own address to use it directly, or give the console id to reach it through Ubiquiti’s cloud, ' +
+    'which additionally needs console firmware 5.0.3 or newer.'
+  );
 }
 
 async function post<T>(consoleId: string, path: string, body: unknown): Promise<T | null> {
-  const cfg = config();
-  return fetchJson<T>(actionPath(consoleId, path), {
-    label: 'UniFi Network',
+  return integrationCall<T>({
+    path,
     method: 'POST',
     body,
-    headers: { 'X-API-KEY': cfg.unifi.integrationKey, Accept: 'application/json' },
-    timeoutMs: Math.min(cfg.requestTimeoutMs, 15_000),
+    ...(consoleId ? { consoleId } : {}),
+    timeoutMs: Math.min(config().requestTimeoutMs, 15_000),
     // Never retried. A restart is not idempotent from the customer's point of
     // view: a retry that succeeds after a timeout that also succeeded takes
     // the site down twice.

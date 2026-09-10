@@ -195,7 +195,7 @@ async function diagnose(
   // Named devices are worth more than a count. The gateway is the one
   // anybody asks about first.
   try {
-    const devices = await devicesForHost(site.hostId);
+    const devices = await devicesForHost(site.hostId, site.siteId);
     if (devices.length) {
       inventory.devices = devices.slice(0, 40).map((d: NetworkDevice) => ({
         ...(d.name ? { name: d.name } : {}),
